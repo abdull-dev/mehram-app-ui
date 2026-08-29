@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mehram — Settings, Privacy and remaining wali states</title>
+<style>
+  :root{
+    --rose:#E6396E; --rose-ink:#A31C48; --rose-soft:#FDECF2;
+    --indigo-soft:#EEECF8; --indigo-ink:#332C66;
+    --mint:#17B07E; --mint-soft:#E5F6F0; --mint-ink:#0A5C43;
+    --gold:#B5820D; --gold-soft:#FBF2DE; --gold-ink:#7A5709;
+    --page:#F6F5FA; --line:#EEEDF3;
+    --ink:#17171F; --ink-2:#5F5E70; --ink-3:#9695A5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#E4E1EE;color:var(--ink);padding:34px 18px 60px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1520px;margin:0 auto}
+  h1{font-size:27px;font-weight:700;letter-spacing:-.6px;margin-bottom:5px}
+  .sub{font-size:14px;color:var(--ink-2);max-width:880px;line-height:1.6}
+  .flow{background:#fff;border-radius:20px;padding:22px 24px;margin:20px 0 26px}
+  .flow h3{font-size:16px;font-weight:700;margin-bottom:9px}
+  .flow p{font-size:13.5px;color:var(--ink-2);line-height:1.7;margin-bottom:9px}
+  .flow b{color:var(--ink)}
+  .cut{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 4px}
+  .cutb{border-radius:12px;padding:12px 14px;font-size:12.5px;flex:1;min-width:230px}
+  .cut-x{background:#FDECF2;border:1.5px solid #F6CBDA}
+  .cut-y{background:#E5F6F0;border:1.5px solid #B9E6D5}
+  .cutb b{display:block;margin-bottom:5px}
+  .cutb span{color:#5F5E70;line-height:1.6;display:block}
+  .grp{font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#6E6B80;margin:16px 0 16px;padding-bottom:8px;border-bottom:1px solid #CFC9DF}
+  .row{display:flex;gap:24px;flex-wrap:wrap}
+  .item{width:326px;margin-bottom:26px}
+  .cap{display:flex;align-items:baseline;gap:7px;margin-bottom:3px;flex-wrap:wrap}
+  .cid{font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;color:#fff;background:#332C66;padding:3px 7px;border-radius:6px}
+  .stype{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;padding:3px 7px;border-radius:6px}
+  .ty-tab{background:#E5F6F0;color:#0A5C43}
+  .ty-push{background:#EEECF8;color:#332C66}
+  .ctitle{font-size:12.5px;font-weight:700;color:#3A3550}
+  .ccond{font-size:11px;color:#7E7B90;margin-bottom:9px;font-family:ui-monospace,Menlo,monospace;line-height:1.4;min-height:28px}
+
+  .phone{display:flex;flex-direction:column;width:326px;background:var(--page);border-radius:34px;border:8px solid #131019;overflow:hidden;box-shadow:0 16px 40px rgba(30,22,60,.2)}
+  .sb{display:flex;justify-content:space-between;padding:9px 18px 2px;font-size:11px;font-weight:600}
+  .scr{flex:1;padding:0 15px 20px;min-height:610px}
+
+  .topbar{display:flex;align-items:center;gap:12px;padding:12px 2px 16px}
+  .back{width:38px;height:38px;border-radius:13px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(40,30,80,.07)}
+  .tbt{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .tbs{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+
+  .card{background:#fff;border-radius:24px;box-shadow:0 3px 14px rgba(40,30,80,.055);margin-bottom:13px;overflow:hidden}
+  .pad{padding:18px}
+  .pad h4{font-size:16px;font-weight:700;letter-spacing:-.2px;margin-bottom:4px}
+  .pad>p{font-size:13px;color:var(--ink-2);line-height:1.6}
+  .shead{font-size:11.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ink-3);padding:4px 6px 9px}
+
+  .li{display:flex;gap:13px;align-items:center;padding:14px 16px;border-top:1px solid var(--line)}
+  .li.f{border-top:none}
+  .lic{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .lib{flex:1;min-width:0}
+  .lit{font-size:14.5px;font-weight:600}
+  .lis{font-size:12px;color:var(--ink-3);line-height:1.45;margin-top:2px}
+  .liv{font-size:13px;font-weight:600;color:var(--ink-3);flex-shrink:0}
+  .chev{color:#C6C4D2;flex-shrink:0}
+  .danger .lit{color:var(--rose-ink)}
+
+  .prof{text-align:center;padding:8px 0 18px}
+  .pav{width:76px;height:76px;border-radius:26px;background:var(--indigo-soft);display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:700;color:var(--indigo-ink);margin:0 auto 12px}
+  .pn{font-size:21px;font-weight:700;letter-spacing:-.4px;display:flex;align-items:center;justify-content:center;gap:7px}
+  .ps{font-size:13px;color:var(--ink-3);margin-top:3px}
+
+  .opt{display:flex;gap:13px;align-items:flex-start;padding:15px 16px;border-top:1px solid var(--line)}
+  .opt.f{border-top:none}
+  .rad{width:22px;height:22px;border-radius:50%;border:2px solid #DAD6E8;flex-shrink:0;margin-top:2px}
+  .rad.on{border-color:var(--rose);background:var(--rose);display:flex;align-items:center;justify-content:center}
+  .optt{font-size:14.5px;font-weight:700}
+  .opts{font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:3px}
+
+  .tg{width:44px;height:26px;border-radius:14px;background:#E2E0EC;flex-shrink:0;position:relative}
+  .tg i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+  .tg.on{background:var(--mint)}
+  .tg.on i{left:21px}
+
+  .bn{border-radius:18px;padding:13px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start}
+  .bn svg{flex-shrink:0;margin-top:1px}
+  .bn h4{font-size:13.5px;font-weight:700;margin-bottom:2px}
+  .bn p{font-size:12px;line-height:1.55}
+  .bn-mint{background:var(--mint-soft)} .bn-mint h4{color:var(--mint-ink)} .bn-mint p{color:#237A5C}
+  .bn-gold{background:var(--gold-soft)} .bn-gold h4{color:var(--gold-ink)} .bn-gold p{color:#8A6410}
+  .bn-ind{background:var(--indigo-soft)} .bn-ind h4{color:var(--indigo-ink)} .bn-ind p{color:#4B4384}
+  .bn-rose{background:var(--rose-soft)} .bn-rose h4{color:var(--rose-ink)} .bn-rose p{color:#B03258}
+
+  .lock{margin:13px 16px 0;background:#F7F6FB;border-radius:15px;padding:12px 13px;display:flex;gap:9px;align-items:flex-start}
+  .lock svg{flex-shrink:0;margin-top:1px}
+  .lock p{font-size:12px;line-height:1.55;color:var(--ink-2)}
+  .acts{display:flex;gap:9px;padding:15px 16px 16px}
+  .btn{flex:1 1 0;min-width:0;width:100%;padding:6px 10px;text-align:center;min-height:48px;border-radius:15px;font-size:13.5px;line-height:1.25;font-weight:700;display:flex;align-items:center;justify-content:center;border:none;font-family:inherit;cursor:pointer}
+  .btn-g{background:#F2F1F7;color:var(--ink-2)}
+  .btn-f{background:var(--rose);color:#fff}
+  .btn-o{background:#fff;color:var(--indigo-ink);border:1.5px solid var(--indigo-soft)}
+  .btn-r{background:#fff;color:var(--rose-ink);border:1.5px solid #F6CBDA}
+
+  .whead{padding:20px 16px 16px;display:flex;gap:13px;align-items:center}
+  .av{width:52px;height:52px;border-radius:18px;background:var(--indigo-soft);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--indigo-ink);flex-shrink:0}
+  .wn{font-size:19px;font-weight:700;letter-spacing:-.3px}
+  .wr{font-size:13px;color:var(--ink-2);margin-top:2px}
+  .ch{font-size:10.5px;font-weight:700;padding:5px 9px;border-radius:8px;display:inline-block;margin-top:6px}
+  .ch-mint{background:var(--mint-soft);color:var(--mint-ink)}
+  .ch-gold{background:var(--gold-soft);color:var(--gold-ink)}
+  .ch-grey{background:#F1F0F6;color:#6E6B80}
+  .r{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);font-size:13.5px;gap:10px}
+  .r.nt{border-top:none}
+  .rows{padding:0 16px}
+  .r span:first-child{color:var(--ink-3)}
+  .r span:last-child{font-weight:600;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Mehram — Settings, Privacy and the remaining wali states</h1>
+<p class="sub">The menu rebuilt around the product you now have, plus the four wali states that were still missing.</p>
+
+<div class="flow">
+<h3>What has to come out of the menu</h3>
+<p>Most of the current items describe a browsing product. They contradict the screens you have just rebuilt, and a user who finds them will correctly conclude the privacy promises are decoration.</p>
+<div class="cut">
+<div class="cutb cut-x"><b>Remove</b><span>
+<b style="font-weight:700">Profile Views</b> — implies people browse you freely. There is no browsing.<br>
+<b style="font-weight:700">Bookmarks</b> — you cannot save profiles you never browsed.<br>
+<b style="font-weight:700">Hide from Discovery</b> — Discover no longer exists.<br>
+<b style="font-weight:700">Hide Distance</b> — distance-from-you is a dating-app concept.<br>
+<b style="font-weight:700">Blur Photos toggle</b> — replaced by the four photo modes.<br>
+<b style="font-weight:700">"Active today"</b> — presence status invites checking who is online.<br>
+<b style="font-weight:700">Hide Location toggle</b> — city-only is now the default, not an option.
+</span></div>
+<div class="cutb cut-y"><b>Add — several are launch blockers</b><span>
+<b style="font-weight:700">Delete account</b> — required by Play, in-app and by web URL.<br>
+<b style="font-weight:700">Download my data</b> — expected wherever you sell.<br>
+<b style="font-weight:700">Privacy policy, Terms, Refund policy</b> — required for submission.<br>
+<b style="font-weight:700">Membership and receipt</b> — people need proof of what they paid.<br>
+<b style="font-weight:700">Contact support</b> — required, and families will call.<br>
+<b style="font-weight:700">Found my match</b> — the metric your whole business rests on.<br>
+<b style="font-weight:700">Language</b> — Urdu and English.
+</span></div>
+</div>
+<p style="margin-top:14px"><b>Two bugs in the screenshots.</b> The Continue button on Edit Profile 1/8 sits on top of the Marital Status field, the same overlap as the old Partner Preferences screen. And Privacy shows three coloured tiles that read as photos above the words "No photos yet".</p>
+<p><b>One data inconsistency:</b> Settings says Karachi, the biodata said Lahore. Worth checking whether city is being written to two places.</p>
+</div>
+
+<div id="out"></div>
+</div>
+
+<script>
+var IC={
+user:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 16 0v1"/>',
+lock:'<rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+fam:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+shield:'<path d="M12 22s8-4 8-10V5.5L12 2.5 4 5.5V12c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+heart:'<path d="M12 20s-7-4.4-7-9.2A4 4 0 0 1 12 8a4 4 0 0 1 7 2.8C19 15.6 12 20 12 20z"/>',
+bell:'<path d="M18 15V10a6 6 0 1 0-12 0v5l-2 3h16z"/><path d="M10 21h4"/>',
+ban:'<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+card:'<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>',
+doc:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3M12 17h.01"/>',
+globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/>',
+trash:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/>',
+down:'<path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/>',
+out:'<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l-4-4 4-4M6 12h11"/>',
+ring:'<path d="M12 21a5 5 0 1 0 0-10 5 5 0 0 0 0 10z"/><path d="M9 8l1.5-4h3L15 8"/>',
+eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+alert:'<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+check:'<path d="M5 12.5l5 5 9-10"/>'};
+function sv(k,s,c,w){return '<svg width="'+(s||19)+'" height="'+(s||19)+'" viewBox="0 0 24 24" fill="none" stroke="'+c+'" stroke-width="'+(w||2)+'" stroke-linecap="round" stroke-linejoin="round">'+IC[k]+'</svg>';}
+var CH='<svg class="chev" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>';
+function bn(t,ic,ti,bo){var c={mint:'#0A5C43',gold:'#7A5709',ind:'#332C66',rose:'#A31C48'}[t];return '<div class="bn bn-'+t+'">'+sv(ic,17,c)+'<div><h4>'+ti+'</h4><p>'+bo+'</p></div></div>';}
+function acts(a){return '<div class="acts">'+a.map(function(b){return '<button class="btn btn-'+b[0]+'">'+b[1]+'</button>';}).join('')+'</div>';}
+function lock(t){return '<div class="lock">'+sv('lock',15,'#9695A5')+'<p>'+t+'</p></div>';}
+function rows(rs){return '<div class="rows">'+rs.map(function(r,i){return '<div class="r'+(i===0?' nt':'')+'"><span>'+r[0]+'</span><span>'+r[1]+'</span></div>';}).join('')+'</div>';}
+function list(items){return '<div class="card">'+items.map(function(it,i){
+ var right=it.val?('<div class="liv">'+it.val+'</div>'+CH):(it.tg!==undefined?('<div class="tg'+(it.tg?' on':'')+'"><i></i></div>'):CH);
+ return '<div class="li'+(i===0?' f':'')+(it.dg?' danger':'')+'"><div class="lic" style="background:'+it.bg+'">'+sv(it.ic,18,it.fg)+'</div><div class="lib"><div class="lit">'+it.t+'</div>'+(it.s?'<div class="lis">'+it.s+'</div>':'')+'</div>'+right+'</div>';
+}).join('')+'</div>';}
+function opts(o){return '<div class="card">'+o.map(function(x,i){
+ return '<div class="opt'+(i===0?' f':'')+'"><div class="rad'+(x[0]?' on':'')+'">'+(x[0]?sv('check',12,'#fff',3.5):'')+'</div><div><div class="optt">'+x[1]+'</div><div class="opts">'+x[2]+'</div></div></div>';
+}).join('')+'</div>';}
+
+var IND={bg:'#EEECF8',fg:'#332C66'}, ROSE={bg:'#FDECF2',fg:'#A31C48'}, MINT={bg:'#E5F6F0',fg:'#0A5C43'}, GOLD={bg:'#FBF2DE',fg:'#B5820D'}, GREY={bg:'#F2F1F7',fg:'#6E6B80'};
+
+var S=[
+{g:'Menu and settings — rebuilt'},
+
+{id:'M1',t:'Menu',c:'burger icon, top right of Home',bar:'Settings',barSub:'',body:
+ '<div class="card"><div class="prof"><div class="pav">MH</div><div class="pn">Mian Haseeb '+sv('check',17,'#17B07E',3)+'</div><div class="ps">Lahore &middot; Member since August</div></div>'
+ +acts([['o','View your biodata'],['g','Edit']])+'</div>'
+ +'<div class="shead">Your search</div>'
+ +list([{ic:'heart',t:'Partner preferences',s:'6 profiles match right now',bg:ROSE.bg,fg:ROSE.fg},
+        {ic:'fam',t:'Your wali',s:'Imran Mian &middot; active',bg:IND.bg,fg:IND.fg},
+        {ic:'lock',t:'Privacy and photos',s:'Photos: nobody without approval',bg:IND.bg,fg:IND.fg}])
+ +'<div class="shead">Account</div>'
+ +list([{ic:'card',t:'Membership',s:'Paid 26 August &middot; no renewal',bg:MINT.bg,fg:MINT.fg},
+        {ic:'bell',t:'Notifications',bg:GOLD.bg,fg:GOLD.fg},
+        {ic:'globe',t:'Language',val:'English',bg:GREY.bg,fg:GREY.fg},
+        {ic:'ban',t:'Blocked people',val:'0',bg:GREY.bg,fg:GREY.fg}])
+ +'<div class="shead">Help and legal</div>'
+ +list([{ic:'help',t:'Contact support',bg:GREY.bg,fg:GREY.fg},
+        {ic:'doc',t:'Privacy policy',bg:GREY.bg,fg:GREY.fg},
+        {ic:'doc',t:'Terms of service',bg:GREY.bg,fg:GREY.fg},
+        {ic:'doc',t:'Refund policy',bg:GREY.bg,fg:GREY.fg}])
+ +'<div class="shead">Leaving</div>'
+ +list([{ic:'ring',t:'I found my match',s:'Archive your profile and tell us',bg:MINT.bg,fg:MINT.fg},
+        {ic:'down',t:'Download my data',bg:GREY.bg,fg:GREY.fg},
+        {ic:'out',t:'Sign out',bg:GREY.bg,fg:GREY.fg},
+        {ic:'trash',t:'Delete account',dg:1,bg:ROSE.bg,fg:ROSE.fg}])},
+
+{id:'M2',t:'Privacy and photos — rebuilt',c:'menu › Privacy and photos',bar:'Privacy and photos',barSub:'',body:
+ bn('ind','shield','Your profile is private by default','You are not listed anywhere and cannot be browsed. These settings only control the photo step.')
+ +'<div class="shead">Who can see your photos</div>'
+ +opts([[1,'Nobody until I approve each request','You are asked every time. You and he see each other at the same moment.'],
+        [0,'Anyone my wali has approved','Imran decides on your behalf. You are still told each time.'],
+        [0,'Anyone I have accepted a proposal from','Shared automatically once a proposal is mutual.'],
+        [0,'Everyone who matches my criteria','Shown on your card straight away. Fewer steps, less privacy.']])
+ +'<div class="shead">Always on</div>'
+ +'<div class="card">'+rows([['Screenshots','Blocked'],['Your exact area','Never shown'],['Your contact details','Never shown'],['Your full name','After wali approval']])
+ +lock('These are not settings. They apply to every member and cannot be switched off by anyone.')+'</div>'
+ +'<div class="shead">Photo requests</div>'
+ +list([{ic:'eye',t:'Pause photo requests',s:'Stop receiving new requests for now',tg:0,bg:GOLD.bg,fg:GOLD.fg}])},
+
+{id:'M3',t:'Your photos',c:'menu › Privacy › Your photos',bar:'Your photos',barSub:'Visible to nobody yet',body:
+ '<div class="card"><div class="pad"><h4>You have not added a photo</h4><p>One photo is enough. It stays hidden until you approve someone, and you can remove access afterwards without them being told.</p></div>'
+ +acts([['f','Add a photo']])+'</div>'
+ +'<div class="shead">Who has access right now</div>'
+ +'<div class="card"><div class="pad"><p style="text-align:center;padding:14px 0;color:#9695A5">Nobody has access to your photos.</p></div></div>'
+ +bn('gold','alert','A photo roughly doubles wali approvals','Families are more comfortable approving a proposal when they have seen a face.')},
+
+{id:'M4',t:'Membership and receipt',c:'menu › Membership',bar:'Membership',barSub:'',body:
+ '<div class="card"><div class="pad" style="text-align:center;padding:24px 18px 6px"><div style="font-size:26px;font-weight:700;letter-spacing:-.5px">PKR 4,000</div><div style="font-size:13px;color:#9695A5;margin-top:4px">Paid in full &middot; no renewal</div></div>'
+ +rows([['Paid','26 August 2026'],['Method','Google Play'],['Status','Active for life'],['Next charge','None, ever']])
+ +acts([['o','Email me a receipt']])+'</div>'
+ +bn('mint','shield','Refunded if we do not introduce you','If no wali-approved introduction happens within 90 days of payment, we refund you in full.')
+ +'<div class="shead">Refunds</div>'
+ +list([{ic:'card',t:'Request a refund',s:'Day 62 of 90',bg:GREY.bg,fg:GREY.fg},
+        {ic:'doc',t:'Read the refund policy',bg:GREY.bg,fg:GREY.fg}])},
+
+{id:'M5',t:'Delete account',c:'menu › Delete account',bar:'Delete account',barSub:'',body:
+ bn('rose','alert','This cannot be undone','Your biodata, photos and conversations are removed permanently.')
+ +'<div class="card"><div class="pad"><h4>What happens</h4></div>'
+ +rows([['Your biodata','Deleted within 7 days'],['Your photos','Deleted immediately'],['Your ID documents','Already deleted'],['Open conversations','Closed, both sides told'],['Your wali','Told you have left'],['Your membership','Not refundable after 90 days']])
+ +'</div>'
+ +'<div class="card"><div class="pad"><h4>Before you go</h4><p style="margin-bottom:4px">If you found your match, tell us instead. It archives your profile the same way, and it is the number our whole service is measured by.</p></div>'
+ +acts([['o','I found my match']])+'</div>'
+ +'<div class="card">'+acts([['g','Keep my account'],['r','Delete permanently']])+'</div>'},
+
+{id:'M6',t:'Edit profile 1/8 — overlap fixed',c:'menu › Edit',bar:'Edit biodata',barSub:'Basic identity · 1 of 8',body:
+ '<div class="card"><div class="pad">'
+ +'<div style="font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#9695A5;margin-bottom:7px">Full name</div><div style="height:46px;border-radius:14px;border:1.5px solid #E7E5F0;background:#FBFAFD;display:flex;align-items:center;padding:0 14px;font-size:14px">Mian Haseeb</div>'
+ +'<div style="font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#9695A5;margin:16px 0 7px">Gender</div><div style="height:46px;border-radius:14px;background:#F2F1F7;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:14px;color:#9695A5">Male'+sv('lock',15,'#9695A5')+'</div><div style="font-size:11.5px;color:#9695A5;margin-top:6px">Locked once your profile is verified.</div>'
+ +'<div style="font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#9695A5;margin:16px 0 7px">Date of birth</div><div style="height:46px;border-radius:14px;border:1.5px solid #E7E5F0;background:#FBFAFD;display:flex;align-items:center;padding:0 14px;font-size:14px">21 January 1999</div>'
+ +'<div style="font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#9695A5;margin:16px 0 7px">Height</div><div style="height:46px;border-radius:14px;border:1.5px solid #E7E5F0;background:#FBFAFD;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:14px">5 ft 4 in<span style="color:#9695A5">&#9662;</span></div>'
+ +'<div style="font-size:11.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#9695A5;margin:16px 0 7px">Marital status</div><div style="height:46px;border-radius:14px;border:1.5px solid #E7E5F0;background:#FBFAFD;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:14px">Single<span style="color:#9695A5">&#9662;</span></div>'
+ +'</div></div>'
+ +'<div class="card">'+acts([['g','Cancel'],['f','Continue']])+'</div>'},
+
+{g:'The remaining wali states'},
+
+{id:'F8',t:'Wali removed himself',c:'wali.status = resigned',bar:'Family',barSub:'',body:
+ '<div class="card"><div class="whead"><div class="av" style="background:#F1F0F6;color:#6E6B80">IM</div><div><div class="wn">Imran Mian</div><div class="wr">Father</div><div class="ch ch-grey">Stepped down</div></div></div>'
+ +'<div class="pad" style="padding-top:4px"><p>Imran has removed himself as your wali. He did not give a reason through the app.</p></div>'
+ +acts([['o','Ask him again'],['f','Choose another']])+'</div>'
+ +bn('gold','alert','2 proposals are paused','They stay where they are until a new wali accepts. Nothing has been declined.')
+ +bn('ind','shield','Your search keeps running','Only proposals needing a wali are held.')},
+
+{id:'F9',t:'Wali unresponsive',c:'wali.pending_review_hours > 96',bar:'Family',barSub:'',body:
+ '<div class="card"><div class="whead"><div class="av">IM</div><div><div class="wn">Imran Mian</div><div class="wr">Father &middot; joined 12 August</div><div class="ch ch-gold">Not responding</div></div></div>'
+ +rows([['Awaiting his review','2 proposals'],['Longest wait','6 days'],['Last opened app','5 days ago'],['Reminders sent','3']])
+ +acts([['o','Remind him'],['g','Change wali']])+'</div>'
+ +bn('gold','clock','Families are waiting on him','A proposal that sits too long is usually withdrawn by the other side.')
+ +'<div class="card"><div class="pad"><h4>If he is busy</h4><p style="margin-bottom:4px">You can add a second wali. Either of them can approve, so nothing waits on one person.</p></div>'
+ +acts([['o','Add a second wali']])+'</div>'},
+
+{id:'F10',t:'Two walis registered',c:'wali.count = 2',bar:'Family',barSub:'',body:
+ bn('mint','check','Either one can approve','Nothing waits on a single person being free.')
+ +'<div class="card"><div class="whead"><div class="av">IM</div><div><div class="wn">Imran Mian</div><div class="wr">Father &middot; primary</div><div class="ch ch-mint">Active</div></div></div>'
+ +rows([['Proposals reviewed','4'],['Last active','2 hours ago']])
+ +'</div>'
+ +'<div class="card"><div class="whead"><div class="av">BM</div><div><div class="wn">Bilal Mian</div><div class="wr">Brother &middot; second wali</div><div class="ch ch-mint">Active</div></div></div>'
+ +rows([['Proposals reviewed','1'],['Last active','Yesterday']])
+ +'</div>'
+ +'<div class="card">'+acts([['o','Manage walis']])+'</div>'},
+
+{id:'F11',t:'You are someone else\'s wali',c:'user.is_wali_for.count > 0',bar:'Family',barSub:'',body:
+ bn('ind','fam','You are a wali','Your sister Sana has asked you to review her proposals.')
+ +'<div class="card"><div class="whead"><div class="av">SM</div><div><div class="wn">Sana Mian</div><div class="wr">Sister &middot; you are her wali</div><div class="ch ch-gold">1 needs your review</div></div></div>'
+ +rows([['Awaiting your review','1 proposal'],['Approved by you','3'],['Declined by you','1'],['Open conversations','2']])
+ +acts([['f','Review proposal']])+'</div>'
+ +'<div class="shead">Your own search</div>'
+ +list([{ic:'user',t:'Switch to your profile',s:'Your search is running separately',bg:IND.bg,fg:IND.fg}])
+ +bn('gold','alert','Keep the two apart','Being someone\'s wali never affects your own matches, and she cannot see your search.')}
+];
+
+var out='',open=0;
+S.forEach(function(s){
+ if(s.g){ if(open)out+='</div>'; out+='<div class="grp">'+s.g+'</div><div class="row">'; open=1; return; }
+ out+='<div class="item"><div class="cap"><div class="cid">'+s.id+'</div><div class="stype ty-push">Pushed</div><div class="ctitle">'+s.t+'</div></div><div class="ccond">'+s.c+'</div>'+
+ '<div class="phone"><div class="sb"><span>4:48</span><span>59%</span></div><div class="scr">'+
+ '<div class="topbar"><div class="back"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#332C66" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div><div><div class="tbt">'+s.bar+'</div>'+(s.barSub?'<div class="tbs">'+s.barSub+'</div>':'')+'</div></div>'+
+ s.body+'</div></div></div>';
+});
+if(open)out+='</div>';
+document.getElementById('out').innerHTML=out;
+</script>
+</body>
+</html>

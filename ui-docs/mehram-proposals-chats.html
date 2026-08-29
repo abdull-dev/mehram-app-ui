@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mehram — Proposals and Chats</title>
+<style>
+  :root{
+    --rose:#E6396E; --rose-ink:#A31C48; --rose-soft:#FDECF2;
+    --indigo-soft:#EEECF8; --indigo-ink:#332C66;
+    --mint:#17B07E; --mint-soft:#E5F6F0; --mint-ink:#0A5C43;
+    --gold:#B5820D; --gold-soft:#FBF2DE; --gold-ink:#7A5709;
+    --page:#F6F5FA; --line:#EEEDF3;
+    --ink:#17171F; --ink-2:#5F5E70; --ink-3:#9695A5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#E4E1EE;color:var(--ink);padding:34px 18px 60px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1520px;margin:0 auto}
+  h1{font-size:27px;font-weight:700;letter-spacing:-.6px;margin-bottom:5px}
+  .sub{font-size:14px;color:var(--ink-2);max-width:840px;line-height:1.6}
+  .flow{background:#fff;border-radius:20px;padding:22px 24px;margin:20px 0 26px}
+  .flow h3{font-size:16px;font-weight:700;margin-bottom:5px}
+  .flow>p{font-size:13.5px;color:var(--ink-2);line-height:1.65;margin-bottom:15px}
+  .fl{display:flex;gap:9px;align-items:stretch;flex-wrap:wrap;margin-bottom:14px}
+  .fb{border-radius:14px;padding:10px 12px;min-width:118px;flex:0 0 auto}
+  .fb-tab{background:#E5F6F0;border:1.5px solid #B9E6D5}
+  .fb-push{background:#EEECF8;border:1.5px solid #D5CFEE}
+  .fb-act{background:#FDECF2;border:1.5px solid #F6CBDA}
+  .fbt{font-size:12.5px;font-weight:700}
+  .fbs{font-size:10.5px;color:#5F5E70;margin-top:3px;line-height:1.4}
+  .arw{display:flex;align-items:center;color:#B4AFC8;font-size:18px;font-weight:700}
+  .flnote{font-size:12.5px;color:var(--ink-2);line-height:1.65;padding-left:14px;border-left:3px solid #EEEDF3;margin-bottom:12px}
+  .flnote b{color:#17171F}
+  .grp{font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#6E6B80;margin:16px 0 16px;padding-bottom:8px;border-bottom:1px solid #CFC9DF}
+  .row{display:flex;gap:24px;flex-wrap:wrap}
+  .item{width:326px;margin-bottom:26px}
+  .cap{display:flex;align-items:baseline;gap:7px;margin-bottom:3px;flex-wrap:wrap}
+  .cid{font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;color:#fff;background:#332C66;padding:3px 7px;border-radius:6px}
+  .stype{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;padding:3px 7px;border-radius:6px}
+  .ty-tab{background:#E5F6F0;color:#0A5C43}
+  .ty-push{background:#EEECF8;color:#332C66}
+  .ctitle{font-size:12.5px;font-weight:700;color:#3A3550}
+  .ccond{font-size:11px;color:#7E7B90;margin-bottom:9px;font-family:ui-monospace,Menlo,monospace;line-height:1.4;min-height:28px}
+
+  .phone{width:326px;background:var(--page);border-radius:34px;border:8px solid #131019;overflow:hidden;box-shadow:0 16px 40px rgba(30,22,60,.2);position:relative}
+  .sb{display:flex;justify-content:space-between;padding:9px 18px 2px;font-size:11px;font-weight:600}
+  .scr{padding:0 15px 92px;min-height:640px}
+  .scr.push{padding-bottom:24px}
+  .scr.chat{padding:0 0 24px}
+
+  .topbar{display:flex;align-items:center;gap:12px;padding:12px 2px 14px}
+  .back{width:38px;height:38px;border-radius:13px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(40,30,80,.07)}
+  .tbt{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .tbs{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+  .tabhdr{padding:12px 4px 6px}
+  .tabhdr h2{font-size:26px;font-weight:700;letter-spacing:-.6px}
+  .seg{display:grid;grid-template-columns:1fr 1fr;background:#EDEBF4;border-radius:14px;padding:4px;margin:12px 0 16px}
+  .sg{text-align:center;padding:9px 0;font-size:13.5px;font-weight:700;color:var(--ink-3);border-radius:11px}
+  .sg.on{background:#fff;color:var(--rose);box-shadow:0 1px 4px rgba(40,30,80,.08)}
+
+  .card{background:#fff;border-radius:24px;box-shadow:0 3px 14px rgba(40,30,80,.055);margin-bottom:13px;overflow:hidden}
+  .pad{padding:18px}
+  .pad h4{font-size:16px;font-weight:700;letter-spacing:-.2px;margin-bottom:4px}
+  .pad>p{font-size:13px;color:var(--ink-2);line-height:1.6}
+
+  .prow{padding:16px 18px;display:flex;flex-direction:column;gap:11px}
+  .ptop{display:flex;justify-content:space-between;align-items:flex-start;gap:9px}
+  .pwho{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .pwhos{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+  .pmeta{font-size:11.5px;color:var(--ink-3);margin-top:5px}
+  .chipr{display:flex;gap:6px;flex-wrap:wrap}
+  .ch{font-size:10.5px;font-weight:700;padding:5px 9px;border-radius:8px;white-space:nowrap}
+  .ch-gold{background:var(--gold-soft);color:var(--gold-ink)}
+  .ch-mint{background:var(--mint-soft);color:var(--mint-ink)}
+  .ch-rose{background:var(--rose-soft);color:var(--rose-ink)}
+  .ch-grey{background:#F1F0F6;color:#6E6B80}
+  .ch-ind{background:var(--indigo-soft);color:var(--indigo-ink)}
+  .prog{height:5px;border-radius:4px;background:#EDECF3;display:flex;gap:3px;overflow:hidden}
+  .prog i{flex:1;border-radius:4px;background:#E4E2ED}
+  .prog i.d{background:var(--mint)}
+  .prog i.n{background:var(--rose)}
+
+  .rows{padding:0 18px}
+  .r{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px;gap:10px}
+  .r.nt{border-top:none}
+  .r span:first-child{color:var(--ink-3);white-space:nowrap}
+  .r span:last-child{font-weight:600;text-align:right}
+
+  .lock{margin:13px 18px 0;background:#F7F6FB;border-radius:15px;padding:12px 13px;display:flex;gap:9px;align-items:flex-start}
+  .lock svg{flex-shrink:0;margin-top:1px}
+  .lock p{font-size:12px;line-height:1.55;color:var(--ink-2)}
+  .acts{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:15px 18px 18px}
+  .acts.one{grid-template-columns:1fr}
+  .btn{height:47px;border-radius:15px;font-size:14.5px;font-weight:700;display:flex;align-items:center;justify-content:center;border:none;font-family:inherit;cursor:pointer}
+  .btn-g{background:#F2F1F7;color:var(--ink-2)}
+  .btn-f{background:var(--rose);color:#fff}
+  .btn-o{background:#fff;color:var(--indigo-ink);border:1.5px solid var(--indigo-soft)}
+  .btn-d{background:var(--indigo-ink);color:#fff}
+
+  .bn{border-radius:18px;padding:13px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start}
+  .bn svg{flex-shrink:0;margin-top:1px}
+  .bn h4{font-size:13.5px;font-weight:700;margin-bottom:2px}
+  .bn p{font-size:12px;line-height:1.55}
+  .bn-mint{background:var(--mint-soft)} .bn-mint h4{color:var(--mint-ink)} .bn-mint p{color:#237A5C}
+  .bn-gold{background:var(--gold-soft)} .bn-gold h4{color:var(--gold-ink)} .bn-gold p{color:#8A6410}
+  .bn-ind{background:var(--indigo-soft)} .bn-ind h4{color:var(--indigo-ink)} .bn-ind p{color:#4B4384}
+
+  .st{display:flex;gap:11px;padding:10px 0;align-items:flex-start}
+  .std{width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700}
+  .sd{background:var(--mint);color:#fff} .sn{background:var(--rose);color:#fff} .sw{background:#EDECF3;color:var(--ink-3)}
+  .stt{font-size:13.5px;font-weight:600}
+  .stt.m{color:var(--ink-3);font-weight:500}
+  .sts{font-size:11.5px;color:var(--ink-3);margin-top:2px;line-height:1.45}
+
+  .empty{text-align:center;padding:52px 22px}
+  .empty .ei{width:66px;height:66px;border-radius:22px;background:#EFEDF6;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+  .empty h4{font-size:17px;font-weight:700;margin-bottom:6px}
+  .empty p{font-size:13px;color:var(--ink-2);line-height:1.6}
+
+  .ta{width:100%;min-height:88px;border-radius:15px;border:1.5px solid #E7E5F0;background:#FBFAFD;padding:12px 13px;font-size:13.5px;color:var(--ink-3);font-family:inherit;line-height:1.55}
+  .cnt{font-size:11.5px;color:var(--ink-3);text-align:right;margin-top:6px}
+
+  /* chat */
+  .chdr{background:#fff;padding:11px 14px 12px;display:flex;gap:11px;align-items:center;border-bottom:1px solid var(--line)}
+  .chdr .back{box-shadow:none;background:#F4F3F9;width:34px;height:34px;border-radius:11px}
+  .cht{font-size:15.5px;font-weight:700;letter-spacing:-.2px}
+  .chs{font-size:11px;color:var(--ink-3);margin-top:1px}
+  .watch{background:var(--indigo-soft);padding:9px 14px;display:flex;gap:8px;align-items:center}
+  .watch p{font-size:11.5px;color:var(--indigo-ink);line-height:1.45;font-weight:600}
+  .msgs{padding:14px}
+  .day{text-align:center;font-size:11px;color:var(--ink-3);font-weight:600;margin:6px 0 14px}
+  .m{max-width:80%;padding:11px 13px;border-radius:17px;font-size:13.5px;line-height:1.55;margin-bottom:9px}
+  .m.them{background:#fff;border-bottom-left-radius:6px;color:var(--ink)}
+  .m.me{background:var(--rose);color:#fff;margin-left:auto;border-bottom-right-radius:6px}
+  .mt{font-size:10px;margin-top:4px;opacity:.65}
+  .sys{background:var(--indigo-soft);border-radius:14px;padding:10px 12px;margin:0 auto 12px;max-width:92%;text-align:center}
+  .sys p{font-size:11.5px;color:var(--indigo-ink);line-height:1.5;font-weight:600}
+  .wali{background:#FBF2DE;border-left:3px solid var(--gold);border-radius:0 14px 14px 0;padding:10px 12px;margin-bottom:9px;max-width:88%}
+  .wl{font-size:10.5px;font-weight:700;color:var(--gold-ink);letter-spacing:.4px;margin-bottom:3px}
+  .wali p{font-size:13px;color:#5B4409;line-height:1.5}
+  .comp{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:11px 14px 14px}
+  .cin{display:flex;gap:9px;align-items:center}
+  .cbox{flex:1;height:44px;border-radius:14px;background:#F4F3F9;display:flex;align-items:center;padding:0 14px;font-size:13.5px;color:var(--ink-3)}
+  .send{width:44px;height:44px;border-radius:14px;background:var(--rose);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .cwarn{font-size:10.5px;color:var(--ink-3);margin-top:8px;text-align:center;line-height:1.4}
+
+  .nav{position:absolute;left:15px;right:15px;bottom:13px;background:#fff;border-radius:28px;display:grid;grid-template-columns:repeat(4,1fr);padding:12px 0 11px;box-shadow:0 6px 20px rgba(40,30,80,.12)}
+  .nv{text-align:center;font-size:11px;font-weight:600;color:var(--ink-3);position:relative}
+  .nv.on{color:var(--rose)}
+  .nv svg{display:block;margin:0 auto 3px}
+  .nv.on::after{content:'';position:absolute;left:50%;transform:translateX(-50%);bottom:-6px;width:5px;height:5px;border-radius:50%;background:var(--rose)}
+  .dot{position:absolute;top:-3px;right:calc(50% - 19px);min-width:17px;height:17px;border-radius:9px;background:var(--rose);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Mehram — Proposals and Chats</h1>
+<p class="sub">What happens after Send proposal, the Proposals tab in both directions, and the chat with both walis present.</p>
+
+<div class="flow">
+<h3>What "Send proposal" actually does</h3>
+<p>It is not a like. It is a formal request that travels through two families before a single message can be sent.</p>
+<div class="fl">
+<div class="fb fb-act"><div class="fbt">Send proposal</div><div class="fbs">On Home or profile detail</div></div>
+<div class="arw">&rarr;</div>
+<div class="fb fb-push"><div class="fbt">Confirm sheet</div><div class="fbs">PR1. Optional note to her wali.</div></div>
+<div class="arw">&rarr;</div>
+<div class="fb fb-push"><div class="fbt">Sent</div><div class="fbs">PR2. Confirmation.</div></div>
+<div class="arw">&rarr;</div>
+<div class="fb fb-tab"><div class="fbt">Proposals tab</div><div class="fbs">PR3. Status tracked here.</div></div>
+</div>
+<div class="flnote"><b>Then it moves through four stages, in this order:</b> your wali approves &rarr; her wali reviews &rarr; she decides &rarr; chat opens with both walis. Each stage is visible to both sides. Nobody is left wondering where it went, which is the single biggest complaint families have about existing rishta apps.</div>
+<div class="flnote"><b>Receiving is free.</b> A user can see and decline an incoming proposal without a membership. Charging someone to find out that a proposal arrived is a hostage mechanic and families will describe it that way.</div>
+<div class="flnote"><b>Declines are silent and final.</b> No reason field, no notification of who declined at which stage, no re-proposing for 90 days. The sender sees only "not taken forward".</div>
+</div>
+
+<div id="out"></div>
+</div>
+
+<script>
+var IC={
+home:'<path d="M3 10.5l9-7 9 7V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+prop:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3.5 7.5l8.5 6 8.5-6"/>',
+chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+fam:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+shield:'<path d="M12 22s8-4 8-10V5.5L12 2.5 4 5.5V12c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+alert:'<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
+lock:'<rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+send:'<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',
+check:'<path d="M5 12.5l5 5 9-10"/>'};
+function sv(k,s,c,w){return '<svg width="'+(s||19)+'" height="'+(s||19)+'" viewBox="0 0 24 24" fill="none" stroke="'+c+'" stroke-width="'+(w||2)+'" stroke-linecap="round" stroke-linejoin="round">'+IC[k]+'</svg>';}
+function bn(t,ic,ti,bo){var c={mint:'#0A5C43',gold:'#7A5709',ind:'#332C66'}[t];return '<div class="bn bn-'+t+'">'+sv(ic,17,c)+'<div><h4>'+ti+'</h4><p>'+bo+'</p></div></div>';}
+function acts(a){return '<div class="acts'+(a.length<2?' one':'')+'">'+a.map(function(b){return '<button class="btn btn-'+b[0]+'">'+b[1]+'</button>';}).join('')+'</div>';}
+function rows(rs){return '<div class="rows">'+rs.map(function(r,i){return '<div class="r'+(i===0?' nt':'')+'"><span>'+r[0]+'</span><span>'+r[1]+'</span></div>';}).join('')+'</div>';}
+function lock(t){return '<div class="lock">'+sv('lock',15,'#9695A5')+'<p>'+t+'</p></div>';}
+function steps(list){return '<div class="card"><div style="padding:6px 18px 12px">'+list.map(function(s){var c=s[0]==='d'?'sd':(s[0]==='n'?'sn':'sw');var mk=s[0]==='d'?'&#10003;':s[3];return '<div class="st"><div class="std '+c+'">'+mk+'</div><div><div class="stt'+(s[0]==='w'?' m':'')+'">'+s[1]+'</div>'+(s[2]?'<div class="sts">'+s[2]+'</div>':'')+'</div></div>';}).join('')+'</div></div>';}
+function prow(o){
+ return '<div class="card"><div class="prow"><div class="ptop"><div><div class="pwho">'+o.who+'</div><div class="pwhos">'+o.sub+'</div><div class="pmeta">'+o.meta+'</div></div><div class="chipr"><div class="ch ch-'+o.chip[0]+'">'+o.chip[1]+'</div></div></div><div class="prog">'+
+ [0,1,2,3].map(function(i){return '<i class="'+(i<o.done?'d':(i===o.done?'n':''))+'"></i>';}).join('')+'</div></div></div>';}
+function nav(tab,badge){
+ function nv(k,l,on,b){return '<div class="nv'+(on?' on':'')+'">'+(b?'<div class="dot">'+b+'</div>':'')+'<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+IC[k]+'</svg>'+l+'</div>';}
+ return '<div class="nav">'+nv('home','Home',tab==='home')+nv('prop','Proposals',tab==='prop',badge)+nv('chat','Chats',tab==='chat')+nv('fam','Family',tab==='fam')+'</div>';}
+
+var S=[
+{g:'Sending a proposal'},
+
+{id:'PR1',t:'Confirm proposal',c:'tapped Send proposal',type:'push',bar:'Send proposal',barSub:'27 · Lahore',body:
+ bn('ind','fam','This goes to her wali first','She will not see it until her family has reviewed it.')
+ +'<div class="card"><div class="pad"><h4>Add a note</h4><p style="margin-bottom:11px">Optional. Her wali reads this before anyone else. Keep it short and respectful.</p>'
+ +'<div class="ta">Assalamu alaikum. I am a software engineer in Lahore, 27, from a Hanafi family. I would be grateful if you would consider my proposal.</div><div class="cnt">142 / 300</div></div>'
+ +lock('Do not include your phone number, workplace or social media. Messages containing them are blocked automatically.')
+ +acts([['g','Cancel'],['f','Send proposal']])+'</div>'
+ +bn('gold','alert','You cannot send this again','If it is declined, you will not be able to propose to her for 90 days.')},
+
+{id:'PR2',t:'Proposal sent',c:'submission succeeded',type:'push',bar:'Proposal sent',barSub:'27 · Lahore',body:
+ '<div class="card"><div class="empty" style="padding:38px 22px 26px"><div class="ei" style="background:#E5F6F0">'+sv('check',30,'#17B07E',2.4)+'</div><h4>Your proposal is on its way</h4><p>It has gone to your wali first. Once he approves, it moves to her family.</p></div>'
+ +acts([['f','Done']])+'</div>'
+ +steps([['d','You sent the proposal','Just now'],['n','Your wali is reviewing','Imran Mian','2'],['w','Her wali reviews','','3'],['w','She decides','','4']])
+ +bn('mint','clock','You have 2 more introductions today','This one does not need to resolve first.')},
+
+{g:'Proposals tab'},
+
+{id:'PR3',t:'Proposals — Sent',c:'tab: Proposals, segment Sent',type:'tab',tab:'prop',badge:2,body:
+ '<div class="tabhdr"><h2>Proposals</h2></div>'
+ +'<div class="seg"><div class="sg on">Sent</div><div class="sg">Received</div></div>'
+ +prow({who:'27 &middot; Lahore',sub:'Sunni (Hanafi) &middot; Healthcare',meta:'Sent Tuesday',chip:['gold','With her wali'],done:2})
+ +prow({who:'26 &middot; Karachi',sub:'Sunni (Hanafi) &middot; Education',meta:'Sent Sunday',chip:['gold','With your wali'],done:1})
+ +prow({who:'28 &middot; Lahore',sub:'Sunni (Deobandi) &middot; Finance',meta:'Sent last week',chip:['mint','She accepted'],done:4})
+ +prow({who:'25 &middot; Islamabad',sub:'Sunni (Hanafi) &middot; Healthcare',meta:'Sent 3 weeks ago',chip:['grey','Not taken forward'],done:0})},
+
+{id:'PR4',t:'Proposals — Received',c:'tab: Proposals, segment Received',type:'tab',tab:'prop',badge:2,body:
+ '<div class="tabhdr"><h2>Proposals</h2></div>'
+ +'<div class="seg"><div class="sg">Sent</div><div class="sg on">Received</div></div>'
+ +bn('mint','shield','Reading and declining is free','You only need a membership to accept.')
+ +prow({who:'29 &middot; Lahore',sub:'Sunni (Hanafi) &middot; Technology',meta:'Received today &middot; wali approved',chip:['rose','Needs your answer'],done:2})
+ +prow({who:'31 &middot; Dubai',sub:'Sunni (Hanafi) &middot; Engineering',meta:'Received yesterday',chip:['rose','Needs your answer'],done:2})
+ +prow({who:'30 &middot; Lahore',sub:'Sunni (Barelvi) &middot; Business',meta:'Received last week',chip:['ind','With your wali'],done:1})},
+
+{id:'PR5',t:'Proposals — empty',c:'no proposals in either direction',type:'tab',tab:'prop',badge:0,body:
+ '<div class="tabhdr"><h2>Proposals</h2></div>'
+ +'<div class="seg"><div class="sg on">Sent</div><div class="sg">Received</div></div>'
+ +'<div class="card"><div class="empty"><div class="ei">'+sv('prop',28,'#8C86A8')+'</div><h4>No proposals yet</h4><p>When you propose to someone, it goes to your wali, then to her family. You will see every stage here.</p></div>'
+ +acts([['f','See today\'s introduction']])+'</div>'},
+
+{g:'Proposal detail'},
+
+{id:'PR6',t:'Sent proposal detail',c:'tapped a sent proposal',type:'push',bar:'Your proposal',barSub:'27 · Lahore',body:
+ steps([['d','You sent the proposal','Tuesday, 11:20'],['d','Your wali approved','Tuesday, 14:05'],['n','Her wali is reviewing','Sent Tuesday, 14:06','3'],['w','She decides','','4'],['w','Chat opens with both walis','','5']])
+ +'<div class="card"><div class="prow" style="padding-bottom:0"><div class="ptop"><div><div class="pwho">27 &middot; Lahore</div><div class="pwhos">Sunni (Hanafi) &middot; Practicing</div></div><div class="chipr"><div class="ch ch-mint">Photo shared</div></div></div></div>'
+ +rows([['Education',"Master's degree"],['Profession','Healthcare'],['Family','Joint family'],['Her wali','Father']])
+ +lock('Her name and full biodata unlock if her wali approves. Withdrawing now is silent — she is not told.')
+ +acts([['g','Withdraw'],['o','View profile']])+'</div>'
+ +bn('gold','clock','Families take their time','Most reviews take three to seven days. We will notify you either way.')},
+
+{id:'PR7',t:'Received proposal detail',c:'tapped a received proposal',type:'push',bar:'Proposal received',barSub:'29 · Lahore',body:
+ bn('ind','fam','His wali has already approved','Muhammad Tariq, his father, reviewed this before it reached you.')
+ +'<div class="card"><div class="prow" style="padding-bottom:0"><div class="ptop"><div><div class="pwho">29 &middot; Lahore</div><div class="pwhos">Sunni (Hanafi) &middot; Practicing</div></div><div class="chipr"><div class="ch ch-mint">ID verified</div></div></div></div>'
+ +rows([['Education','MBA, LUMS'],['Profession','Technology'],['Height','5ft 9in'],['Marital status','Single'],['Family','Nuclear &middot; Lahore'],['His wali','Father']])
+ +'</div>'
+ +'<div class="card"><div class="pad"><h4>His note to your wali</h4><p style="margin-top:7px">"Assalamu alaikum. I am a software engineer in Lahore, 29, from a Hanafi family. I would be grateful if you would consider my proposal."</p></div></div>'
+ +'<div class="card">'+lock('Declining is silent. He is told only that it was not taken forward, and he cannot propose to you again for 90 days.')
+ +acts([['g','Decline'],['f','Accept']])+'</div>'},
+
+{g:'Chats'},
+
+{id:'CH1',t:'Chats — list',c:'tab: Chats, one or more open',type:'tab',tab:'chat',badge:0,body:
+ '<div class="tabhdr"><h2>Chats</h2></div>'
+ +bn('ind','eye','Both walis can read every conversation','They see messages as they are sent, not a summary afterwards.')
+ +'<div class="card"><div class="prow"><div class="ptop"><div><div class="pwho">Ayesha &middot; 27</div><div class="pwhos">"Wa alaikum assalam. My father has..."</div><div class="pmeta">4 people in this chat &middot; 2 min ago</div></div><div class="chipr"><div class="ch ch-rose">3</div></div></div></div></div>'
+ +'<div class="card"><div class="prow"><div class="ptop"><div><div class="pwho">Fatima &middot; 28</div><div class="pwhos">"Jazakallah, we will discuss and..."</div><div class="pmeta">4 people in this chat &middot; Yesterday</div></div><div class="chipr"><div class="ch ch-grey">Read</div></div></div></div></div>'},
+
+{id:'CH2',t:'Chats — empty',c:'no accepted proposals yet',type:'tab',tab:'chat',badge:0,body:
+ '<div class="tabhdr"><h2>Chats</h2></div>'
+ +'<div class="card"><div class="empty"><div class="ei">'+sv('chat',28,'#8C86A8')+'</div><h4>No conversations yet</h4><p>A chat opens once a proposal is accepted by both families. Both walis join automatically and can read everything.</p></div>'
+ +acts([['f','See your proposals']])+'</div>'},
+
+{id:'CH3',t:'Chat thread',c:'tapped a conversation',type:'chat',body:''}
+];
+
+function chatThread(){
+ return '<div class="chdr"><div class="back">'+sv('lock',0,'#fff')+'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#332C66" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div><div><div class="cht">Ayesha &middot; 27</div><div class="chs">You, Ayesha, Imran (your wali), Tariq (her wali)</div></div></div>'
+ +'<div class="watch">'+sv('eye',15,'#332C66')+'<p>Both walis can read this conversation as it happens</p></div>'
+ +'<div class="msgs">'
+ +'<div class="day">Today</div>'
+ +'<div class="sys"><p>Chat opened. Imran Mian and Muhammad Tariq have joined as walis.</p></div>'
+ +'<div class="m me">Assalamu alaikum. Jazakumullah khair for accepting the proposal.<div class="mt">11:04</div></div>'
+ +'<div class="m them">Wa alaikum assalam. My father has read your biodata and would like to know more about your family.<div class="mt">11:09</div></div>'
+ +'<div class="wali"><div class="wl">TARIQ &middot; HER WALI</div><p>Assalamu alaikum beta. Would your parents be free to speak this weekend?</p></div>'
+ +'<div class="m me">Wa alaikum assalam uncle. Yes, Saturday evening suits them well.<div class="mt">11:22</div></div>'
+ +'<div class="sys"><p>A message was blocked because it contained a phone number. Contact details are exchanged outside Mehram, once both families agree.</p></div>'
+ +'</div>'
+ +'<div class="comp"><div class="cin"><div class="cbox">Write a message</div><div class="send">'+sv('send',18,'#fff',2.2)+'</div></div><div class="cwarn">Phone numbers, emails and links are blocked. Screenshots are disabled.</div></div>';
+}
+
+var out='',open=0;
+S.forEach(function(s){
+ if(s.g){ if(open)out+='</div>'; out+='<div class="grp">'+s.g+'</div><div class="row">'; open=1; return; }
+ var push=s.type==='push', chat=s.type==='chat';
+ var tyl=chat?'Pushed':(push?'Pushed':'Tab');
+ var body;
+ if(chat){ body='<div class="scr chat">'+chatThread()+'</div>'; }
+ else{
+  var head=push?'<div class="topbar"><div class="back"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#332C66" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div><div><div class="tbt">'+s.bar+'</div><div class="tbs">'+s.barSub+'</div></div></div>':'';
+  body='<div class="scr'+(push?' push':'')+'">'+head+s.body+'</div>';
+ }
+ out+='<div class="item"><div class="cap"><div class="cid">'+s.id+'</div><div class="stype '+((push||chat)?'ty-push':'ty-tab')+'">'+tyl+'</div><div class="ctitle">'+s.t+'</div></div><div class="ccond">'+s.c+'</div>'+
+ '<div class="phone"><div class="sb"><span>4:02</span><span>67%</span></div>'+body+((push||chat)?'':nav(s.tab,s.badge))+'</div></div>';
+});
+if(open)out+='</div>';
+document.getElementById('out').innerHTML=out;
+</script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mehram — Onboarding, styled</title>
+<style>
+  :root{
+    --rose:#F2559A; --rose-d:#E6396E; --rose-ink:#A31C48; --rose-soft:#FDEEF5;
+    --vio:#9B7BF0; --vio-d:#7C5AE0; --vio-ink:#3E2A73; --vio-soft:#F0EBFE;
+    --mint:#3FCF9A; --mint-soft:#E6F9F1; --mint-ink:#0A6B4C;
+    --gold:#E0A93B; --gold-soft:#FDF4E3; --gold-ink:#7A5709;
+    --page:#F7F4FD; --line:#EFEBF9;
+    --ink:#1B1630; --ink-2:#635C7E; --ink-3:#A29CBB;
+    --grad:linear-gradient(96deg,#F2789F 0%,#C77BE0 52%,#A78BFA 100%);
+    --grad-v:linear-gradient(160deg,#9B7BF0,#5B41B8 60%,#3A2A78);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#E7E2F4;color:var(--ink);padding:32px 18px 60px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1520px;margin:0 auto}
+  h1{font-size:27px;font-weight:800;letter-spacing:-.7px;margin-bottom:5px}
+  .sub{font-size:14px;color:var(--ink-2);max-width:900px;line-height:1.6}
+  .qa{background:#fff;border-radius:22px;padding:22px 24px;margin:20px 0 24px;box-shadow:0 4px 22px rgba(60,40,120,.06)}
+  .qa h3{font-size:16px;font-weight:800;margin-bottom:11px}
+  .qi{padding:10px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.7;color:var(--ink-2)}
+  .qi:first-of-type{border-top:none;padding-top:0}
+  .qi b{color:var(--ink);display:block;margin-bottom:2px}
+  .grp{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#7A719B;margin:14px 0 16px;padding-bottom:8px;border-bottom:1px solid #D3CCE8}
+  .row{display:flex;gap:24px;flex-wrap:wrap}
+  .item{width:326px;margin-bottom:26px}
+  .cap{display:flex;align-items:baseline;gap:7px;margin-bottom:3px;flex-wrap:wrap}
+  .cid{font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;color:#fff;background:#3E2A73;padding:3px 7px;border-radius:6px}
+  .live{font-size:9.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;padding:3px 7px;border-radius:6px;background:var(--mint-soft);color:var(--mint-ink)}
+  .ctitle{font-size:12.5px;font-weight:700;color:#453D66}
+  .ccond{font-size:11px;color:#8F87AC;margin-bottom:9px;line-height:1.4;min-height:26px}
+
+  .phone{position:relative;display:flex;flex-direction:column;width:326px;height:668px;background:var(--page);border-radius:36px;border:8px solid #16112A;overflow:hidden;box-shadow:0 18px 44px rgba(50,30,110,.24)}
+  /* ambient background */
+  .phone::before{content:'';position:absolute;width:290px;height:290px;border-radius:50%;background:radial-gradient(circle,#DCD2FB 0%,rgba(220,210,251,0) 68%);top:-96px;right:-104px;pointer-events:none}
+  .phone::after{content:'';position:absolute;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,#FBDCEB 0%,rgba(251,220,235,0) 68%);bottom:-92px;left:-96px;pointer-events:none}
+  .sb{position:relative;z-index:2;display:flex;justify-content:space-between;padding:9px 18px 2px;font-size:11px;font-weight:600;flex-shrink:0}
+  .scr{position:relative;z-index:2;flex:1;padding:0 16px 16px;display:flex;flex-direction:column;overflow:hidden}
+
+  @keyframes rise{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:none}}
+  @keyframes pop{0%{transform:scale(.68);opacity:0}62%{transform:scale(1.07)}100%{transform:scale(1);opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes spinb{to{transform:rotate(-360deg)}}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(63,207,154,.45)}50%{box-shadow:0 0 0 10px rgba(63,207,154,0)}}
+  @keyframes sweep{0%{background-position:-220px 0}100%{background-position:420px 0}}
+  @keyframes draw{from{stroke-dashoffset:34}to{stroke-dashoffset:0}}
+  .an{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+  .d1{animation-delay:.07s}.d2{animation-delay:.15s}.d3{animation-delay:.23s}.d4{animation-delay:.31s}.d5{animation-delay:.39s}
+
+  /* orbit hero icon */
+  .orb{position:relative;width:150px;height:150px;margin:0 auto 24px}
+  .orb .ring{position:absolute;top:0;left:0;right:0;bottom:0;border-radius:50%;border:1.6px dashed rgba(155,123,240,.42);animation:spin 26s linear infinite}
+  .orb .ring2{position:absolute;top:15px;left:15px;right:15px;bottom:15px;border-radius:50%;border:1.4px solid rgba(155,123,240,.16)}
+  .orb .core{position:absolute;top:29px;left:29px;right:29px;bottom:29px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 34px rgba(190,90,180,.34);animation:float 4.6s ease-in-out infinite}
+  .orb .sat{position:absolute;top:0;left:0;right:0;bottom:0;animation:spinb 18s linear infinite}
+  .orb .sat i{position:absolute;border-radius:50%;display:block}
+  .orb.rose .ring{border-color:rgba(242,120,159,.44)}
+  .orb.rose .ring2{border-color:rgba(242,120,159,.18)}
+
+  .nb{display:flex;align-items:center;gap:12px;padding:12px 0 4px;flex-shrink:0}
+  .back{width:38px;height:38px;border-radius:14px;background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 3px 12px rgba(60,40,120,.1);transition:transform .15s}
+  .back:active{transform:scale(.92)}
+  .prg{flex:1;height:7px;border-radius:5px;background:rgba(155,123,240,.16);overflow:hidden}
+  .prg i{display:block;height:100%;border-radius:5px;background:var(--grad);transition:width .6s cubic-bezier(.2,.7,.3,1)}
+  .skip{font-size:12.5px;font-weight:700;color:var(--vio-d)}
+
+  .body{flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .q{padding:18px 2px 2px;flex-shrink:0}
+  .qk{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--vio-ink);background:var(--vio-soft);padding:5px 11px;border-radius:9px;margin-bottom:10px}
+  .qh{font-size:24px;font-weight:800;letter-spacing:-.7px;line-height:1.2}
+  .qs{font-size:13px;color:var(--ink-2);margin-top:8px;line-height:1.55}
+
+  .field{margin-top:14px;flex-shrink:0}
+  .flab{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+  .inp{height:54px;border-radius:18px;background:rgba(255,255,255,.86);border:1.6px solid rgba(155,123,240,.2);display:flex;align-items:center;padding:0 15px;font-size:15px;gap:10px;box-shadow:0 3px 12px rgba(60,40,120,.05);transition:border-color .2s,box-shadow .2s}
+  .inp.focus{border-color:var(--vio);box-shadow:0 0 0 4px rgba(155,123,240,.16),0 3px 12px rgba(60,40,120,.06)}
+  .inp.err{border-color:var(--rose-d);background:#FFF6FA}
+  .inp input{border:none;outline:none;background:none;font-size:15px;font-family:inherit;flex:1;min-width:0;color:var(--ink)}
+  .fhint{font-size:11.5px;color:var(--ink-3);margin-top:7px;line-height:1.45}
+  .ferr{font-size:12px;color:var(--rose-ink);margin-top:7px;font-weight:700;display:flex;gap:5px;align-items:center}
+
+  .seg{display:flex;gap:10px}
+  .sgb{position:relative;flex:1;border-radius:20px;background:rgba(255,255,255,.9);border:2px solid transparent;padding:15px 8px;text-align:center;box-shadow:0 3px 14px rgba(60,40,120,.06);transition:transform .18s,box-shadow .18s}
+  .sgb:active{transform:scale(.97)}
+  .sgb.on{border-image:var(--grad) 1;border-color:var(--vio);background:linear-gradient(150deg,#FEF0F6,#F2ECFE);box-shadow:0 6px 20px rgba(160,110,220,.18)}
+  .sgb .ic{width:40px;height:40px;border-radius:14px;background:var(--vio-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 9px}
+  .sgb.on .ic{background:var(--grad)}
+  .sgb .t{font-size:14px;font-weight:700}
+  .sgb .s{font-size:11px;color:var(--ink-3);margin-top:2px}
+  .segr{display:flex;flex-direction:column;gap:10px}
+  .segr .sgb{display:flex;align-items:center;gap:13px;text-align:left;padding:14px 15px}
+  .segr .sgb .ic{margin:0}
+
+  .sheet{background:rgba(255,255,255,.92);border-radius:22px;margin-top:12px;overflow:hidden;box-shadow:0 6px 24px rgba(60,40,120,.09);display:flex;flex-direction:column;min-height:0;flex:1}
+  .sbox{margin:12px 14px 8px;height:46px;border-radius:15px;background:var(--vio-soft);display:flex;align-items:center;padding:0 13px;gap:9px;flex-shrink:0}
+  .sbox input{border:none;outline:none;background:none;font-size:14px;font-family:inherit;flex:1;min-width:0;color:var(--ink)}
+  .slist{overflow-y:auto;flex:1;min-height:0}
+  .sit{display:flex;align-items:center;gap:10px;padding:11px 15px;border-top:1px solid var(--line);font-size:14px;transition:background .14s}
+  .sit:hover{background:var(--vio-soft)}
+  .sit .fl{font-size:17px;width:22px;text-align:center;flex-shrink:0}
+  .sub2{font-size:11px;color:var(--ink-3);margin-top:1px}
+  .sph{font-size:10px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--vio-d);padding:9px 15px 5px;border-top:1px solid var(--line);background:rgba(240,235,254,.55)}
+  .none{padding:20px 15px;text-align:center;color:var(--ink-3);font-size:13px;line-height:1.5}
+
+  .chipwrap{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:11px 14px;border-radius:15px;background:rgba(255,255,255,.9);border:1.6px solid rgba(155,123,240,.2);font-size:13.5px;font-weight:700;color:var(--ink-2);box-shadow:0 2px 9px rgba(60,40,120,.04);transition:transform .16s}
+  .chip:active{transform:scale(.96)}
+  .chip.on{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 6px 16px rgba(180,100,200,.28)}
+
+  .scrollarea{flex:1;overflow-y:auto;min-height:0;padding-right:2px}
+  .foot{padding-top:12px;flex-shrink:0}
+  .btn{width:100%;min-height:54px;border-radius:19px;font-size:15.5px;font-weight:800;letter-spacing:-.1px;display:flex;align-items:center;justify-content:center;border:none;font-family:inherit;gap:9px;transition:transform .16s,box-shadow .16s}
+  .btn:active{transform:scale(.985)}
+  .btn-f{background:var(--grad);color:#fff;box-shadow:0 10px 24px rgba(180,105,205,.34)}
+  .btn-d{background:rgba(155,123,240,.13);color:#A79EC6;box-shadow:none}
+  .btn-o{background:rgba(255,255,255,.94);color:var(--vio-ink);border:1.6px solid rgba(155,123,240,.28);box-shadow:0 3px 12px rgba(60,40,120,.05)}
+  .btn-t{background:none;color:var(--ink-2);font-size:13.5px;min-height:40px;box-shadow:none;font-weight:700}
+  .btn-t b{color:var(--vio-d)}
+  .foot .btn+.btn{margin-top:9px}
+
+  .card{background:rgba(255,255,255,.92);border-radius:22px;box-shadow:0 5px 20px rgba(60,40,120,.07);margin-top:12px;overflow:hidden;flex-shrink:0}
+  .pad{padding:17px}
+  .pad h4{font-size:15.5px;font-weight:800;letter-spacing:-.2px;margin-bottom:4px}
+  .pad p{font-size:12.5px;color:var(--ink-2);line-height:1.55}
+
+  .live-c{background:var(--grad-v);border-radius:24px;padding:21px;margin-top:12px;text-align:center;position:relative;overflow:hidden;flex-shrink:0;box-shadow:0 12px 30px rgba(70,45,150,.28)}
+  .live-c::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.14) 46%,transparent 62%);background-size:420px 100%;animation:sweep 3s linear infinite}
+  .lcn{font-size:48px;font-weight:800;color:#fff;letter-spacing:-1.8px;line-height:1;animation:pop .6s cubic-bezier(.2,.8,.3,1) both;animation-delay:.28s;text-shadow:0 4px 18px rgba(0,0,0,.16)}
+  .lcl{font-size:12.5px;color:#DCD1FB;margin-top:9px;line-height:1.5}
+  .lcb{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.18);display:flex;justify-content:space-around}
+  .lcs{font-size:14px;font-weight:800;color:#fff}
+  .lcsl{font-size:10px;color:#BFAFF0;margin-top:2px}
+
+  .srow{display:flex;justify-content:space-between;font-size:13.5px;font-weight:800;margin-bottom:9px;color:var(--vio-ink)}
+  input[type=range]{width:100%;-webkit-appearance:none;height:7px;border-radius:5px;background:rgba(155,123,240,.2);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:25px;height:25px;border-radius:50%;background:var(--grad);box-shadow:0 3px 10px rgba(180,100,200,.45);border:2.5px solid #fff}
+
+  .st{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,.92);border-radius:19px;padding:13px 14px;margin-bottom:9px;box-shadow:0 3px 14px rgba(60,40,120,.06)}
+  .stn{width:33px;height:33px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;flex-shrink:0}
+  .stn.d{background:linear-gradient(150deg,#4FD8A6,#22A87C);color:#fff}
+  .stn.n{background:var(--grad);color:#fff;animation:glow 2.4s ease-in-out infinite}
+  .stn.w{background:var(--vio-soft);color:var(--ink-3)}
+  .stt{font-size:13.5px;font-weight:700}
+  .sts{font-size:11.5px;color:var(--ink-3);margin-top:1px;line-height:1.4}
+  .stm{font-size:11px;font-weight:800;color:var(--vio-d);flex-shrink:0}
+
+  .bn{border-radius:18px;padding:13px 14px;margin-top:12px;display:flex;gap:10px;align-items:flex-start;flex-shrink:0}
+  .bn svg{flex-shrink:0;margin-top:1px}
+  .bn h4{font-size:13px;font-weight:800;margin-bottom:2px}
+  .bn p{font-size:11.5px;line-height:1.5}
+  .bn-mint{background:linear-gradient(140deg,#E9FBF3,#DFF6EC)} .bn-mint h4{color:var(--mint-ink)} .bn-mint p{color:#2A7A5E}
+  .bn-gold{background:linear-gradient(140deg,#FDF5E6,#FBEFD8)} .bn-gold h4{color:var(--gold-ink)} .bn-gold p{color:#8A6410}
+  .bn-ind{background:linear-gradient(140deg,#F3EEFE,#EBE3FD)} .bn-ind h4{color:var(--vio-ink)} .bn-ind p{color:#584A93}
+
+  .otp{display:flex;gap:8px;margin-top:16px}
+  .ob{flex:1;height:58px;border-radius:18px;background:rgba(255,255,255,.9);border:1.6px solid rgba(155,123,240,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;box-shadow:0 3px 12px rgba(60,40,120,.05)}
+  .ob.f{border-color:var(--vio);box-shadow:0 0 0 4px rgba(155,123,240,.16)}
+  .ob.e{border-color:var(--rose-d);background:#FFF4F8}
+
+  .welc{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;padding:0 4px}
+  .wh{font-size:27px;font-weight:800;letter-spacing:-1px;line-height:1.16}
+  .wp{font-size:14px;color:var(--ink-2);margin-top:13px;line-height:1.62}
+  .dots{display:flex;gap:6px;justify-content:center;margin-top:22px}
+  .dt{width:7px;height:7px;border-radius:50%;background:rgba(155,123,240,.28);transition:width .3s}
+  .dt.on{width:24px;border-radius:4px;background:var(--grad)}
+
+  .cel{width:88px;height:88px;border-radius:50%;background:linear-gradient(150deg,#E9FBF3,#D6F4E7);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;animation:pop .55s cubic-bezier(.2,.8,.3,1) both;box-shadow:0 10px 26px rgba(63,207,154,.26)}
+  .cel svg path{stroke-dasharray:34;animation:draw .5s .4s ease-out both}
+  .ph3{display:flex;gap:9px;margin-top:12px}
+  .phb{flex:1;aspect-ratio:3/4;border-radius:18px;background:rgba(255,255,255,.7);border:1.6px dashed rgba(155,123,240,.34);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+  .phb.req{border-style:solid;border-color:transparent;background:linear-gradient(150deg,#FEF0F6,#F2ECFE);box-shadow:0 5px 16px rgba(180,110,200,.16)}
+  .phl{font-size:10.5px;font-weight:800;color:var(--ink-3)}
+  .phb.req .phl{color:var(--vio-ink)}
+  .price{background:var(--grad-v);border-radius:22px;padding:19px;margin-top:12px;text-align:center;flex-shrink:0;position:relative;overflow:hidden;box-shadow:0 12px 30px rgba(70,45,150,.28)}
+  .price::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(105deg,transparent 32%,rgba(255,255,255,.13) 47%,transparent 62%);background-size:420px 100%;animation:sweep 3.2s linear infinite}
+  .pn{font-size:30px;font-weight:800;color:#fff;letter-spacing:-.9px}
+  .pl{font-size:12px;color:#BFAFF0;margin-top:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Mehram — Onboarding, styled</h1>
+<p class="sub">Same 23 screens, rebuilt in your visual language. Pickers and slider still live.</p>
+
+<div class="qa">
+<h3>What changed visually</h3>
+<div class="qi"><b>Gradient buttons, not flat rose.</b>Primary actions use your pink-to-violet gradient with a soft coloured glow underneath. Secondary is white with a violet hairline. Tertiary is plain text. Three levels, so one screen never has two competing buttons.</div>
+<div class="qi"><b>Ambient background is back.</b>Two soft radial washes inside every screen — lavender top-right, pink bottom-left — the same depth your welcome screens have. Nothing sits on flat grey any more.</div>
+<div class="qi"><b>Orbit rings on the hero icons.</b>Dashed ring rotating slowly one way, satellite dots the other, gradient core floating. That treatment was the best thing in your build and I had dropped it.</div>
+<div class="qi"><b>Form components rebuilt.</b>Inputs are translucent white with a violet hairline and a glow ring on focus. Chips fill with the gradient when selected. Selection cards get a gradient wash and lift. The slider thumb is gradient with a white collar.</div>
+<div class="qi"><b>Section labels are pills</b>, not bare uppercase text — violet on a soft violet tint, matching your existing section chips.</div>
+</div>
+
+<div id="out"></div>
+</div>
+
+<script>
+var IC={
+back:'<path d="M15 18l-6-6 6-6"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+user:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 16 0v1"/>',
+fam:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.5"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+shield:'<path d="M12 22s8-4 8-10V5.5L12 2.5 4 5.5V12c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+heart:'<path d="M12 20s-7-4.4-7-9.2A4 4 0 0 1 12 8a4 4 0 0 1 7 2.8C19 15.6 12 20 12 20z"/>',
+cam:'<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/>',
+alert:'<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+lock:'<rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+check:'<path d="M5 12.5l5 5 9-10"/>'};
+function sv(k,s,c,w){return '<svg width="'+(s||19)+'" height="'+(s||19)+'" viewBox="0 0 24 24" fill="none" stroke="'+c+'" stroke-width="'+(w||2)+'" stroke-linecap="round" stroke-linejoin="round">'+IC[k]+'</svg>';}
+function orb(icon,tone){
+  var core = tone==='rose' ? 'linear-gradient(150deg,#F97DAE,#E6396E)' : 'linear-gradient(150deg,#A98CF5,#6E4FD6)';
+  var dot  = tone==='rose' ? '#F2789F' : '#9B7BF0';
+  return '<div class="orb '+(tone||'')+'"><div class="ring"></div><div class="ring2"></div>'
+  +'<div class="sat"><i style="width:9px;height:9px;background:'+dot+';top:2px;left:64px"></i>'
+  +'<i style="width:6px;height:6px;background:'+dot+';bottom:14px;left:16px;opacity:.75"></i>'
+  +'<i style="width:7px;height:7px;background:'+dot+';top:52px;right:0;opacity:.6"></i></div>'
+  +'<div class="core" style="background:'+core+'">'+sv(icon,34,'#fff',2.2)+'</div></div>';
+}
+function nb(p,sk){return '<div class="nb"><div class="back">'+sv('back',17,'#3E2A73',2.5)+'</div><div class="prg"><i style="width:'+p+'%"></i></div>'+(sk?'<div class="skip">'+sk+'</div>':'')+'</div>';}
+function q(k,h,s){return '<div class="q an">'+(k?'<div class="qk">'+k+'</div>':'')+'<div class="qh">'+h+'</div>'+(s?'<div class="qs">'+s+'</div>':'')+'</div>';}
+function foot(bs){return '<div class="foot">'+bs.map(function(b){return '<button class="btn btn-'+b[0]+'">'+b[1]+'</button>';}).join('')+'</div>';}
+function bn(t,ic,ti,bo,d){var c={mint:'#0A6B4C',gold:'#7A5709',ind:'#3E2A73'}[t];return '<div class="bn bn-'+t+' an '+(d||'d3')+'">'+sv(ic,16,c)+'<div><h4>'+ti+'</h4><p>'+bo+'</p></div></div>';}
+function chips(label,items,hint,d){return '<div class="field an '+(d||'d2')+'"><div class="flab">'+label+'</div><div class="chipwrap">'+items.map(function(x){return '<div class="chip'+(x[1]?' on':'')+'">'+x[0]+'</div>';}).join('')+'</div>'+(hint?'<div class="fhint">'+hint+'</div>':'')+'</div>';}
+
+var COUNTRIES=[
+{n:'Pakistan',fl:'🇵🇰',pin:1},{n:'United Arab Emirates',fl:'🇦🇪',pin:1},{n:'Saudi Arabia',fl:'🇸🇦',pin:1},
+{n:'United Kingdom',fl:'🇬🇧',pin:1},{n:'United States',fl:'🇺🇸',pin:1},{n:'Canada',fl:'🇨🇦',pin:1},{n:'Australia',fl:'🇦🇺',pin:1},
+{n:'Qatar',fl:'🇶🇦'},{n:'Oman',fl:'🇴🇲'},{n:'Kuwait',fl:'🇰🇼'},{n:'Bahrain',fl:'🇧🇭'},{n:'Malaysia',fl:'🇲🇾'},
+{n:'Germany',fl:'🇩🇪'},{n:'Norway',fl:'🇳🇴'},{n:'Denmark',fl:'🇩🇰'},{n:'Italy',fl:'🇮🇹'},{n:'Spain',fl:'🇪🇸'},
+{n:'Turkey',fl:'🇹🇷'},{n:'South Africa',fl:'🇿🇦'},{n:'New Zealand',fl:'🇳🇿'},{n:'Ireland',fl:'🇮🇪'},{n:'France',fl:'🇫🇷'}];
+var CITIES=[
+{n:'Dubai',s:'United Arab Emirates',pin:1},{n:'Abu Dhabi',s:'United Arab Emirates',pin:1},{n:'Sharjah',s:'United Arab Emirates',pin:1},
+{n:'Ajman',s:'United Arab Emirates'},{n:'Al Ain',s:'United Arab Emirates'},{n:'Ras Al Khaimah',s:'United Arab Emirates'},
+{n:'Fujairah',s:'United Arab Emirates'},{n:'Umm Al Quwain',s:'United Arab Emirates'}];
+
+window.DATA={};
+window.filt=function(id){
+  var el=document.getElementById('q_'+id); if(!el) return;
+  var v=(el.value||'').toLowerCase().trim(),items=window.DATA[id],l=document.getElementById('l_'+id),h='';
+  var f=items.filter(function(x){return x.n.toLowerCase().indexOf(v)>-1||(x.s||'').toLowerCase().indexOf(v)>-1;});
+  if(!f.length){l.innerHTML='<div class="none">Nothing matches "'+v+'".<br>Try another spelling.</div>';return;}
+  if(!v) h+='<div class="sph">Most chosen</div>';
+  f.forEach(function(x,i){
+    if(!v&&i>0&&f[i-1].pin&&!x.pin) h+='<div class="sph">All</div>';
+    h+='<div class="sit" onclick="pick(\''+id+'\',this)">'+(x.fl?'<div class="fl">'+x.fl+'</div>':'')+'<div><div>'+x.n+'</div>'+(x.s?'<div class="sub2">'+x.s+'</div>':'')+'</div></div>';
+  });
+  l.innerHTML=h;
+};
+window.pick=function(id,el){document.getElementById('q_'+id).value=el.innerText.split('\n')[0];window.filt(id);};
+function picker(id,ph,label){
+  return '<div class="field an d2" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="flab">'+label+'</div>'
+  +'<div class="sheet"><div class="sbox">'+sv('search',16,'#7C5AE0')+'<input id="q_'+id+'" placeholder="'+ph+'" oninput="filt(\''+id+'\')" autocomplete="off"></div>'
+  +'<div class="slist" id="l_'+id+'"></div></div></div>';
+}
+window.rng=function(){
+  var a=+document.getElementById('rmin').value,b=+document.getElementById('rmax').value;
+  if(a>b){b=a;document.getElementById('rmax').value=b;}
+  document.getElementById('rlab').textContent=a+' to '+b+' years';
+  var n=Math.max(0,Math.round((b-a)*7.4+(a<26?14:0)-Math.abs(28-(a+b)/2)*2.6));
+  document.getElementById('rnum').textContent=n;
+  document.getElementById('rhint').textContent=n<8?'Narrow. Two more years usually adds nine profiles.':'A healthy range. Introductions will come steadily.';
+};
+
+var S=[
+{g:'Opening'},
+
+{id:'F1',t:'Welcome',c:'first open',body:
+ '<div class="welc">'+orb('heart','rose')
+ +'<div class="wh an d1">Nothing starts<br>without your family</div>'
+ +'<div class="wp an d2">Your wali reviews every introduction before it becomes a conversation. Not a setting you switch on — the first step, every time.</div>'
+ +'<div class="dots an d3"><div class="dt on"></div><div class="dt"></div></div></div>'
+ +foot([['f','Continue'],['t','Already have an account? &nbsp;<b>Sign in</b>']])},
+
+{id:'F2',t:'Welcome 2',c:'slide 2 of 2',body:
+ '<div class="welc">'+orb('shield')
+ +'<div class="wh an d1">You cannot<br>be browsed</div>'
+ +'<div class="wp an d2">You are not listed anywhere. Your details reach only families whose criteria you match, and your photos stay hidden until you say otherwise.</div>'
+ +'<div class="dots an d3"><div class="dt"></div><div class="dt on"></div></div></div>'
+ +foot([['f','Get started'],['t','Already have an account? &nbsp;<b>Sign in</b>']])},
+
+{id:'F3',t:'Phone',c:'no password',body:
+ nb(6)+'<div class="body">'
+ +q('Step 1 of 5','What is your<br>phone number?','We send a code. No password to remember.')
+ +'<div class="field an d2"><div class="flab">Mobile number</div><div class="inp focus"><span style="font-weight:800">🇵🇰 +92</span><input value="300 4417 206"></div><div class="fhint">Never shown to anyone on Mehram, at any stage.</div></div>'
+ +'</div>'+foot([['f','Send code']])},
+
+{id:'F4',t:'Code',c:'auto-reads SMS',body:
+ nb(12)+'<div class="body">'
+ +q('Step 1 of 5','Enter the code','Sent to +92 300 4417 206. <span style="color:#7C5AE0;font-weight:800">Change</span>')
+ +'<div class="otp an d2"><div class="ob">4</div><div class="ob">1</div><div class="ob">8</div><div class="ob f">2</div><div class="ob"></div><div class="ob"></div></div>'
+ +'<div class="fhint an d3" style="margin-top:12px">Resend in 0:24</div>'
+ +bn('mint','shield','Read automatically','On most phones you will not type anything.')
+ +'</div>'+foot([['d','Verifying…']])},
+
+{id:'F5',t:'Who is this for',c:'forks the flow',body:
+ nb(20)+'<div class="body">'
+ +q('Step 2 of 5','Who is this<br>account for?','')
+ +'<div class="field an d2"><div class="segr">'
+ +'<div class="sgb on"><div class="ic">'+sv('user',20,'#fff')+'</div><div><div class="t">For myself</div><div class="s">I am looking to marry</div></div></div>'
+ +'<div class="sgb"><div class="ic">'+sv('fam',20,'#7C5AE0')+'</div><div><div class="t">I am a wali</div><div class="s">Someone invited me</div></div></div>'
+ +'</div></div>'
+ +bn('ind','fam','A wali needs an invitation','They send you a link or a six-digit code.')
+ +'</div>'+foot([['f','Continue']])},
+
+{id:'F6',t:'Country — searchable',c:'filters the city list next',live:1,body:
+ nb(28,'Save')+'<div class="body">'
+ +q('Step 3 of 5','Which country<br>do you live in?','')
+ +picker('country','Search any country…','Country')
+ +'</div>'+foot([['f','Continue']])},
+
+{id:'F7',t:'City — filtered',c:'UAE selected → UAE cities only',live:1,body:
+ nb(34,'Save')+'<div class="body">'
+ +q('Step 3 of 5','Which city?','Shown as a city only. Never your area.')
+ +picker('city','Search cities in UAE…','City in United Arab Emirates')
+ +'</div>'+foot([['f','Continue']])},
+
+{id:'F8',t:'The essentials',c:'includes marital status',body:
+ nb(42)+'<div class="body"><div class="scrollarea">'
+ +q('Step 4 of 5','A little<br>about you','')
+ +'<div class="field an d1"><div class="flab">You are</div><div class="seg">'
+ +'<div class="sgb on"><div class="ic">'+sv('user',20,'#fff')+'</div><div class="t">Man</div></div>'
+ +'<div class="sgb"><div class="ic">'+sv('user',20,'#7C5AE0')+'</div><div class="t">Woman</div></div>'
+ +'</div><div class="fhint">Cannot be changed after verification.</div></div>'
+ +'<div class="field an d2"><div class="flab">Date of birth</div><div class="inp"><input value="21 January 1999"><span style="color:#A29CBB">▾</span></div><div class="fhint">You must be 18 or over.</div></div>'
+ +chips('Marital status',[['Never married',1],['Divorced',0],['Widowed',0]],'Families ask this first. Being upfront saves everyone time.','d3')
+ +chips('Sect',[['Sunni (Hanafi)',1],['Deobandi',0],['Barelvi',0],['Ahle Hadith',0],['Shia',0],['Other',0]],'','d4')
+ +'</div></div>'+foot([['f','See who matches me']])},
+
+{g:'The value moment'},
+
+{id:'F9',t:'Match reveal',c:'after 5 questions',body:
+ '<div class="body"><div class="q an" style="padding-top:22px"><div class="qk">Good news</div><div class="qh">We already have<br>people for you</div></div>'
+ +'<div class="live-c"><div class="lcn">142</div><div class="lcl">verified women in Dubai and Sharjah<br>match what you have told us</div>'
+ +'<div class="lcb"><div><div class="lcs">104</div><div class="lcsl">Sunni (Hanafi)</div></div><div><div class="lcs">24–30</div><div class="lcsl">Age range</div></div><div><div class="lcs">89</div><div class="lcsl">Have a wali</div></div></div></div>'
+ +'<div class="card an d3"><div class="pad"><h4>Finish your biodata to meet them</h4><p>About four minutes. Stop whenever you like — everything saves.</p></div></div>'
+ +'</div>'+foot([['f','Continue — 4 min left'],['t','Remind me tomorrow']])},
+
+{id:'F10',t:'Progress hub',c:'resumable',body:
+ nb(52,'Save')+'<div class="body"><div class="scrollarea">'
+ +q('','Almost there','Three sections left. Each takes about a minute.')
+ +'<div class="an d2" style="margin-top:12px">'
+ +'<div class="st"><div class="stn d">'+sv('check',14,'#fff',3.5)+'</div><div style="flex:1"><div class="stt">The basics</div><div class="sts">Done</div></div></div>'
+ +'<div class="st"><div class="stn n">1</div><div style="flex:1"><div class="stt">Education and work</div><div class="sts">4 questions</div></div><div class="stm">1 min</div></div>'
+ +'<div class="st"><div class="stn w">2</div><div style="flex:1"><div class="stt">Family and home</div><div class="sts">Families ask about this first</div></div><div class="stm">1 min</div></div>'
+ +'<div class="st"><div class="stn w">3</div><div style="flex:1"><div class="stt">In your words</div><div class="sts">Three short answers</div></div><div class="stm">2 min</div></div>'
+ +'</div></div></div>'+foot([['f','Continue']])},
+
+{id:'F11',t:'Family and home',c:'housing, siblings, parents',body:
+ nb(62,'Save')+'<div class="body"><div class="scrollarea">'
+ +q('Family and home','Your household','Families read this section before anything else.')
+ +chips('Housing',[['Owned house',1],['Owned flat',0],['Rented',0],['Family home',0]],'','d1')
+ +chips('After marriage',[['Joint family',1],['Separate home',0],['Not decided',0]],'','d2')
+ +'<div class="field an d3"><div class="flab">Siblings</div><div class="inp"><input value="2 brothers, 1 sister"><span style="color:#A29CBB">▾</span></div><div class="fhint">Add how many are married — families always ask.</div></div>'
+ +'<div class="field an d4"><div class="flab">Father&#39;s occupation</div><div class="inp"><input value="Retired, Pakistan Railways"></div></div>'
+ +'<div class="field an d4"><div class="flab">Mother&#39;s occupation</div><div class="inp"><input value="Homemaker"></div></div>'
+ +chips('Own a car',[['Yes',1],['No',0]],'','d5')
+ +'</div></div>'+foot([['f','Continue']])},
+
+{id:'F12',t:'Guided prompt',c:'replaces the empty box',body:
+ nb(72,'Save')+'<div class="body">'
+ +q('In your words','How would your<br>family describe you?','One or two sentences. This is the part families actually read.')
+ +'<div class="field an d2"><div class="inp" style="height:auto;padding:14px 15px;align-items:flex-start;min-height:106px;line-height:1.55;font-size:14.5px">Steady, a little stubborn, and the one everyone calls when something needs organising.</div>'
+ +'<div class="fhint">88 characters &middot; question 1 of 3</div></div>'
+ +'<div class="chipwrap an d3" style="margin-top:10px"><div class="chip">Show me an example</div></div>'
+ +bn('gold','alert','Leave out your workplace','Employer names, numbers and social handles are removed automatically.')
+ +'</div>'+foot([['f','Next question']])},
+
+{id:'F13',t:'Preferences — live count',c:'drag the slider',live:1,body:
+ nb(80,'Save')+'<div class="body">'
+ +q('Preferences','Who are you<br>hoping to meet?','Narrow is fine. It just means fewer introductions.')
+ +'<div class="field an d2"><div class="flab">Age range</div>'
+ +'<div class="srow"><span id="rlab">24 to 30 years</span></div>'
+ +'<input type="range" id="rmin" min="18" max="55" value="24" oninput="rng()">'
+ +'<div style="height:12px"></div>'
+ +'<input type="range" id="rmax" min="18" max="60" value="30" oninput="rng()"></div>'
+ +'<div class="live-c" style="padding:17px"><div class="lcn" id="rnum" style="font-size:38px">44</div><div class="lcl" id="rhint" style="font-size:12px">A healthy range. Introductions will come steadily.</div></div>'
+ +'</div>'+foot([['f','Continue']])},
+
+{g:'Photo, wali, verification, payment'},
+
+{id:'F14',t:'Photos — one required',c:'privacy on the same screen',body:
+ nb(86,'Later')+'<div class="body"><div class="scrollarea">'
+ +q('Your photos','Add one photo','One is enough. Two more are optional and most people add them later.')
+ +'<div class="ph3 an d1"><div class="phb req">'+sv('cam',24,'#7C5AE0',1.8)+'<div class="phl">Required</div></div>'
+ +'<div class="phb">'+sv('cam',24,'#B7ADD9',1.8)+'<div class="phl">Optional</div></div>'
+ +'<div class="phb">'+sv('cam',24,'#B7ADD9',1.8)+'<div class="phl">Optional</div></div></div>'
+ +chips('Who can see them',[['Nobody without my approval',1],['My wali decides',0],['Mutual proposals only',0],['Anyone who matches me',0]],'Screenshots are blocked in every option.','d2')
+ +'</div></div>'+foot([['f','Continue'],['t','I will add one later']])},
+
+{id:'F15',t:'Wali invite',c:'recommended, never blocking',body:
+ nb(90,'Later')+'<div class="body"><div class="scrollarea">'
+ +q('Your wali','Who will review<br>your proposals?','Nine of your 142 matches only accept proposals where a wali is registered.')
+ +'<div class="field an d1"><div class="flab">Their name</div><div class="inp"><input value="Imran Mian"></div></div>'
+ +chips('Relationship',[['Father',1],['Brother',0],['Uncle',0],['Grandfather',0],['Other',0]],'','d2')
+ +'</div></div>'+foot([['f','Invite on WhatsApp'],['o','Read him a code instead'],['t','Skip for now']])},
+
+{id:'F16',t:'Verification — CNIC optional',c:'phone and face required',body:
+ nb(95)+'<div class="body"><div class="scrollarea">'
+ +q('Verification','Nearly done','')
+ +'<div class="an d1" style="margin-top:10px">'
+ +'<div class="st"><div class="stn d">'+sv('check',14,'#fff',3.5)+'</div><div style="flex:1"><div class="stt">Phone number</div><div class="sts">Verified</div></div></div>'
+ +'<div class="st"><div class="stn n">2</div><div style="flex:1"><div class="stt">A scan of your face</div><div class="sts">Required. Takes 30 seconds.</div></div></div>'
+ +'<div class="st"><div class="stn w">3</div><div style="flex:1"><div class="stt">CNIC or passport</div><div class="sts">Optional</div></div><div class="stm">Optional</div></div>'
+ +'</div>'
+ +bn('gold','shield','Adding ID earns the verified badge','Families see it on your card, and verified profiles are shown first.','d2')
+ +bn('mint','lock','Documents are never shown to members','Reviewed once, then deleted from our systems.','d3')
+ +'</div></div>'+foot([['f','Scan my face'],['t','Add ID later']])},
+
+{id:'F17',t:'Payment — at the end',c:'after verification',body:
+ '<div class="body"><div class="scrollarea">'
+ +'<div class="q an" style="padding-top:20px"><div class="qk">Last step</div><div class="qh">142 people<br>are waiting</div><div class="qs">Membership unlocks your introductions. Three a day, chosen against your criteria.</div></div>'
+ +'<div class="price an d2"><div class="pn">PKR 4,000</div><div class="pl">One payment. No renewal, ever.</div></div>'
+ +bn('mint','shield','Refunded if we do not introduce you','No wali-approved introduction within 90 days and you get every rupee back.','d3')
+ +bn('ind','lock','Nobody can see you until you are ready','Paying does not list you anywhere.','d4')
+ +'</div></div>'+foot([['f','Become a member'],['t','What do I get?']])},
+
+{id:'F18',t:'Done',c:'onboarding complete',body:
+ '<div class="body"><div class="welc">'
+ +'<div class="cel">'+sv('check',38,'#22A87C',3)+'</div>'
+ +'<div class="wh an d1" style="font-size:25px">You are all set</div>'
+ +'<div class="wp an d2">Your first introduction arrives tomorrow morning. We will let you know.</div>'
+ +'<div class="card an d3" style="text-align:left"><div class="pad"><h4>While you wait</h4><p>Imran has not accepted his wali invitation yet. A quick reminder usually does it.</p></div></div>'
+ +'</div></div>'+foot([['f','Remind Imran'],['o','Go to Home']])},
+
+{g:'Edge states'},
+
+{id:'F19',t:'Wrong code',c:'otp failed',body:
+ nb(12)+'<div class="body">'
+ +q('Step 1 of 5','Enter the code','Sent to +92 300 4417 206.')
+ +'<div class="otp an d2"><div class="ob e">4</div><div class="ob e">1</div><div class="ob e">8</div><div class="ob e">2</div><div class="ob e">0</div><div class="ob e">1</div></div>'
+ +'<div class="ferr">'+sv('alert',14,'#A31C48')+'That code was not right. 2 attempts left.</div>'
+ +'<div class="fhint" style="margin-top:11px">Resend &middot; <span style="color:#7C5AE0;font-weight:800">Call me instead</span></div>'
+ +'</div>'+foot([['d','Continue']])},
+
+{id:'F20',t:'Under 18',c:'blocked at date of birth',body:
+ nb(42)+'<div class="body">'
+ +q('Step 4 of 5','A little<br>about you','')
+ +'<div class="field an d2"><div class="flab">Date of birth</div><div class="inp err"><input value="4 March 2010"><span style="color:#A29CBB">▾</span></div>'
+ +'<div class="ferr">'+sv('alert',14,'#A31C48')+'You must be 18 or over to use Mehram.</div></div>'
+ +bn('gold','alert','Entered it by mistake?','Tap the field and choose your real date of birth.')
+ +'</div>'+foot([['d','See who matches me']])},
+
+{id:'F21',t:'Nobody matches yet',c:'match_pool = 0',body:
+ '<div class="body"><div class="q an" style="padding-top:20px"><div class="qk">Being straight with you</div><div class="qh">Nobody in Multan<br>matches you yet</div></div>'
+ +'<div class="live-c an d2"><div class="lcn" style="font-size:40px">40</div><div class="lcl">families in Multan so far.<br>We would rather say so than show profiles that are not really there.</div></div>'
+ +'<div class="card an d3"><div class="pad"><h4>You have not been charged</h4><p>Finish your biodata and we will message you the day someone suitable joins.</p></div></div>'
+ +'</div>'+foot([['f','Finish my biodata'],['o','Search nearby cities too']])},
+
+{id:'F22',t:'Returning, half done',c:'reopened, incomplete',body:
+ '<div class="body"><div class="q an" style="padding-top:20px"><div class="qk">Welcome back</div><div class="qh">You were<br>almost done</div><div class="qs">Everything saved. Two sections left, about three minutes.</div></div>'
+ +'<div class="live-c an d2" style="padding:17px"><div class="lcn" style="font-size:36px">142</div><div class="lcl" style="font-size:12px">still match what you told us</div></div>'
+ +'<div class="an d3" style="margin-top:12px"><div class="st"><div class="stn n">1</div><div style="flex:1"><div class="stt">Family and home</div><div class="sts">Where you left off</div></div><div class="stm">1 min</div></div>'
+ +'<div class="st"><div class="stn w">2</div><div style="flex:1"><div class="stt">In your words</div></div><div class="stm">2 min</div></div></div>'
+ +'</div>'+foot([['f','Pick up where I left off']])},
+
+{id:'F23',t:'Offline',c:'no connection',body:
+ nb(62)+'<div class="body">'
+ +q('','No connection','Your answers are saved on this phone. Nothing is lost.')
+ +'<div class="card an d2"><div class="pad"><h4>We will send them when you are back</h4><p>Carry on filling in your biodata. It syncs by itself.</p></div></div>'
+ +bn('gold','clock','Last saved just now','6 of 9 sections stored on this device.')
+ +'</div>'+foot([['f','Carry on offline'],['o','Try again']])}
+];
+
+var out='',open=0;
+S.forEach(function(s){
+ if(s.g){if(open)out+='</div>';out+='<div class="grp">'+s.g+'</div><div class="row">';open=1;return;}
+ out+='<div class="item"><div class="cap"><div class="cid">'+s.id+'</div>'+(s.live?'<div class="live">Live</div>':'')+'<div class="ctitle">'+s.t+'</div></div><div class="ccond">'+s.c+'</div>'+
+ '<div class="phone"><div class="sb"><span>5:01</span><span>56%</span></div><div class="scr">'+s.body+'</div></div></div>';
+});
+if(open)out+='</div>';
+document.getElementById('out').innerHTML=out;
+window.DATA={country:COUNTRIES,city:CITIES};
+window.filt('country');window.filt('city');window.rng();
+</script>
+</body>
+</html>
