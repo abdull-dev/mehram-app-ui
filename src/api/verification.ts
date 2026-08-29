@@ -8,7 +8,11 @@
  */
 import { apiRequest } from './client';
 
-export type VerificationType = 'face' | 'cnic';
+export type VerificationType =
+  | 'SELFIE_LIVENESS'
+  | 'GOVERNMENT_ID'
+  | 'FAMILY'
+  | 'SCHOLAR_REFERENCE';
 export type VerificationStatus = 'pending' | 'approved' | 'rejected';
 
 export interface VerificationRecord {
@@ -18,29 +22,19 @@ export interface VerificationRecord {
   createdAt: string;
 }
 
-/**
- * Submit a face scan verification.
- * Pass the scan data / image URI returned by your face-scan SDK.
- */
-export async function submitFaceVerification(
-  scanData: string,
-): Promise<VerificationRecord> {
+/** Submit a face scan verification. Evidence upload is a later pass. */
+export async function submitFaceVerification(): Promise<VerificationRecord> {
   return apiRequest<VerificationRecord>('/verifications', {
     method: 'POST',
-    body: JSON.stringify({ type: 'face', scanData }),
+    body: JSON.stringify({ type: 'SELFIE_LIVENESS' }),
   });
 }
 
-/**
- * Submit a CNIC / passport document.
- * Pass the document image URI or a base64 string.
- */
-export async function submitCnicVerification(
-  documentUri: string,
-): Promise<VerificationRecord> {
+/** Submit a CNIC / passport document. Evidence upload is a later pass. */
+export async function submitCnicVerification(): Promise<VerificationRecord> {
   return apiRequest<VerificationRecord>('/verifications', {
     method: 'POST',
-    body: JSON.stringify({ type: 'cnic', documentUri }),
+    body: JSON.stringify({ type: 'GOVERNMENT_ID' }),
   });
 }
 

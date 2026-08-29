@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   Image,
@@ -26,7 +27,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
-import { uploadPhoto, deletePhoto, getMyProfile } from '../../api/profile';
+import {
+  uploadPhoto,
+  deletePhoto,
+  getMyProfile,
+  updatePhotoPrivacy,
+  PHOTO_PRIVACY_OPTIONS,
+  type PhotoVisibilityMode,
+} from '../../api/profile';
 
 // ─── animation ────────────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -94,14 +102,6 @@ interface SlotState {
 
 const EMPTY_SLOT: SlotState = { uri: null, photoId: null, uploading: false, error: false };
 
-// ─── privacy options ──────────────────────────────────────────────────────────
-const PRIVACY_OPTIONS = [
-  'Nobody without my approval',
-  'My wali decides',
-  'Mutual proposals only',
-  'Anyone who matches me',
-];
-
 // ─── component ────────────────────────────────────────────────────────────────
 interface PhotosScreenProps {
   onBack?: () => void;
@@ -117,7 +117,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
     { ...EMPTY_SLOT },
     { ...EMPTY_SLOT },
   ]);
-  const [privacy, setPrivacy] = useState(0);
+  const [privacyMode, setPrivacyMode] = useState<PhotoVisibilityMode>('NOBODY');
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
 
   const hasRequired = slots[0].uri !== null && !slots[0].uploading;
 
@@ -136,6 +137,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
   // ── load existing photos from API on mount ──────────────────────────────────
   useEffect(() => {
     getMyProfile().then(profile => {
+      const saved = profile.privacySettings?.photoVisibilityMode;
+      if (saved) setPrivacyMode(saved);
       if (!profile.photos?.length) return;
       setSlots(prev => {
         const next: [SlotState, SlotState, SlotState] = [
@@ -288,12 +291,12 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
           <Animated.View style={[styles.fieldBlock, riseStyle(chips.anim)]}>
             <Text style={styles.fieldLabel}>WHO CAN SEE THEM</Text>
             <View style={styles.chipsWrap}>
-              {PRIVACY_OPTIONS.map((option, i) => (
+              {PHOTO_PRIVACY_OPTIONS.map(option => (
                 <PrivacyChip
-                  key={option}
-                  label={option}
-                  selected={privacy === i}
-                  onPress={() => setPrivacy(i)}
+                  key={option.mode}
+                  label={option.chipLabel}
+                  selected={privacyMode === option.mode}
+                  onPress={() => setPrivacyMode(option.mode)}
                 />
               ))}
             </View>
@@ -306,8 +309,28 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
           <GradientButton
             label="Continue"
             variant={hasRequired ? 'primary' : 'disabled'}
-            loading={continueLoading}
-            onPress={hasRequired ? () => onContinue?.() : undefined}
+            loading={continueLoading || savingPrivacy}
+            onPress={
+              hasRequired
+                ? async () => {
+                    setSavingPrivacy(true);
+                    try {
+                      await updatePhotoPrivacy({
+                        photoVisibilityMode: privacyMode,
+                      });
+                      onContinue?.();
+                    } catch (err) {
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : 'Could not save photo privacy. Please try again.';
+                      Alert.alert('Could not save', msg);
+                    } finally {
+                      setSavingPrivacy(false);
+                    }
+                  }
+                : undefined
+            }
           />
         </View>
       </View>

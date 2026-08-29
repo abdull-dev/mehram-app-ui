@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -12,17 +13,18 @@ import { verifyPurchase, getEntitlement } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal, getProposalStats } from './src/api/proposals';
 import {
-  updateBio,
   updateLocation,
   updateEssentials,
   updateSect,
   updateFamilyBackground,
   updatePreferences,
+  updatePrompts,
   toGender,
   toMaritalStatus,
   toSect,
   parseDob,
 } from './src/api/profile';
+import { resumeFromOnboardingStep, stepNumberFor } from './src/onboarding/steps';
 import { type IntroductionProfile } from './src/components/introduction/IntroductionAvailableBlock';
 import { getAccessToken, getPendingEmail, getPendingPhone, savePendingEmail, savePendingPhone, clearTokens } from './src/storage/authStorage';
 import { useHomeSocket } from './src/hooks/useHomeSocket';
@@ -115,6 +117,22 @@ function navDirection(from: Screen, to: Screen): 'forward' | 'back' {
   return b >= a ? 'forward' : 'back';
 }
 
+function saveFailedMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Could not save. Please try again.';
+}
+
+function destinationForSavedStep(step: number): {
+  kind: 'complete' | 'home' | 'resume';
+  resumeAt?: Screen;
+} {
+  const outcome = resumeFromOnboardingStep(step);
+  if (outcome.kind === 'done') return { kind: 'complete' };
+  if (outcome.kind === 'home') return { kind: 'home' };
+  const screen = outcome.screen as Screen;
+  if (allSectionsDone(screen)) return { kind: 'resume', resumeAt: screen };
+  return { kind: 'home', resumeAt: screen };
+}
+
 // ─── slide transition wrapper ─────────────────────────────────────────────────
 const { width: W } = Dimensions.get('window');
 const SLIDE_DIST = W * 0.28;
@@ -191,9 +209,9 @@ export default function App() {
   // Toggle hasIntroductions to false to preview the "no profiles in your city" empty state.
   const [introductionAvailable, setIntroductionAvailable] = useState(false);
   const [hasIntroductions, setHasIntroductions] = useState(false);
-  // Candidate count shown on H12 — populated from GET /proposals/stats.
+  // Candidate count shown on H12 — populated from GET /matches/count.
   const [matchCount, setMatchCount] = useState(0);
-  // H16 hero stats — populated from GET /introductions/stats.
+  // H16 hero stats — populated from GET /matches/count.
   const [matchCriteria, setMatchCriteria]       = useState(0);
   const [reviewedThisWeek, setReviewedThisWeek] = useState(0);
   // Current introduction being shown on H16 — id used for skip/propose actions.
@@ -255,7 +273,7 @@ export default function App() {
   // the "X of Y" label; subsequent calls fetch 1 at a time.
   const loadNextIntroduction = useCallback((): Promise<void> => {
     const limit = isFirstIntroLoad.current ? 50 : 1;
-    return getIntroductions(limit, activeFiltersRef.current)
+    return getIntroductions(limit)
       .then(list => {
         if (isFirstIntroLoad.current) {
           setTotalIntroductions(list.length);
@@ -304,7 +322,7 @@ export default function App() {
   useEffect(() => {
     if (!introductionAvailable) return;
     loadNextIntroduction();
-    getHomeStats(activeFiltersRef.current)
+    getHomeStats()
       .then(stats => {
         setMatchCriteria(stats.matchCriteria);
         setReviewedThisWeek(stats.reviewedThisWeek);
@@ -320,7 +338,7 @@ export default function App() {
     setIntroductionIndex(1);
     setTotalIntroductions(null);
     loadNextIntroduction();
-    getHomeStats(activeFiltersRef.current)
+    getHomeStats()
       .then(stats => {
         setMatchCriteria(stats.matchCriteria);
         setReviewedThisWeek(stats.reviewedThisWeek);
@@ -332,7 +350,7 @@ export default function App() {
   // Re-fetch stats whenever the server signals a change via socket.
   useHomeSocket(() => {
     if (!introductionAvailable) return;
-    getHomeStats(activeFiltersRef.current)
+    getHomeStats()
       .then(stats => {
         setMatchCriteria(stats.matchCriteria);
         setReviewedThisWeek(stats.reviewedThisWeek);
@@ -403,30 +421,15 @@ export default function App() {
             await resolveHomeState();
             setScreen('Home');
           } else if (me.profile.onboardingStep) {
-            const step = me.profile.onboardingStep as Screen;
-
-            // F17 (payment) and F18 (done) mean the user finished all
-            // onboarding sections — determine the right home state via API.
-            if (step === 'F17' || step === 'F18') {
+            const dest = destinationForSavedStep(me.profile.onboardingStep);
+            if (dest.resumeAt) setResumeScreen(dest.resumeAt);
+            if (dest.kind === 'complete') {
               setOnboardingComplete(true);
               await resolveHomeState();
               setScreen('Home');
-              return;
-            }
-
-            // Skippable steps that sit before payment — advance past them
-            // so the screen is never shown again on restart.
-            const SKIP_TO_NEXT: Partial<Record<Screen, Screen>> = {
-              F15: 'F16', // Wali invite → verification
-              F16: 'F17', // Verification → payment (handled above)
-            };
-            const resumeTarget = SKIP_TO_NEXT[step] ?? step;
-            setResumeScreen(resumeTarget);
-            if (allSectionsDone(resumeTarget)) {
-              // All profile sections complete — resume at the target step.
-              setScreen(resumeTarget);
+            } else if (dest.kind === 'resume' && dest.resumeAt) {
+              setScreen(dest.resumeAt);
             } else {
-              // Profile still incomplete — Home shows H6.
               setScreen('Home');
             }
           } else {
@@ -458,10 +461,11 @@ export default function App() {
     const shouldSave =
       SCREEN_ORDER.includes(to) &&
       to !== 'F1' && to !== 'SignIn' && to !== 'Code' && to !== 'AccountVerification';
-    if (shouldSave) {
+    const stepNumber = stepNumberFor(to);
+    if (shouldSave && stepNumber != null) {
       setStepSaving(true);
       try {
-        await saveOnboardingStep(to);
+        await saveOnboardingStep(stepNumber);
         setResumeScreen(to);
       } catch {
         // non-blocking — continue navigation regardless
@@ -539,24 +543,17 @@ export default function App() {
                     setHasIntroductions(true);
                     navigate('Home');
                   } else if (me.profile.onboardingStep) {
-                    const step = me.profile.onboardingStep as Screen;
-                    if (step === 'F17' || step === 'F18') {
+                    const dest = destinationForSavedStep(me.profile.onboardingStep);
+                    if (dest.resumeAt) setResumeScreen(dest.resumeAt);
+                    if (dest.kind === 'complete') {
                       setOnboardingComplete(true);
                       setIntroductionAvailable(true);
                       setHasIntroductions(true);
                       navigate('Home');
+                    } else if (dest.kind === 'resume' && dest.resumeAt) {
+                      navigate(dest.resumeAt);
                     } else {
-                      const SKIP_TO_NEXT: Partial<Record<Screen, Screen>> = {
-                        F15: 'F16',
-                        F16: 'F17',
-                      };
-                      const resumeTarget = SKIP_TO_NEXT[step] ?? step;
-                      setResumeScreen(resumeTarget);
-                      if (allSectionsDone(resumeTarget)) {
-                        navigate(resumeTarget);
-                      } else {
-                        navigate('Home');
-                      }
+                      navigate('Home');
                     }
                   } else {
                     navigate('Home');
@@ -612,17 +609,17 @@ export default function App() {
                     setHasIntroductions(true);
                     navigate('Home');
                   } else if (me.profile.onboardingStep) {
-                    const step = me.profile.onboardingStep as Screen;
-                    if (step === 'F17' || step === 'F18') {
+                    const dest = destinationForSavedStep(me.profile.onboardingStep);
+                    if (dest.resumeAt) setResumeScreen(dest.resumeAt);
+                    if (dest.kind === 'complete') {
                       setOnboardingComplete(true);
                       setIntroductionAvailable(true);
                       setHasIntroductions(true);
                       navigate('Home');
+                    } else if (dest.kind === 'resume' && dest.resumeAt) {
+                      navigate(dest.resumeAt);
                     } else {
-                      const SKIP_TO_NEXT: Partial<Record<Screen, Screen>> = { F15: 'F16', F16: 'F17' };
-                      const target = SKIP_TO_NEXT[step] ?? step;
-                      setResumeScreen(target);
-                      navigate(allSectionsDone(target) ? target : 'Home');
+                      navigate('Home');
                     }
                   } else {
                     // Fresh user — start onboarding
@@ -725,7 +722,6 @@ export default function App() {
             onLocationDetected={coords => setLocationCoords(coords)}
             onContinue={c => {
               setCountry(c);
-              updateLocation(c.iso2).catch(() => {});
               navigateForward('F7');
             }}
             continueLoading={stepSaving}
@@ -743,7 +739,9 @@ export default function App() {
             onSave={() => console.log('Save')}
             onContinue={(city, coords) => {
               setObCity(city);
-              updateLocation(country.iso2, city, coords?.latitude, coords?.longitude).catch(() => {});
+              if (coords?.latitude != null && coords?.longitude != null) {
+                updateLocation(coords.latitude, coords.longitude).catch(() => {});
+              }
               navigateForward('F8');
             }}
             continueLoading={stepSaving}
@@ -755,21 +753,26 @@ export default function App() {
         return (
           <EssentialsScreen
             onBack={() => navigate('F7')}
-            onContinue={data => {
+            onContinue={async data => {
               setObSect(data.sect);
               setObMarital(data.maritalStatus);
               setUserName(data.name.split(' ')[0]);
-              updateEssentials({
-                fullName: data.name,
-                gender: toGender(data.gender as 'man' | 'woman'),
-                dateOfBirth: parseDob(data.dob),
-                maritalStatus: toMaritalStatus(data.maritalStatus),
-                occupation: data.occupation,
-                educationLevel: data.educationLevel,
-                heightCm: data.heightCm,
-              }).catch(() => {});
-              updateSect(toSect(data.sect)).catch(() => {});
-              navigateForward('F10');
+              try {
+                await updateEssentials({
+                  gender: toGender(data.gender as 'man' | 'woman'),
+                  dateOfBirth: parseDob(data.dob),
+                  maritalStatus: toMaritalStatus(data.maritalStatus),
+                  countryCode: country.iso2,
+                  ...(obCity ? { city: obCity } : {}),
+                  occupation: data.occupation,
+                  educationLevel: data.educationLevel,
+                  heightCm: data.heightCm,
+                });
+                await updateSect(toSect(data.sect));
+                await navigateForward('F10');
+              } catch (err) {
+                Alert.alert('Could not save', saveFailedMessage(err));
+              }
             }}
             continueLoading={stepSaving || undefined}
           />
@@ -792,9 +795,13 @@ export default function App() {
           <FamilyAndHomeScreen
             onBack={() => navigate('F10')}
             onSave={() => console.log('Save')}
-            onContinue={data => {
-              updateFamilyBackground(data).catch(() => {});
-              navigateForward('F12');
+            onContinue={async data => {
+              try {
+                await updateFamilyBackground(data);
+                await navigateForward('F12');
+              } catch (err) {
+                Alert.alert('Could not save', saveFailedMessage(err));
+              }
             }}
             continueLoading={stepSaving || undefined}
           />
@@ -806,9 +813,13 @@ export default function App() {
           <GuidedPromptScreen
             onBack={() => navigate('F11')}
             onSave={() => console.log('Save')}
-            onNext={text => {
-              updateBio(text).catch(() => {});
-              navigateForward('F13');
+            onNext={async text => {
+              try {
+                await updatePrompts({ familyDescription: text });
+                await navigateForward('F13');
+              } catch (err) {
+                Alert.alert('Could not save', saveFailedMessage(err));
+              }
             }}
             questionIndex={1}
             totalQuestions={3}
@@ -821,11 +832,15 @@ export default function App() {
       case 'F13':
         return (
           <PreferencesScreen
-            onContinue={({ narrow, ageMin, ageMax }) => {
+            onContinue={async ({ narrow, ageMin, ageMax }) => {
               setObAgeMin(ageMin);
               setObAgeMax(ageMax);
-              updatePreferences(ageMin, ageMax).catch(() => {});
-              navigateForward(narrow ? 'H11' : 'F14');
+              try {
+                await updatePreferences(ageMin, ageMax);
+                await navigateForward(narrow ? 'H11' : 'F14');
+              } catch (err) {
+                Alert.alert('Could not save', saveFailedMessage(err));
+              }
             }}
             onSave={() => console.log('Save')}
             continueLoading={stepSaving}
@@ -847,7 +862,8 @@ export default function App() {
         // Helper: advance the saved step to F16 in the background so that
         // on next app restart F15 is not shown again (it was already seen).
         const advancePastWali = () => {
-          saveOnboardingStep('F16').catch(() => {});
+          const n = stepNumberFor('F16');
+          if (n != null) saveOnboardingStep(n).catch(() => {});
           setResumeScreen('F16');
         };
         return (
@@ -913,7 +929,8 @@ export default function App() {
             onContinue={() => {
               // Save F17 to DB so F16 is never re-shown on restart
               // (handles both "Continue" and "Skip for now" paths).
-              saveOnboardingStep('F17').catch(() => {});
+              const n = stepNumberFor('F17');
+              if (n != null) saveOnboardingStep(n).catch(() => {});
               setResumeScreen('F17');
               setVerificationSubmittedAt(new Date());
               navigate('F17');
@@ -930,17 +947,18 @@ export default function App() {
             onPay={async () => {
               setPaying(true);
               try {
-                // TODO: replace the empty receipt string with the real IAP receipt
+                // TODO: replace the empty purchaseToken with the real IAP receipt
                 // from react-native-iap or RevenueCat before going to production.
                 const result = await verifyPurchase(
                   '',
-                  Platform.OS as 'ios' | 'android',
                   'mehram_membership',
+                  Platform.OS === 'android' ? 'android_iap' : 'ios_iap',
                 );
                 if (result.isEntitled) {
                   setPaymentFailed(false);
                   setUnderReviewPaid(true);
-                  saveOnboardingStep('F18').catch(() => {});
+                  const n = stepNumberFor('F18');
+                  if (n != null) saveOnboardingStep(n).catch(() => {});
                   navigate('F18');
                 } else {
                   setPaymentFailed(true);
@@ -956,7 +974,8 @@ export default function App() {
             onSkip={() => {
               // User verified but skipped payment → H8 (under review, unpaid)
               setUnderReviewUnpaid(true);
-              saveOnboardingStep('F18').catch(() => {});
+              const n = stepNumberFor('F18');
+              if (n != null) saveOnboardingStep(n).catch(() => {});
               navigate('F18');
             }}
             onWhatDoIGet={() => console.log('What do I get?')}
@@ -1197,7 +1216,7 @@ export default function App() {
             onRefresh={async () => {
               await Promise.all([
                 loadNextIntroduction(),
-                getHomeStats(activeFiltersRef.current)
+                getHomeStats()
                   .then(stats => {
                     setMatchCriteria(stats.matchCriteria);
                     setReviewedThisWeek(stats.reviewedThisWeek);

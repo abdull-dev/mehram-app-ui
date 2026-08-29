@@ -187,7 +187,12 @@ export function FamilyAndHomeScreen({
         setOwnsCar(fb.hasVehicle ? 0 : 1);
       }
       if (fb.familyType) {
-        const idx = FAMILY_TYPE_OPTIONS.indexOf(fb.familyType);
+        const fromApi: Record<string, string> = {
+          NUCLEAR: 'Nuclear',
+          JOINT: 'Joint',
+        };
+        const label = fromApi[fb.familyType] ?? fb.familyType;
+        const idx = FAMILY_TYPE_OPTIONS.indexOf(label);
         if (idx !== -1) setFamilyType(idx);
       }
     }).catch(() => {});

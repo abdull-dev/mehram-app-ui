@@ -27,13 +27,11 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { ApiError } from '../../api/client';
 import {
   createWaliInvite,
-  getLinkedWali,
-  getWaliStats,
+  getFamilyStatus,
   removeWali,
   type WaliInvite,
   type WaliMember,
   type WaliRelationship,
-  type WaliStats,
 } from '../../api/wali';
 
 import { WaliResignedScreen }     from './WaliResignedScreen';
@@ -171,7 +169,7 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
     setInviting(true);
     setError(null);
     try {
-      const result = await createWaliInvite();
+      const result = await createWaliInvite(relationship);
       setInvite(result);
       return result;
     } catch (err) {
@@ -319,26 +317,17 @@ export function FamilyScreen({
   const [loading, setLoading]         = useState(true);
   const [loadError, setLoadError]     = useState<string | null>(null);
   const [member, setMember]           = useState<WaliMember | null>(null);
-  const [stats, setStats]             = useState<WaliStats | null>(null);
 
   // Fetch on mount (and after change-wali)
   const loadWali = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const linked = await getLinkedWali();
-      setMember(linked);
-      if (linked) {
-        const s = await getWaliStats(linked.membershipId);
-        setStats(s);
-      } else {
-        setStats(null);
-      }
+      setMember(await getFamilyStatus());
     } catch (err) {
       // Keep member null (no wali found) but surface load errors so the
       // invite screen doesn't silently appear when the issue is auth/network.
       setMember(null);
-      setStats(null);
       if (err instanceof ApiError) {
         setLoadError(err.message);
       } else {
@@ -367,7 +356,6 @@ export function FamilyScreen({
       // Proceed optimistically — the membership may already be gone
     }
     setMember(null);
-    setStats(null);
   }
 
   // ── external overrides ──────────────────────────────────────────────────────
@@ -429,8 +417,7 @@ export function FamilyScreen({
       waliInitials={getInitials(name)}
       waliRelationship={member.relationship}
       joinedLabel={formatJoinDate(member.joinedAt)}
-      proposalsAwaitingReview={stats?.proposalsAwaitingReview ?? 0}
-      longestWaitDays={stats?.longestWaitDays ?? 0}
+      proposalsAwaitingReview={member.proposalsAwaitingReview}
       onBack={onBack}
       onChangeWali={handleChangeWali}
     />

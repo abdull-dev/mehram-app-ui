@@ -1,7 +1,7 @@
 /**
  * @deprecated This module has been removed.
  *
- * /matches endpoints no longer exist. Use:
- *   - src/api/introductions.ts  →  getIntroductions, getIntroduction, skipIntroduction
- *   - src/api/proposals.ts      →  getProposalStats, sendProposal, getProposals
+ * Matching calls live in:
+ *   - src/api/introductions.ts  →  GET /matches/discover, /matches/candidates/:id, POST /matches/skip/:id
+ *   - src/api/proposals.ts      →  GET /matches/count, /matches/interests, POST/DELETE /matches/interest/:id
  */

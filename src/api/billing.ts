@@ -7,7 +7,7 @@
  */
 import { apiRequest } from './client';
 
-export type StorePlatform = 'ios' | 'android';
+export type PurchaseSource = 'ios_iap' | 'android_iap' | 'card' | 'local_wallet';
 
 export interface EntitlementResponse {
   isEntitled: boolean;
@@ -21,18 +21,18 @@ export interface PurchaseResponse {
 /**
  * Verify a completed in-app purchase with the server.
  *
- * @param receipt    The receipt string from the App Store / Play Store.
- * @param platform   'ios' | 'android'
- * @param productId  The product ID purchased (e.g. 'mehram_membership_pkr4000').
+ * @param purchaseToken  Store receipt / purchase token.
+ * @param productId      The product ID purchased (e.g. 'mehram_membership_pkr4000').
+ * @param source         'ios_iap' | 'android_iap' | …
  */
 export async function verifyPurchase(
-  receipt: string,
-  platform: StorePlatform,
+  purchaseToken: string,
   productId: string,
+  source: PurchaseSource = 'ios_iap',
 ): Promise<PurchaseResponse> {
   return apiRequest<PurchaseResponse>('/billing/verify-purchase', {
     method: 'POST',
-    body: JSON.stringify({ receipt, platform, productId }),
+    body: JSON.stringify({ purchaseToken, productId, source }),
   });
 }
 

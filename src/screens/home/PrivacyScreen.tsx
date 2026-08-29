@@ -5,8 +5,9 @@
  * shows always-on privacy protections.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StatusBar,
@@ -16,6 +17,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import {
+  getMyProfile,
+  updatePhotoPrivacy,
+  PHOTO_PRIVACY_OPTIONS,
+  type PhotoVisibilityMode,
+} from '../../api/profile';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -168,27 +175,20 @@ interface PrivacyScreenProps {
 // ─── screen ───────────────────────────────────────────────────────────────────
 export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
   const insets = useSafeAreaInsets();
-  const [selectedOption, setSelectedOption] = useState(0);
+  const [mode, setMode] = useState<PhotoVisibilityMode>('NOBODY');
   const [pauseRequests, setPauseRequests] = useState(false);
 
-  const photoOptions = [
-    {
-      title: 'Nobody until I approve each request',
-      subtitle: 'You are asked every time. You and he see each other at the same moment.',
-    },
-    {
-      title: 'Anyone my wali has approved',
-      subtitle: 'Imran decides on your behalf. You are still told each time.',
-    },
-    {
-      title: 'Anyone I have accepted a proposal from',
-      subtitle: 'Shared automatically once a proposal is mutual.',
-    },
-    {
-      title: 'Everyone who matches my criteria',
-      subtitle: 'Shown on your card straight away. Fewer steps, less privacy.',
-    },
-  ];
+  useEffect(() => {
+    getMyProfile()
+      .then(profile => {
+        const privacy = profile.privacySettings;
+        if (privacy?.photoVisibilityMode) setMode(privacy.photoVisibilityMode);
+        if (privacy?.photoRequestsPaused != null) {
+          setPauseRequests(privacy.photoRequestsPaused);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -215,13 +215,26 @@ export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
 
         <SectionHeader label="Who can see your photos" />
         <View style={[styles.card, styles.cardOverflow]}>
-          {photoOptions.map((opt, i) => (
-            <View key={i} style={i > 0 && styles.optDivider}>
+          {PHOTO_PRIVACY_OPTIONS.map((opt, i) => (
+            <View key={opt.mode} style={i > 0 && styles.optDivider}>
               <RadioOption
-                selected={selectedOption === i}
+                selected={mode === opt.mode}
                 title={opt.title}
                 subtitle={opt.subtitle}
-                onPress={() => setSelectedOption(i)}
+                onPress={() => {
+                  const previous = mode;
+                  setMode(opt.mode);
+                  updatePhotoPrivacy({ photoVisibilityMode: opt.mode }).catch(
+                    err => {
+                      setMode(previous);
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : 'Could not save. Please try again.';
+                      Alert.alert('Could not save', msg);
+                    },
+                  );
+                }}
               />
             </View>
           ))}
@@ -253,7 +266,21 @@ export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
               <Text style={styles.lit}>Pause photo requests</Text>
               <Text style={styles.lis}>Stop receiving new requests for now</Text>
             </View>
-            <Toggle on={pauseRequests} onToggle={() => setPauseRequests(v => !v)} />
+            <Toggle
+              on={pauseRequests}
+              onToggle={() => {
+                const next = !pauseRequests;
+                setPauseRequests(next);
+                updatePhotoPrivacy({ photoRequestsPaused: next }).catch(err => {
+                  setPauseRequests(!next);
+                  const msg =
+                    err instanceof Error
+                      ? err.message
+                      : 'Could not save. Please try again.';
+                  Alert.alert('Could not save', msg);
+                });
+              }}
+            />
           </View>
         </View>
 

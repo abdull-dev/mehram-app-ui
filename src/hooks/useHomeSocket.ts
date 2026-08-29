@@ -17,8 +17,8 @@ import { getAccessToken } from '../storage/authStorage';
 /** Base host — no path, no /v1 */
 const SOCKET_HOST =
   Platform.OS === 'android'
-    ? 'http://10.0.2.2:3001'
-    : 'http://localhost:3001';
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
 export function useHomeSocket(onStale: () => void): void {
   const onStaleRef = useRef(onStale);

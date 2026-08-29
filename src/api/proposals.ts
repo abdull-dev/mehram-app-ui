@@ -1,7 +1,7 @@
 /**
  * Proposals API
  *
- * Replaces the old /matches/stats endpoint and adds proposal actions.
+ * Candidate count, send/list/withdraw map to /matches/interest(s) and /matches/count.
  *
  * HomeScreen (H12):
  *  - getProposalStats() → candidate count for the "become a member" gate
@@ -29,7 +29,7 @@ export interface ProposalResult {
 }
 
 /**
- * A sent proposal returned by GET /proposals.
+ * A sent proposal returned by GET /matches/interests?direction=sent.
  * Extends the Introduction profile snapshot with proposal-specific fields.
  */
 export type ProposalStage =
@@ -83,10 +83,11 @@ export interface ReceivedProposal {
 /**
  * Get proposal statistics for the current user.
  * Used on HomeScreen H12 to show "X profiles are waiting".
- * Replaces GET /matches/stats.
+ * Maps to GET /matches/count.
  */
 export async function getProposalStats(): Promise<ProposalStats> {
-  return apiRequest<ProposalStats>('/proposals/stats');
+  const { count } = await apiRequest<{ count: number }>('/matches/count');
+  return { candidateCount: count };
 }
 
 /**
@@ -95,9 +96,9 @@ export async function getProposalStats(): Promise<ProposalStats> {
  * @param note Optional personal note attached to the proposal (max 300 chars).
  */
 export async function sendProposal(introductionId: string, note?: string): Promise<ProposalResult> {
-  return apiRequest<ProposalResult>('/proposals', {
+  return apiRequest<ProposalResult>(`/matches/interest/${introductionId}`, {
     method: 'POST',
-    body: JSON.stringify({ introductionId, ...(note?.trim() ? { note: note.trim() } : {}) }),
+    body: JSON.stringify(note?.trim() ? { waliNote: note.trim() } : {}),
   });
 }
 
@@ -105,14 +106,14 @@ export async function sendProposal(introductionId: string, note?: string): Promi
  * List all proposals sent by the current user.
  */
 export async function getProposals(): Promise<SentProposal[]> {
-  return apiRequest<SentProposal[]>('/proposals');
+  return apiRequest<SentProposal[]>('/matches/interests?direction=sent');
 }
 
 /**
  * List all proposals received by the current user.
  */
 export async function getReceivedProposals(): Promise<ReceivedProposal[]> {
-  return apiRequest<ReceivedProposal[]>('/proposals/received');
+  return apiRequest<ReceivedProposal[]>('/matches/interests?direction=received');
 }
 
 /**
@@ -121,5 +122,5 @@ export async function getReceivedProposals(): Promise<ReceivedProposal[]> {
  * After withdrawal, their profile reappears in the discovery pool.
  */
 export async function withdrawProposal(toUserId: string): Promise<void> {
-  return apiRequest<void>(`/proposals/${toUserId}`, { method: 'DELETE' });
+  return apiRequest<void>(`/matches/interest/${toUserId}`, { method: 'DELETE' });
 }
