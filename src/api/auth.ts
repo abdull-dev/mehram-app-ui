@@ -7,7 +7,7 @@
  *  3. resendOtp(phone)        → re-sends SMS when timer expires
  *
  * Wali flow:
- *  - redeemWaliInvite(code)   → wali redeems 6-digit invite code
+ *  - redeemWaliInvite({ inviteCode, email, password, fullName }) → POST /auth/parent/redeem
  */
 import { apiRequest } from './client';
 import { API_BASE_URL } from './config';
@@ -30,7 +30,7 @@ export interface MeResponse {
     phone: string | null;
     language: string | null;
     onboardingCompleted: boolean;
-    onboardingStep: string | null;
+    onboardingStep: number;
   };
   family: unknown;
 }
@@ -100,8 +100,8 @@ export async function getMe(): Promise<MeResponse> {
   return apiRequest<MeResponse>('/auth/me');
 }
 
-/** Persist the current onboarding screen to the DB so the app can resume after a restart. */
-export async function saveOnboardingStep(step: string): Promise<void> {
+/** Persist the furthest onboarding screen (0–40) so the app can resume after a restart. */
+export async function saveOnboardingStep(step: number): Promise<void> {
   return apiRequest('/auth/onboarding-step', {
     method: 'PATCH',
     body: JSON.stringify({ step }),
@@ -130,10 +130,15 @@ export async function refreshTokens(refreshToken: string): Promise<AuthResponse>
  * Wali redeems the 6-digit code that the seeker read out / shared.
  * Call this from the wali's onboarding after they enter the code.
  */
-export async function redeemWaliInvite(inviteCode: string): Promise<AuthResponse> {
-  const result = await apiRequest<AuthResponse>('/auth/wali/redeem', {
+export async function redeemWaliInvite(payload: {
+  inviteCode: string;
+  email: string;
+  password: string;
+  fullName: string;
+}): Promise<AuthResponse> {
+  const result = await apiRequest<AuthResponse>('/auth/parent/redeem', {
     method: 'POST',
-    body: JSON.stringify({ inviteCode }),
+    body: JSON.stringify(payload),
   });
   await saveTokens(result.session.accessToken, result.session.refreshToken);
   return result;
@@ -163,7 +168,7 @@ export async function registerUser(payload: RegisterPayload): Promise<PendingCon
 
 /** Verify the 6-digit email OTP. Returns auth tokens on success. */
 export async function verifyEmailOtp(email: string, otp: string): Promise<AuthResponse> {
-  const result = await apiRequest<AuthResponse>('/auth/verify-email-otp', {
+  const result = await apiRequest<AuthResponse>('/auth/verify-otp', {
     method: 'POST',
     body: JSON.stringify({ email, otp }),
   });
@@ -173,7 +178,7 @@ export async function verifyEmailOtp(email: string, otp: string): Promise<AuthRe
 
 /** Resend the email OTP. */
 export async function resendEmailOtp(email: string): Promise<void> {
-  return apiRequest('/auth/resend-email-otp', {
+  return apiRequest('/auth/resend-verification', {
     method: 'POST',
     body: JSON.stringify({ email }),
   });

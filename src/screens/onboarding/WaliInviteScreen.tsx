@@ -275,7 +275,7 @@ export function WaliInviteScreen({
               if (!requireName() || inviting) return;
               setInviting(true);
               try {
-                await createWaliInvite(name.trim(), relationship as WaliRelationship);
+                await createWaliInvite(relationship as WaliRelationship);
                 onInviteWhatsApp?.(name.trim(), relationship);
               } catch {
                 onInviteWhatsApp?.(name.trim(), relationship);
@@ -293,7 +293,7 @@ export function WaliInviteScreen({
               if (!requireName() || inviting) return;
               setInviting(true);
               try {
-                await createWaliInvite(name.trim(), relationship as WaliRelationship);
+                await createWaliInvite(relationship as WaliRelationship);
                 onReadCode?.(name.trim(), relationship);
               } catch {
                 onReadCode?.(name.trim(), relationship);

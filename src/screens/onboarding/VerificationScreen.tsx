@@ -286,7 +286,7 @@ export function VerificationScreen({
         onAction={async () => {
           // On retry: submit a face verification record, then notify parent
           try {
-            await submitFaceVerification('retry');
+            await submitFaceVerification();
           } catch {
             // non-blocking
           }
@@ -305,7 +305,7 @@ export function VerificationScreen({
         onAction={async () => {
           // On upload: submit a CNIC verification record, then notify parent
           try {
-            await submitCnicVerification('upload');
+            await submitCnicVerification();
           } catch {
             // non-blocking
           }
@@ -320,7 +320,7 @@ export function VerificationScreen({
   const primaryLabel = faceDone ? 'Continue' : 'Scan my face';
   const primaryAction = faceDone ? onContinue : async () => {
     try {
-      await submitFaceVerification('scan');
+      await submitFaceVerification();
     } catch {
       // non-blocking — let parent handle the failed state
     }

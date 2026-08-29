@@ -2,49 +2,61 @@
  * Wali (guardian) API
  *
  * Seeker-side:
- *  - createWaliInvite()      → POST /wali/invite — generates invitation code + deep link
- *  - getLinkedWali()         → GET /wali/members — returns linked wali or null
- *  - getWaliStats()          → GET /wali/members/:id/stats — proposalsAwaitingReview, longestWaitDays
- *  - removeWali()            → DELETE /wali/members/:id — removes current wali
+ *  - createWaliInvite()      → POST /family/invitations
+ *  - getFamilyStatus()       → GET /family/status (wali + stats in one call)
+ *  - removeWali()            → DELETE /family/memberships/:id
  *
  * Wali-side:
- *  - submitInvitationCode()  → POST /wali/invitation-code — wali enters the code to link
- *  - getWaliQueue()          → GET /wali/queue — matches + pending interests to review
- *  - approveMatch()          → POST /wali/queue/:matchId/approve
- *  - rejectMatch()           → POST /wali/queue/:matchId/reject
+ *  - submitInvitationCode()  → POST /family/invitations/redeem-code
+ *  - getWaliQueue()          → GET /family/wali/queue
+ *  - approveMatch()          → POST /family/wali/proposals/:id/approve
+ *  - rejectMatch()           → POST /family/wali/proposals/:id/decline
  */
 import { apiRequest } from './client';
 
-// Relationship label shown in UI (not stored server-side — server always uses WALI role)
+// Relationship label shown in UI (not stored server-side — mapped to FamilyRelationship)
 export type WaliRelationship = 'Father' | 'Brother' | 'Uncle' | 'Grandfather' | 'Other';
+
+type FamilyRelationship = 'FATHER' | 'MOTHER' | 'WALI' | 'BROTHER' | 'SISTER' | 'OTHER';
+
+const RELATIONSHIP_MAP: Record<WaliRelationship, FamilyRelationship> = {
+  Father: 'FATHER',
+  Brother: 'BROTHER',
+  Uncle: 'OTHER',
+  Grandfather: 'OTHER',
+  Other: 'OTHER',
+};
+
+function toFamilyRelationship(label?: WaliRelationship): FamilyRelationship {
+  return label ? RELATIONSHIP_MAP[label] : 'FATHER';
+}
+
+function whatsappShareUrl(code: string): string {
+  return `https://wa.me/?text=${encodeURIComponent(code)}`;
+}
 
 // ─── shapes ───────────────────────────────────────────────────────────────────
 
-/** Response from POST /wali/invite */
+/** Response from POST /family/invitations, mapped to the UI shape */
 export interface WaliInvite {
-  invitationCode: string;   // 10-char code to share with the wali
-  inviteLink: string;       // Deep link — opens the wali onboarding screen with code pre-filled
-  expiresAt: string;        // ISO timestamp
+  invitationCode: string;
+  inviteLink: string;
+  expiresAt: string;
 }
 
-/** Response from GET /wali/members */
+/** Linked wali from GET /family/status when state is ACTIVE */
 export interface WaliMember {
   membershipId: string;
   relationship: string;
-  joinedAt: string;         // ISO timestamp
+  joinedAt: string;
   wali: {
     id: string;
     fullName: string;
   };
-}
-
-/** Response from GET /wali/members/:id/stats */
-export interface WaliStats {
   proposalsAwaitingReview: number;
-  longestWaitDays: number;
 }
 
-/** Item in the wali queue (GET /wali/queue) */
+/** Item in the wali queue (GET /family/wali/queue) */
 export type WaliQueueItem =
   | {
       type: 'MATCH';
@@ -74,42 +86,74 @@ export interface WaliQueueProfile {
   photoUrl: string | null;
 }
 
+interface FamilyStatusResponse {
+  state: 'NONE' | 'INVITED' | 'ACTIVE' | 'EXPIRED';
+  wali: {
+    userId: string;
+    membershipId: string;
+    name: string;
+    relationship: string;
+    joinedAt: string;
+    stats: {
+      proposalsAwaiting: number;
+      proposalsReviewed: number;
+      conversationsActive: number;
+    };
+  } | null;
+}
+
+interface InvitationRow {
+  inviteCode: string;
+  expiresAt: string;
+}
+
 // ─── seeker-side ──────────────────────────────────────────────────────────────
 
 /**
  * Create a wali invitation.
- * Returns the invitation code (to share with the wali) and a deep link.
+ * Returns the invitation code and a WhatsApp share URL (pre-filled with the code).
  * Errors with 409 if the seeker already has an active wali.
  */
-export async function createWaliInvite(): Promise<WaliInvite> {
-  return apiRequest<WaliInvite>('/wali/invite', {
+export async function createWaliInvite(
+  relationship: WaliRelationship = 'Father',
+): Promise<WaliInvite> {
+  const row = await apiRequest<InvitationRow>('/family/invitations', {
     method: 'POST',
-    body: JSON.stringify({ relationship: 'WALI', method: 'LINK' }),
+    body: JSON.stringify({
+      relationship: toFamilyRelationship(relationship),
+      method: 'LINK',
+    }),
   });
+  return {
+    invitationCode: row.inviteCode,
+    inviteLink: whatsappShareUrl(row.inviteCode),
+    expiresAt: row.expiresAt,
+  };
 }
 
 /**
- * Get the seeker's currently linked wali.
- * Returns null if no wali is linked yet.
+ * Family tab state. Returns the linked wali (with awaiting-review count) or null.
  */
-export async function getLinkedWali(): Promise<WaliMember | null> {
-  return apiRequest<WaliMember | null>('/wali/members');
+export async function getFamilyStatus(): Promise<WaliMember | null> {
+  const status = await apiRequest<FamilyStatusResponse>('/family/status');
+  if (status.state !== 'ACTIVE' || !status.wali) return null;
+  return {
+    membershipId: status.wali.membershipId,
+    relationship: status.wali.relationship,
+    joinedAt: status.wali.joinedAt,
+    wali: {
+      id: status.wali.userId,
+      fullName: status.wali.name,
+    },
+    proposalsAwaitingReview: status.wali.stats.proposalsAwaiting,
+  };
 }
 
 /**
- * Get stats for the seeker's wali card.
- * Call after getLinkedWali() succeeds — pass the membershipId from its response.
- */
-export async function getWaliStats(memberId: string): Promise<WaliStats> {
-  return apiRequest<WaliStats>(`/wali/members/${memberId}/stats`);
-}
-
-/**
- * Remove the current wali. Must call getLinkedWali() first to obtain memberId.
- * After this, getLinkedWali() will return null and a new wali can be invited.
+ * Remove the current wali. Pass membershipId from getFamilyStatus().
  */
 export async function removeWali(memberId: string): Promise<void> {
-  return apiRequest(`/wali/members/${memberId}`, { method: 'DELETE' });
+  return apiRequest(`/family/memberships/${memberId}`, { method: 'DELETE' });
 }
 
 // ─── wali-side ────────────────────────────────────────────────────────────────
@@ -121,9 +165,9 @@ export async function removeWali(memberId: string): Promise<void> {
 export async function submitInvitationCode(
   invitationCode: string,
 ): Promise<{ membershipId: string; seekerName: string }> {
-  return apiRequest('/wali/invitation-code', {
+  return apiRequest('/family/invitations/redeem-code', {
     method: 'POST',
-    body: JSON.stringify({ invitationCode }),
+    body: JSON.stringify({ inviteCode: invitationCode }),
   });
 }
 
@@ -134,7 +178,7 @@ export async function submitInvitationCode(
  * sorted by createdAt descending.
  */
 export async function getWaliQueue(): Promise<WaliQueueItem[]> {
-  return apiRequest<WaliQueueItem[]>('/wali/queue');
+  return apiRequest<WaliQueueItem[]>('/family/wali/queue');
 }
 
 /**
@@ -142,7 +186,7 @@ export async function getWaliQueue(): Promise<WaliQueueItem[]> {
  * When both sides approve, chat unlocks automatically.
  */
 export async function approveMatch(matchId: string): Promise<void> {
-  return apiRequest(`/wali/queue/${matchId}/approve`, { method: 'POST' });
+  return apiRequest(`/family/wali/proposals/${matchId}/approve`, { method: 'POST' });
 }
 
 /**
@@ -150,5 +194,5 @@ export async function approveMatch(matchId: string): Promise<void> {
  * This is permanent — the match is set to UNMATCHED.
  */
 export async function rejectMatch(matchId: string): Promise<void> {
-  return apiRequest(`/wali/queue/${matchId}/reject`, { method: 'POST' });
+  return apiRequest(`/family/wali/proposals/${matchId}/decline`, { method: 'POST' });
 }

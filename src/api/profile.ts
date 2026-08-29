@@ -2,11 +2,11 @@
  * Profile API
  *
  * Covers all profile-building steps during onboarding:
- *   F6  CountryScreen       → updateLocation
- *   F7  CityScreen          → updateLocation
+ *   F6  CountryScreen       → held in app state, sent on F8 PUT
+ *   F7  CityScreen          → updateLocation(lat, lng) when GPS exists
  *   F8  EssentialsScreen    → updateEssentials + updateSect
  *   F11 FamilyAndHomeScreen → updateFamilyBackground
- *   F12 GuidedPromptScreen  → updateBio
+ *   F12 GuidedPromptScreen  → updatePrompts
  *   F13 PreferencesScreen   → updatePreferences
  *   F14 PhotosScreen        → uploadPhoto + deletePhoto + updatePhotoPrivacy
  */
@@ -36,6 +36,52 @@ export interface ReligiousProfile {
   religiosityLevel?: string | null;
 }
 
+export type PhotoVisibilityMode =
+  | 'NOBODY'
+  | 'WALI_APPROVED'
+  | 'MUTUAL_ACCEPTED'
+  | 'OPEN';
+
+export interface PrivacySettings {
+  photoVisibilityMode: PhotoVisibilityMode;
+  photoRequestsPaused: boolean;
+  hideLocation?: boolean;
+  hideFromDiscovery?: boolean;
+  hideDistance?: boolean;
+}
+
+export const PHOTO_PRIVACY_OPTIONS: Array<{
+  mode: PhotoVisibilityMode;
+  chipLabel: string;
+  title: string;
+  subtitle: string;
+}> = [
+  {
+    mode: 'NOBODY',
+    chipLabel: 'Nobody without my approval',
+    title: 'Nobody until I approve each request',
+    subtitle: 'You are asked every time. You and he see each other at the same moment.',
+  },
+  {
+    mode: 'WALI_APPROVED',
+    chipLabel: 'My wali decides',
+    title: 'Anyone my wali has approved',
+    subtitle: 'Imran decides on your behalf. You are still told each time.',
+  },
+  {
+    mode: 'MUTUAL_ACCEPTED',
+    chipLabel: 'Mutual proposals only',
+    title: 'Anyone I have accepted a proposal from',
+    subtitle: 'Shared automatically once a proposal is mutual.',
+  },
+  {
+    mode: 'OPEN',
+    chipLabel: 'Anyone who matches me',
+    title: 'Everyone who matches my criteria',
+    subtitle: 'Shown on your card straight away. Fewer steps, less privacy.',
+  },
+];
+
 export interface MyProfile {
   id: string;
   gender: string | null;
@@ -49,25 +95,19 @@ export interface MyProfile {
   familyBackground?: FamilyBackground | null;
   religiousProfile?: ReligiousProfile | null;
   partnerPreference?: { ageMin?: number | null; ageMax?: number | null } | null;
+  privacySettings?: PrivacySettings | null;
 }
 
-// ─── F6/F7 — Location ─────────────────────────────────────────────────────────
+// ─── F7 — Location (lat/lng only; country + city go on PUT /profile/me) ───────
 
-/** Save country (and optionally city + GPS coordinates) to the user's profile. */
+/** Save GPS coordinates. Country and city are not accepted on this endpoint. */
 export async function updateLocation(
-  countryCode: string,
-  city?: string,
-  latitude?: number,
-  longitude?: number,
+  latitude: number,
+  longitude: number,
 ): Promise<void> {
   return apiRequest('/profile/me/location', {
     method: 'PATCH',
-    body: JSON.stringify({
-      countryCode,
-      ...(city ? { city } : {}),
-      ...(latitude != null ? { latitude } : {}),
-      ...(longitude != null ? { longitude } : {}),
-    }),
+    body: JSON.stringify({ latitude, longitude }),
   });
 }
 
@@ -113,10 +153,11 @@ export function parseDob(dobLabel: string): string {
 }
 
 interface EssentialsPayload {
-  fullName?: string;
   gender: Gender;
   dateOfBirth: string; // ISO "YYYY-MM-DD"
   maritalStatus: MaritalStatus;
+  countryCode: string;
+  city?: string;
   occupation: string;
   educationLevel: string;
   heightCm: number;
@@ -148,7 +189,7 @@ export function toSect(label: string): SectEnum {
   return SECT_MAP[label] ?? 'OTHER';
 }
 
-/** Save sect from EssentialsScreen (F8) → religious profile endpoint. */
+/** Kept for the later backend pass. F8 must not call this until prayerFrequency + religiosityLevel are optional or collected. */
 export async function updateSect(sect: SectEnum): Promise<void> {
   return apiRequest('/profile/me/religious', {
     method: 'PUT',
@@ -157,6 +198,21 @@ export async function updateSect(sect: SectEnum): Promise<void> {
 }
 
 // ─── F11 — Family & Home ──────────────────────────────────────────────────────
+
+export type FamilyTypeEnum = 'NUCLEAR' | 'JOINT';
+
+const FAMILY_TYPE_MAP: Record<string, FamilyTypeEnum> = {
+  Nuclear: 'NUCLEAR',
+  Joint: 'JOINT',
+  Extended: 'JOINT',
+  NUCLEAR: 'NUCLEAR',
+  JOINT: 'JOINT',
+};
+
+/** Map screen family-type label to Prisma FamilyType. Extended → JOINT. */
+export function toFamilyType(label: string): FamilyTypeEnum {
+  return FAMILY_TYPE_MAP[label] ?? 'NUCLEAR';
+}
 
 interface FamilyBackgroundPayload {
   housingStatus: string;
@@ -174,7 +230,10 @@ export async function updateFamilyBackground(
 ): Promise<void> {
   return apiRequest('/profile/me/family-background', {
     method: 'PUT',
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      familyType: toFamilyType(data.familyType),
+    }),
   });
 }
 
@@ -188,13 +247,16 @@ export function buildSiblingsSummary(brothers: string, sisters: string): string 
   return parts.join(', ') || '0 siblings';
 }
 
-// ─── F12 — Guided Prompt (bio) ────────────────────────────────────────────────
+// ─── F12 — Guided Prompt ──────────────────────────────────────────────────────
 
-/** Save bio text from GuidedPromptScreen (F12). */
-export async function updateBio(bio: string): Promise<void> {
-  return apiRequest('/profile/me', {
-    method: 'PUT',
-    body: JSON.stringify({ bio }),
+/** Save "In your words" prompts (F12). PATCH so an omitted key is left alone. */
+export async function updatePrompts(data: {
+  familyDescription?: string;
+  partnerDescription?: string;
+}): Promise<void> {
+  return apiRequest('/profile/me/prompts', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
   });
 }
 
@@ -212,24 +274,6 @@ export async function updatePreferences(
 }
 
 // ─── F14 — Photos ─────────────────────────────────────────────────────────────
-
-export type PhotoVisibility =
-  | 'APPROVAL_REQUIRED'   // Nobody without my approval
-  | 'WALI_ONLY'           // My wali decides
-  | 'MUTUAL_ONLY'         // Mutual proposals only
-  | 'PUBLIC';             // Anyone who matches me
-
-const PRIVACY_MAP: Record<string, PhotoVisibility> = {
-  'Nobody without my approval': 'APPROVAL_REQUIRED',
-  'My wali decides':            'WALI_ONLY',
-  'Mutual proposals only':      'MUTUAL_ONLY',
-  'Anyone who matches me':      'PUBLIC',
-};
-
-/** Map the privacy chip label (F14) to the API enum value. */
-export function toPhotoVisibility(label: string): PhotoVisibility {
-  return PRIVACY_MAP[label] ?? 'APPROVAL_REQUIRED';
-}
 
 /** Upload a photo file from the device (F14). Returns the saved photo record. */
 export async function uploadPhoto(
@@ -252,13 +296,14 @@ export async function deletePhoto(photoId: string): Promise<void> {
   return apiRequest(`/profile/me/photos/${photoId}`, { method: 'DELETE' });
 }
 
-/** Update who can see the user's photos. */
-export async function updatePhotoPrivacy(
-  photoVisibility: PhotoVisibility,
-): Promise<void> {
+/** Update who can see the user's photos, and optionally pause new requests. */
+export async function updatePhotoPrivacy(data: {
+  photoVisibilityMode?: PhotoVisibilityMode;
+  photoRequestsPaused?: boolean;
+}): Promise<void> {
   return apiRequest('/profile/me/privacy', {
     method: 'PATCH',
-    body: JSON.stringify({ photoVisibility }),
+    body: JSON.stringify(data),
   });
 }
 

@@ -2,12 +2,12 @@
  * Introductions API
  *
  * Two shapes:
- *  - Introduction      → GET /introductions (list, slim fields for home card)
- *  - FullIntroduction  → GET /introductions/:id (full profile, all fields)
+ *  - Introduction      → GET /matches/discover (list, slim fields for home card)
+ *  - FullIntroduction  → GET /matches/candidates/:id (full profile, all fields)
  */
 import { apiRequest } from './client';
 
-/** Slim shape returned by GET /introductions — home card only */
+/** Slim shape returned by GET /matches/discover — home card only */
 export interface Introduction {
   userId: string;
   fullName: string;
@@ -37,7 +37,7 @@ export interface Introduction {
   blurPhotos: boolean;
 }
 
-/** Full shape returned by GET /introductions/:id — profile detail screen */
+/** Full shape returned by GET /matches/candidates/:id — profile detail screen */
 export interface FullIntroduction extends Introduction {
   // Photos
   photoUrl: string | null;
@@ -75,22 +75,12 @@ export interface HomeStats {
   reviewedThisWeek: number;
 }
 
-export async function getHomeStats(filters?: IntroductionFilters): Promise<HomeStats> {
-  const params = new URLSearchParams();
-  if (filters) {
-    if (filters.ageMin != null) params.set('ageMin', String(filters.ageMin));
-    if (filters.ageMax != null) params.set('ageMax', String(filters.ageMax));
-    if (filters.heightMinCm != null) params.set('heightMinCm', String(filters.heightMinCm));
-    if (filters.heightMaxCm != null) params.set('heightMaxCm', String(filters.heightMaxCm));
-    if (filters.includeOverseas != null) params.set('includeOverseas', String(filters.includeOverseas));
-    (filters.cities ?? []).forEach(c => params.append('cities', c));
-    (filters.sects ?? []).filter(s => s !== 'Any').forEach(s => params.append('sects', s));
-    (filters.educationLevels ?? []).filter(e => e !== 'Any').forEach(e => params.append('educationLevels', e));
-    (filters.maritalStatuses ?? []).filter(m => m !== 'Any').forEach(m => params.append('maritalStatuses', m));
-    if (filters.minReligiosity && filters.minReligiosity !== 'Any') params.set('minReligiosity', filters.minReligiosity);
-  }
-  const qs = params.toString();
-  return apiRequest<HomeStats>(qs ? `/introductions/stats?${qs}` : '/introductions/stats');
+export async function getHomeStats(): Promise<HomeStats> {
+  const { count, reviewedThisWeek = 0 } = await apiRequest<{
+    count: number;
+    reviewedThisWeek?: number;
+  }>('/matches/count');
+  return { matchCriteria: count, reviewedThisWeek };
 }
 
 export interface IntroductionFilters {
@@ -107,24 +97,11 @@ export interface IntroductionFilters {
 }
 
 /**
- * Get today's curated introduction profiles (slim, for the home card).
- * Pass filters to narrow results; 'Any' values are ignored (no-op filter).
+ * Today's curated introduction profiles (slim, for the home card).
+ * Discover uses stored partner preferences on the server — not client query filters.
  */
-export async function getIntroductions(limit = 10, filters?: IntroductionFilters): Promise<Introduction[]> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (filters) {
-    if (filters.ageMin != null) params.set('ageMin', String(filters.ageMin));
-    if (filters.ageMax != null) params.set('ageMax', String(filters.ageMax));
-    if (filters.heightMinCm != null) params.set('heightMinCm', String(filters.heightMinCm));
-    if (filters.heightMaxCm != null) params.set('heightMaxCm', String(filters.heightMaxCm));
-    if (filters.includeOverseas != null) params.set('includeOverseas', String(filters.includeOverseas));
-    (filters.cities ?? []).forEach(c => params.append('cities', c));
-    (filters.sects ?? []).filter(s => s !== 'Any').forEach(s => params.append('sects', s));
-    (filters.educationLevels ?? []).filter(e => e !== 'Any').forEach(e => params.append('educationLevels', e));
-    (filters.maritalStatuses ?? []).filter(m => m !== 'Any').forEach(m => params.append('maritalStatuses', m));
-    if (filters.minReligiosity && filters.minReligiosity !== 'Any') params.set('minReligiosity', filters.minReligiosity);
-  }
-  return apiRequest<Introduction[]>(`/introductions?${params.toString()}`);
+export async function getIntroductions(limit = 10): Promise<Introduction[]> {
+  return apiRequest<Introduction[]>(`/matches/discover?limit=${limit}`);
 }
 
 /**
@@ -132,12 +109,12 @@ export async function getIntroductions(limit = 10, filters?: IntroductionFilters
  * Used by ProfileDetailScreen (P2).
  */
 export async function getIntroduction(id: string): Promise<FullIntroduction> {
-  return apiRequest<FullIntroduction>(`/introductions/${id}`);
+  return apiRequest<FullIntroduction>(`/matches/candidates/${id}`);
 }
 
 /**
  * Mark an introduction as "not suitable".
  */
 export async function skipIntroduction(id: string): Promise<void> {
-  return apiRequest<void>(`/introductions/${id}/skip`, { method: 'POST' });
+  return apiRequest<void>(`/matches/skip/${id}`, { method: 'POST' });
 }

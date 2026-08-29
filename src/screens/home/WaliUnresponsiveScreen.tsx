@@ -88,7 +88,6 @@ interface WaliUnresponsiveScreenProps {
   waliRelationship: string;
   joinedLabel: string;
   proposalsAwaitingReview: number;
-  longestWaitDays: number;
   onBack?: () => void;
   onChangeWali?: () => void;
 }
@@ -100,7 +99,6 @@ export function WaliUnresponsiveScreen({
   waliRelationship,
   joinedLabel,
   proposalsAwaitingReview,
-  longestWaitDays,
   onBack,
   onChangeWali,
 }: WaliUnresponsiveScreenProps) {
@@ -145,7 +143,6 @@ export function WaliUnresponsiveScreen({
               value={`${proposalsAwaitingReview} ${proposalsAwaitingReview === 1 ? 'proposal' : 'proposals'}`}
               first
             />
-            <DataRow label="Longest wait" value={`${longestWaitDays} ${longestWaitDays === 1 ? 'day' : 'days'}`} />
           </View>
 
           {/* Buttons */}

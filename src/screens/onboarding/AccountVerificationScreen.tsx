@@ -259,18 +259,12 @@ export function AccountVerificationScreen({
 
   async function handleEmailTapVerify() {
     if (emailExpanded) return;
-    setEmailSending(true);
+    // Sign-up already sent the first email OTP. Opening the boxes must not
+    // resend — that was the extra code. Resend is only the timer button.
     setEmailError(null);
-    try {
-      await resendEmailOtp(email);
-      setEmailSecs(RESEND_SECS);
-      setEmailExpanded(true);
-      setTimeout(() => emailRefs.current[0]?.focus(), 120);
-    } catch (err: any) {
-      setEmailError(err?.message ?? 'Failed to send code. Try again.');
-    } finally {
-      setEmailSending(false);
-    }
+    setEmailSecs(RESEND_SECS);
+    setEmailExpanded(true);
+    setTimeout(() => emailRefs.current[0]?.focus(), 120);
   }
 
   async function handleEmailResend() {

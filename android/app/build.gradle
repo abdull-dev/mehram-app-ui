@@ -79,7 +79,7 @@ android {
 
     namespace "com.mehram"
     defaultConfig {
-        applicationId "com.mehram"
+        applicationId "com.mehram.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -117,3 +117,5 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+apply plugin: "com.google.gms.google-services"
