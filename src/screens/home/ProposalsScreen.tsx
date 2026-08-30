@@ -9,7 +9,7 @@
  * via ProposalDetailScreen.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -56,9 +56,10 @@ const C = {
 type ChipVariant = 'gold' | 'mint' | 'rose' | 'grey' | 'ind';
 
 interface ProposalCard {
-  who: string;
-  sub: string;
-  meta: string;
+  name: string;
+  details: string;   // age · city · height
+  sub: string;       // sect · occupation
+  meta: string;      // "Sent today"
   chipVariant: ChipVariant;
   chipLabel: string;
   doneSteps: number;
@@ -72,6 +73,14 @@ const MADHHAB_LABELS: Record<string, string> = {
   HANAFI: 'Hanafi', MALIKI: 'Maliki', SHAFII: "Shafi'i",
   HANBALI: 'Hanbali', JAFARI: "Ja'fari", ZAIDI: 'Zaidi', OTHER: 'Other',
 };
+
+function fmtHeight(cm?: number | null): string | null {
+  if (!cm) return null;
+  const totalInches = cm / 2.54;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+  return `${feet}ft ${inches}in`;
+}
 
 function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
   const s = sect ? SECT_LABELS[sect] ?? sect : null;
@@ -117,7 +126,8 @@ function toSentCard(p: SentProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
   const { doneSteps, chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
   return {
-    who: [p.age, p.city].filter(Boolean).join(' · '),
+    name: p.fullName ?? 'Unknown',
+    details: [p.age, p.city, fmtHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
     meta: fmtSentAt(p.sentAt),
     chipVariant,
@@ -130,7 +140,8 @@ function toReceivedCard(p: ReceivedProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
   const { doneSteps, chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
   return {
-    who: [p.age, p.city].filter(Boolean).join(' · '),
+    name: p.fullName ?? 'Unknown',
+    details: [p.age, p.city, fmtHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
     meta: fmtReceivedAt(p.receivedAt),
     chipVariant,
@@ -202,7 +213,8 @@ function ProposalRow({ card, onPress }: { card: ProposalCard; onPress: () => voi
       <View style={styles.prow}>
         <View style={styles.ptop}>
           <View style={styles.ptopLeft}>
-            <Text style={styles.pwho}>{card.who}</Text>
+            <Text style={styles.pwho}>{card.name}</Text>
+            {!!card.details && <Text style={styles.pdetails}>{card.details}</Text>}
             {!!card.sub && <Text style={styles.pwhos}>{card.sub}</Text>}
             <Text style={styles.pmeta}>{card.meta}</Text>
           </View>
@@ -255,20 +267,34 @@ function EmptyState({ onSeeIntroduction }: { onSeeIntroduction?: () => void }) {
   );
 }
 
+// ─── module-level cache — survives component unmount/remount (e.g. navigating to Chats and back) ──
+let _cachedSent: SentProposal[] = [];
+let _cachedReceived: ReceivedProposal[] = [];
+let _loaded = false;
+
 // ─── props ────────────────────────────────────────────────────────────────────
 interface ProposalsScreenProps {
   onSeeIntroduction?: () => void;
   onSelectProposal?: (sel: ProposalDetailSelection) => void;
+  /** Increment to trigger an immediate silent refresh (e.g. after sendProposal) */
+  refreshKey?: number;
+  /** Called after every load with the current received proposals count — used for badge */
+  onReceivedCountChange?: (count: number) => void;
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
-export function ProposalsScreen({ onSeeIntroduction, onSelectProposal }: ProposalsScreenProps) {
+export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKey, onReceivedCountChange }: ProposalsScreenProps) {
   const insets = useSafeAreaInsets();
   const [segment, setSegment] = useState<'sent' | 'received'>('sent');
-  const [sentList, setSentList] = useState<SentProposal[]>([]);
-  const [receivedList, setReceivedList] = useState<ReceivedProposal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sentList, setSentList] = useState<SentProposal[]>(_cachedSent);
+  const [receivedList, setReceivedList] = useState<ReceivedProposal[]>(_cachedReceived);
+  // Skip spinner on remount if we already have cached data
+  const [loading, setLoading] = useState(!_loaded);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Keep callback stable via ref so load() doesn't need it as a dep
+  const onReceivedCountChangeRef = useRef(onReceivedCountChange);
+  useEffect(() => { onReceivedCountChangeRef.current = onReceivedCountChange; }, [onReceivedCountChange]);
 
   const load = useCallback(async () => {
     try {
@@ -276,8 +302,12 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal }: Proposa
         getProposals(),
         getReceivedProposals(),
       ]);
+      _cachedSent = sent;
+      _cachedReceived = received;
+      _loaded = true;
       setSentList(sent);
       setReceivedList(received);
+      onReceivedCountChangeRef.current?.(received.length);
     } catch {
       // keep existing data on error
     } finally {
@@ -286,8 +316,16 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal }: Proposa
     }
   }, []);
 
-  // Initial load
+  // Initial load — on remount after Chats navigation, runs silently (no spinner)
   useEffect(() => { load(); }, [load]);
+
+  // Refresh when parent increments refreshKey (e.g. right after sendProposal)
+  const prevRefreshKeyRef = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey === prevRefreshKeyRef.current) return;
+    prevRefreshKeyRef.current = refreshKey;
+    load();
+  }, [refreshKey, load]);
 
   // Real-time updates via Socket.io — no polling needed
   useProposalsSocket(load);
@@ -416,6 +454,7 @@ const styles = StyleSheet.create({
   ptop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 9 },
   ptopLeft: { flex: 1 },
   pwho: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3, color: C.ink },
+  pdetails: { fontSize: 13, color: C.ink2, marginTop: 3, fontWeight: '500' },
   pwhos: { fontSize: 12.5, color: C.ink2, marginTop: 2 },
   pmeta: { fontSize: 11.5, color: C.ink3, marginTop: 5 },
 

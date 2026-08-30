@@ -1,45 +1,26 @@
 /**
  * WaliInviteScreen  (F15)
  *
- * Wali invitation step in the onboarding flow. Mirrors the HTML prototype
- * screen F15 exactly:
+ * Wali invitation step in the seeker's onboarding flow.
+ * Two paths:
+ *  1. Invite on WhatsApp  → opens WhatsApp with invite link
+ *  2. Generate invite code → shows the code inline; user copies/shares manually
  *
- *   ┌─────────────────────────────────┐
- *   │  [←]  ████████████████░░  Later │  90% progress
- *   ├─────────────────────────────────┤
- *   │  [YOUR WALI]                    │
- *   │  Who will review                │
- *   │  your proposals?                │
- *   │  Nine of your 142 matches only… │
- *   │                                 │
- *   │  THEIR NAME                     │
- *   │  ┌──────────────────────────┐   │
- *   │  │ Imran Mian               │   │
- *   │  └──────────────────────────┘   │
- *   │                                 │
- *   │  RELATIONSHIP                   │
- *   │  [▓Father▓] [Brother] [Uncle]   │
- *   │  [Grandfather] [Other]          │
- *   ├─────────────────────────────────┤
- *   │  [Invite on WhatsApp]           │
- *   │  [Read him a code instead]      │
- *   │  Skip for now                   │
- *   └─────────────────────────────────┘
- *
- * Entrance: question block rises immediately (.an), name field at 70 ms
- * (.an.d1), chips at 150 ms (.an.d2) — matching the HTML prototype delays.
+ * Name and relationship are NOT collected here — the wali enters
+ * those details during their own registration (WaliDetailsScreen).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
+  Linking,
   Pressable,
-  ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -48,17 +29,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
-import { createWaliInvite, WaliRelationship } from '../../api/wali';
+import { createWaliInvite, type WaliInvite } from '../../api/wali';
 
-// ─── animation helpers (mirrors WelcomeScreen pattern) ───────────────────────
+// ─── animation ────────────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
 const RISE_EASING = Easing.bezier(0.2, 0.7, 0.3, 1);
 const RISE_OFFSET = 15;
-
-function useFadeRise(delay: number) {
-  const anim = useRef(new Animated.Value(0)).current;
-  return { anim, delay };
-}
 
 function riseStyle(anim: Animated.Value) {
   return {
@@ -74,19 +50,16 @@ function riseStyle(anim: Animated.Value) {
   };
 }
 
-// ─── relationship options (matches HTML prototype chip list) ──────────────────
-const RELATIONSHIPS = ['Father', 'Brother', 'Uncle', 'Grandfather', 'Other'] as const;
-type Relationship = (typeof RELATIONSHIPS)[number];
-
-// ─── component ────────────────────────────────────────────────────────────────
+// ─── props ────────────────────────────────────────────────────────────────────
 interface WaliInviteScreenProps {
   onBack?: () => void;
   onLater?: () => void;
-  onInviteWhatsApp?: (name: string, relationship: Relationship) => void;
-  onReadCode?: (name: string, relationship: Relationship) => void;
+  onInviteWhatsApp?: () => void;
+  onReadCode?: () => void;
   onSkip?: () => void;
 }
 
+// ─── component ────────────────────────────────────────────────────────────────
 export function WaliInviteScreen({
   onBack,
   onLater,
@@ -95,42 +68,43 @@ export function WaliInviteScreen({
   onSkip,
 }: WaliInviteScreenProps) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState('');
-  const [nameFocused, setNameFocused] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [relationship, setRelationship] = useState<Relationship>('Father');
-  const [inviting, setInviting] = useState(false);
+  const [invitingWhatsApp, setInvitingWhatsApp] = useState(false);
+  const [generatingCode, setGeneratingCode]     = useState(false);
+  const [invite, setInvite]                     = useState<WaliInvite | null>(null);
 
-  function requireName(): boolean {
-    if (!name.trim()) {
-      setNameError('Please enter your wali\'s name.');
-      return false;
-    }
-    return true;
-  }
-
-  // Staggered entrance: .an (0 ms) → .an.d1 (70 ms) → .an.d2 (150 ms)
-  const questionAnim = useFadeRise(0);
-  const fieldAnim = useFadeRise(70);
-  const chipsAnim = useFadeRise(150);
+  const questionAnimRef = useRef(new Animated.Value(0));
+  const buttonsAnimRef  = useRef(new Animated.Value(0));
+  const codeAnimRef     = useRef(new Animated.Value(0));
 
   useEffect(() => {
-    const makeRise = ({ anim, delay }: ReturnType<typeof useFadeRise>) =>
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: RISE_DURATION,
-        delay,
-        easing: RISE_EASING,
-        useNativeDriver: true,
-      });
-
     Animated.parallel([
-      makeRise(questionAnim),
-      makeRise(fieldAnim),
-      makeRise(chipsAnim),
+      Animated.timing(questionAnimRef.current, {
+        toValue: 1, duration: RISE_DURATION, delay: 0,
+        easing: RISE_EASING, useNativeDriver: true,
+      }),
+      Animated.timing(buttonsAnimRef.current, {
+        toValue: 1, duration: RISE_DURATION, delay: 100,
+        easing: RISE_EASING, useNativeDriver: true,
+      }),
     ]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!invite) return;
+    Animated.timing(codeAnimRef.current, {
+      toValue: 1,
+      duration: 380,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [invite]);
+
+  // Format 10-char code as XXXXX-XXXXX for readability
+  function formatCode(code: string) {
+    if (code.length === 10) return `${code.slice(0, 5)}-${code.slice(5)}`;
+    return code;
+  }
 
   return (
     <View style={styles.root}>
@@ -146,8 +120,7 @@ export function WaliInviteScreen({
           },
         ]}>
 
-        {/* ── Nav bar: [←] ██████████░░ Later ───────────────────────────── */}
-        {/* Mirrors .nb — flex row, gap 12, padding 12px 0 4px              */}
+        {/* Nav bar */}
         <View style={styles.nb}>
           <Pressable
             onPress={onBack}
@@ -155,20 +128,13 @@ export function WaliInviteScreen({
               styles.backBtn,
               { transform: [{ scale: pressed ? 0.92 : 1 }] },
             ]}>
-            <Svg
-              width={17}
-              height={17}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={Colors.vioInk}
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round">
+            <Svg width={17} height={17} viewBox="0 0 24 24" fill="none"
+              stroke={Colors.vioInk} strokeWidth={2.5}
+              strokeLinecap="round" strokeLinejoin="round">
               <Path d="M15 18l-6-6 6-6" />
             </Svg>
           </Pressable>
 
-          {/* Progress track — 90% filled */}
           <View style={styles.progressTrack}>
             <LinearGradient
               colors={[...GradientColors.primary]}
@@ -186,132 +152,129 @@ export function WaliInviteScreen({
           </Pressable>
         </View>
 
-        {/* ── Scrollable body ─────────────────────────────────────────────── */}
-        <ScrollView
-          style={styles.scrollArea}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
-
-          {/* Question block — .q .an (0 ms delay) */}
-          <Animated.View style={[styles.questionBlock, riseStyle(questionAnim.anim)]}>
-            {/* .qk — section label pill */}
+        {/* Body */}
+        <View style={styles.body}>
+          <Animated.View style={[styles.questionBlock, riseStyle(questionAnimRef.current)]}>
             <View style={styles.qLabelPill}>
               <Text style={styles.qLabelText}>Your wali</Text>
             </View>
-            {/* .qh — 24px heading */}
-            <Text style={styles.qHeading}>Who will review{'\n'}your proposals?</Text>
-            {/* .qs — supporting text */}
+            <Text style={styles.qHeading}>Invite your wali</Text>
             <Text style={styles.qSub}>
-              Nine of your 142 matches only accept proposals where a wali is
-              registered.
+              Your wali reviews proposals before you see them — keeping the
+              process respectful and family-guided. They'll create their own
+              account once they receive your invite.
             </Text>
           </Animated.View>
 
-          {/* Name field — .field .an .d1 (70 ms) */}
-          <Animated.View style={[styles.field, riseStyle(fieldAnim.anim)]}>
-            <Text style={styles.fieldLabel}>Their name</Text>
-            <View style={[styles.inputWrap, nameFocused && styles.inputFocused, !!nameError && styles.inputError]}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Ibrahim Khan"
-                placeholderTextColor={Colors.ink3}
-                value={name}
-                onChangeText={v => {
-                  setName(v.replace(/[^a-zA-Z\s]/g, ''));
-                  if (nameError) setNameError(null);
-                }}
-                onFocus={() => setNameFocused(true)}
-                onBlur={() => setNameFocused(false)}
-                returnKeyType="done"
-                autoCapitalize="words"
-              />
-            </View>
-            {!!nameError && <Text style={styles.errorText}>{nameError}</Text>}
-          </Animated.View>
-
-          {/* Relationship chips — .field .an .d2 (150 ms) */}
-          <Animated.View style={[styles.field, riseStyle(chipsAnim.anim)]}>
-            <Text style={styles.fieldLabel}>Relationship</Text>
-            <View style={styles.chipWrap}>
-              {RELATIONSHIPS.map((rel) => {
-                const selected = relationship === rel;
-                return (
-                  <Pressable
-                    key={rel}
-                    onPress={() => setRelationship(rel)}
-                    style={({ pressed }) => [
-                      { opacity: pressed ? 0.88 : 1 },
-                      { transform: [{ scale: pressed ? 0.96 : 1 }] },
-                    ]}>
-                    {selected ? (
-                      <LinearGradient
-                        colors={[...GradientColors.primary]}
-                        locations={[...GradientColors.primaryLocations]}
-                        start={{ x: 0, y: 0.5 }}
-                        end={{ x: 1, y: 0.5 }}
-                        style={[styles.chip, styles.chipOn]}>
-                        <Text style={styles.chipOnText}>{rel}</Text>
-                      </LinearGradient>
-                    ) : (
-                      <View style={[styles.chip, styles.chipOff]}>
-                        <Text style={styles.chipOffText}>{rel}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </Animated.View>
-        </ScrollView>
-
-        {/* ── Footer — .foot ─────────────────────────────────────────────── */}
-        <View style={styles.footer}>
-          {/* .btn-f — primary gradient */}
-          <GradientButton
-            label={inviting ? 'Creating invite…' : 'Invite on WhatsApp'}
-            loading={inviting}
-            onPress={async () => {
-              if (!requireName() || inviting) return;
-              setInviting(true);
-              try {
-                await createWaliInvite(name.trim(), relationship as WaliRelationship);
-                onInviteWhatsApp?.(name.trim(), relationship);
-              } catch {
-                onInviteWhatsApp?.(name.trim(), relationship);
-              } finally {
-                setInviting(false);
-              }
-            }}
-          />
-          {/* .btn-o — outline, margin-top:9px (.btn+.btn) */}
-          <View style={styles.footerGap} />
-          <GradientButton
-            label="Read him a code instead"
-            variant="outline"
-            onPress={async () => {
-              if (!requireName() || inviting) return;
-              setInviting(true);
-              try {
-                await createWaliInvite(name.trim(), relationship as WaliRelationship);
-                onReadCode?.(name.trim(), relationship);
-              } catch {
-                onReadCode?.(name.trim(), relationship);
-              } finally {
-                setInviting(false);
-              }
-            }}
-          />
-          {/* .btn-t — plain text link */}
-          <Pressable
-            onPress={onSkip}
-            style={({ pressed }) => [
-              styles.textBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}>
-            <Text style={styles.textBtnLabel}>Skip for now</Text>
-          </Pressable>
+          {/* Generated code card */}
+          {invite && (
+            <Animated.View
+              style={[
+                styles.codeCard,
+                {
+                  opacity: codeAnimRef.current,
+                  transform: [{
+                    translateY: codeAnimRef.current.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [12, 0],
+                    }),
+                  }],
+                },
+              ]}>
+              <Text style={styles.codeCardLabel}>Your invite code</Text>
+              <Text style={styles.codeText}>{formatCode(invite.invitationCode)}</Text>
+              <Text style={styles.codeHint}>Share this with your wali so they can register</Text>
+            </Animated.View>
+          )}
         </View>
+
+        {/* Footer */}
+        <Animated.View style={[styles.footer, riseStyle(buttonsAnimRef.current)]}>
+          {invite ? (
+            // ── Post-generation: Continue + Share ──────────────────────────
+            <>
+              <GradientButton
+                label="Continue"
+                onPress={() => onReadCode?.()}
+              />
+              <View style={styles.footerGap} />
+              <Pressable
+                onPress={() =>
+                  Share.share({
+                    message: `Your Mehram wali invite code: ${invite.invitationCode}\n\nOr use this link: ${invite.inviteLink}`,
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.generateBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <Text style={styles.generateBtnText}>Share code</Text>
+              </Pressable>
+            </>
+          ) : (
+            // ── Pre-generation: WhatsApp + Generate + Skip ─────────────────
+            <>
+              <GradientButton
+                label="Invite on WhatsApp"
+                loading={invitingWhatsApp}
+                onPress={async () => {
+                  if (invitingWhatsApp || generatingCode) return;
+                  setInvitingWhatsApp(true);
+                  try {
+                    const result = await createWaliInvite();
+                    setInvite(result);
+                    const msg = `Assalamu alaikum! I'm using Mehram for rishta and I'd like you to be my wali. Join using this link:\n${result.inviteLink}`;
+                    const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
+                    const canOpen = await Linking.canOpenURL(url);
+                    if (canOpen) {
+                      await Linking.openURL(url);
+                    } else {
+                      await Share.share({ message: msg });
+                    }
+                    onInviteWhatsApp?.();
+                  } catch {
+                    onInviteWhatsApp?.();
+                  } finally {
+                    setInvitingWhatsApp(false);
+                  }
+                }}
+              />
+              <View style={styles.footerGap} />
+              <Pressable
+                onPress={async () => {
+                  if (generatingCode || invitingWhatsApp) return;
+                  setGeneratingCode(true);
+                  try {
+                    const result = await createWaliInvite();
+                    setInvite(result);
+                    // do NOT call onReadCode here — user must tap Continue
+                  } catch {
+                    // silent — user can retry
+                  } finally {
+                    setGeneratingCode(false);
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.generateBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}>
+                {generatingCode ? (
+                  <ActivityIndicator size="small" color={Colors.vioInk} />
+                ) : (
+                  <Text style={styles.generateBtnText}>Generate invite code</Text>
+                )}
+              </Pressable>
+              <Pressable
+                onPress={onSkip}
+                style={({ pressed }) => [
+                  styles.textBtn,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}>
+                <Text style={styles.textBtnLabel}>Skip for now</Text>
+              </Pressable>
+            </>
+          )}
+        </Animated.View>
       </View>
     </View>
   );
@@ -324,14 +287,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.page,
     overflow: 'hidden',
   },
-
   screen: {
     flex: 1,
     paddingHorizontal: 16,
     flexDirection: 'column',
   },
 
-  // ── Nav bar (.nb) ──────────────────────────────────────────────────────────
+  // ── Nav bar ───────────────────────────────────────────────────────────────
   nb: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -340,8 +302,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     flexShrink: 0,
   },
-
-  // .back — 38×38 white rounded square with shadow
   backBtn: {
     width: 38,
     height: 38,
@@ -356,8 +316,6 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
-
-  // .prg — flex:1, 7px height track
   progressTrack: {
     flex: 1,
     height: 7,
@@ -365,48 +323,34 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(155,123,240,0.16)',
     overflow: 'hidden',
   },
-
-  // .prg i — gradient fill at 90%
   progressFill: {
     height: '100%',
     width: '90%',
     borderRadius: 5,
   },
-
-  // .skip
   skipText: {
     fontSize: 12.5,
     fontWeight: '700',
     color: Colors.vioD,
   },
 
-  // ── Scroll area (.scrollarea) ──────────────────────────────────────────────
-  scrollArea: {
+  // ── Body ──────────────────────────────────────────────────────────────────
+  body: {
     flex: 1,
+    justifyContent: 'center',
   },
-
-  scrollContent: {
-    paddingRight: 2,
-    paddingBottom: 12,
-  },
-
-  // ── Question block (.q) ────────────────────────────────────────────────────
   questionBlock: {
-    paddingTop: 18,
     paddingHorizontal: 2,
-    paddingBottom: 2,
+    paddingBottom: 20,
   },
-
-  // .qk — uppercase pill label
   qLabelPill: {
     alignSelf: 'flex-start',
     backgroundColor: Colors.vioSoft,
     paddingVertical: 5,
     paddingHorizontal: 11,
     borderRadius: 9,
-    marginBottom: 10,
+    marginBottom: 14,
   },
-
   qLabelText: {
     fontSize: 10.5,
     fontWeight: '800',
@@ -414,151 +358,89 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: Colors.vioInk,
   },
-
-  // .qh — 24px bold heading
   qHeading: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '800',
-    letterSpacing: -0.7,
-    lineHeight: 29, // 24 × 1.2 ≈ 29
+    letterSpacing: -0.8,
+    lineHeight: 34,
     color: Colors.ink,
+    marginBottom: 12,
   },
-
-  // .qs — 13px supporting text
   qSub: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.ink2,
-    marginTop: 8,
-    lineHeight: 20, // 13 × 1.55 ≈ 20
+    lineHeight: 22,
   },
 
-  // ── Field (.field) ─────────────────────────────────────────────────────────
-  field: {
-    marginTop: 14,
-  },
-
-  // .flab — 11px uppercase label
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: Colors.ink3,
+  // ── Code card ─────────────────────────────────────────────────────────────
+  codeCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    shadowColor: '#3C287A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 4,
+    marginTop: 4,
     marginBottom: 8,
   },
-
-  // .inp — 54px input container
-  inputWrap: {
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    borderWidth: 1.6,
-    borderColor: 'rgba(155,123,240,0.2)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  // .inp.focus
-  inputFocused: {
-    borderColor: Colors.vio,
-    shadowColor: Colors.vio,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-
-  inputError: {
-    borderColor: '#D9304F',
-  },
-
-  errorText: {
-    fontSize: 11.5,
-    color: '#D9304F',
-    marginTop: 7,
-    lineHeight: 17,
-  },
-
-  textInput: {
-    flex: 1,
-    fontSize: 15,
-    color: Colors.ink,
-    padding: 0,
-    backgroundColor: 'transparent',
-  },
-
-  // ── Chip group (.chipwrap) ─────────────────────────────────────────────────
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-
-  // Base chip shape — applied to both selected (LinearGradient) and unselected
-  chip: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: 15,
-  },
-
-  // .chip — unselected state
-  chipOff: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderWidth: 1.6,
-    borderColor: 'rgba(155,123,240,0.2)',
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4.5,
-    elevation: 1,
-  },
-
-  chipOffText: {
-    fontSize: 13.5,
+  codeCardLabel: {
+    fontSize: 11,
     fontWeight: '700',
-    color: Colors.ink2,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: Colors.ink3,
+    marginBottom: 12,
+  },
+  codeText: {
+    fontSize: 30,
+    fontWeight: '800',
+    letterSpacing: 4,
+    color: Colors.vioInk,
+    marginBottom: 8,
+  },
+  codeHint: {
+    fontSize: 12,
+    color: Colors.ink3,
+    textAlign: 'center',
   },
 
-  // .chip.on — selected state (applied to LinearGradient wrapper)
-  chipOn: {
-    shadowColor: '#B464C8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  chipOnText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#fff',
-  },
-
-  // ── Footer (.foot) ─────────────────────────────────────────────────────────
+  // ── Footer ────────────────────────────────────────────────────────────────
   footer: {
     paddingTop: 12,
     flexShrink: 0,
   },
-
-  // .btn+.btn margin-top:9px
   footerGap: {
     height: 9,
   },
-
-  // .btn-t
+  generateBtn: {
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    borderWidth: 1.6,
+    borderColor: 'rgba(155,123,240,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#3C287A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  generateBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.vioInk,
+  },
   textBtn: {
     minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 9,
   },
-
   textBtnLabel: {
     fontSize: 13.5,
     fontWeight: '700',

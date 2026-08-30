@@ -16,7 +16,7 @@
  *   │  MEMBERSHIP  (dark indigo)       │
  *   │  Be ready the moment you're…    │
  *   │  14 profiles already match…      │
- *   │  PKR 4,000 · one payment         │
+ *   │  PKR 4,500 · one payment         │
  *   │  [Become a member]               │
  *   │  🛡 If verification doesn't…     │
  *   └──────────────────────────────────┘
@@ -353,7 +353,7 @@ export function UnderReviewUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>PKR 4,000</Text>
+            <Text style={styles.payPrice}>PKR 4,500</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 

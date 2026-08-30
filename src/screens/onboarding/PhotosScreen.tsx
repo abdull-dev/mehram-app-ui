@@ -26,7 +26,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
-import { uploadPhoto, deletePhoto, getMyProfile } from '../../api/profile';
+import { uploadPhoto, deletePhoto, getMyProfile, updatePhotoPrivacy, toPhotoVisibility } from '../../api/profile';
+import { resolvePhotoUrl } from '../../api/config';
 
 // ─── animation ────────────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -133,9 +134,19 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
     });
   }
 
-  // ── load existing photos from API on mount ──────────────────────────────────
+  // ── load existing photos + privacy setting from API on mount ─────────────────
   useEffect(() => {
+    const VIS_TO_INDEX: Record<string, number> = {
+      APPROVAL_REQUIRED: 0,
+      WALI_ONLY: 1,
+      MUTUAL_ONLY: 2,
+      PUBLIC: 3,
+    };
     getMyProfile().then(profile => {
+      // Restore privacy setting
+      if (profile.photoVisibility && VIS_TO_INDEX[profile.photoVisibility] != null) {
+        setPrivacy(VIS_TO_INDEX[profile.photoVisibility]);
+      }
       if (!profile.photos?.length) return;
       setSlots(prev => {
         const next: [SlotState, SlotState, SlotState] = [
@@ -148,7 +159,7 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
         profile.photos.slice(0, 3).forEach((photo, i) => {
           if (photo.url) {
             next[i as 0 | 1 | 2] = {
-              uri: photo.url,
+              uri: resolvePhotoUrl(photo.url) ?? photo.url,
               photoId: photo.id,
               uploading: false,
               error: false,
@@ -307,7 +318,11 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
             label="Continue"
             variant={hasRequired ? 'primary' : 'disabled'}
             loading={continueLoading}
-            onPress={hasRequired ? () => onContinue?.() : undefined}
+            onPress={hasRequired ? () => {
+              // Save privacy setting before navigating
+              updatePhotoPrivacy(toPhotoVisibility(PRIVACY_OPTIONS[privacy])).catch(() => {});
+              onContinue?.();
+            } : undefined}
           />
         </View>
       </View>

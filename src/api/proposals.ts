@@ -86,18 +86,16 @@ export interface ReceivedProposal {
  * Replaces GET /matches/stats.
  */
 export async function getProposalStats(): Promise<ProposalStats> {
-  return apiRequest<ProposalStats>('/proposals/stats');
+  return apiRequest<ProposalStats>('/matches/stats');
 }
 
 /**
  * Send a proposal to express interest in an introduction.
  * Used on HomeScreen H16 when "Send proposal" is tapped.
- * @param note Optional personal note attached to the proposal (max 300 chars).
  */
-export async function sendProposal(introductionId: string, note?: string): Promise<ProposalResult> {
-  return apiRequest<ProposalResult>('/proposals', {
+export async function sendProposal(introductionId: string, _note?: string): Promise<ProposalResult> {
+  return apiRequest<ProposalResult>(`/matches/interest/${introductionId}`, {
     method: 'POST',
-    body: JSON.stringify({ introductionId, ...(note?.trim() ? { note: note.trim() } : {}) }),
   });
 }
 
@@ -105,14 +103,14 @@ export async function sendProposal(introductionId: string, note?: string): Promi
  * List all proposals sent by the current user.
  */
 export async function getProposals(): Promise<SentProposal[]> {
-  return apiRequest<SentProposal[]>('/proposals');
+  return apiRequest<SentProposal[]>('/matches/interests?direction=sent');
 }
 
 /**
  * List all proposals received by the current user.
  */
 export async function getReceivedProposals(): Promise<ReceivedProposal[]> {
-  return apiRequest<ReceivedProposal[]>('/proposals/received');
+  return apiRequest<ReceivedProposal[]>('/matches/interests?direction=received');
 }
 
 /**
@@ -121,5 +119,5 @@ export async function getReceivedProposals(): Promise<ReceivedProposal[]> {
  * After withdrawal, their profile reappears in the discovery pool.
  */
 export async function withdrawProposal(toUserId: string): Promise<void> {
-  return apiRequest<void>(`/proposals/${toUserId}`, { method: 'DELETE' });
+  return apiRequest<void>(`/matches/interest/${toUserId}`, { method: 'DELETE' });
 }

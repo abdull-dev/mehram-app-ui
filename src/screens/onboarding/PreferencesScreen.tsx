@@ -49,6 +49,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { getMyProfile } from '../../api/profile';
 
 // ─── live count formula ───────────────────────────────────────────────────────
 function calcCount(minAge: number, maxAge: number): number {
@@ -103,6 +104,16 @@ export function PreferencesScreen({
   // ── slider state ────────────────────────────────────────────────────────────
   const [minAge, setMinAge] = useState(24);
   const [maxAge, setMaxAge] = useState(30);
+
+  // Pre-populate saved preferences when navigating back
+  useEffect(() => {
+    getMyProfile().then(profile => {
+      const pref = profile.partnerPreference;
+      if (pref?.ageMin != null) setMinAge(pref.ageMin);
+      if (pref?.ageMax != null) setMaxAge(pref.ageMax);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleMinAge = (v: number) => {
     setMinAge(v);

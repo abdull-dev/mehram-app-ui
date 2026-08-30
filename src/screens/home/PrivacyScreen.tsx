@@ -5,7 +5,7 @@
  * shows always-on privacy protections.
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -159,17 +159,67 @@ function DataRow({ label, value, first }: { label: string; value: string; first?
   );
 }
 
+// ─── visibility mapping ───────────────────────────────────────────────────────
+type PhotoVisibility = 'APPROVAL_REQUIRED' | 'WALI_ONLY' | 'MUTUAL_ONLY';
+
+const VIS_TO_INDEX: Record<string, number> = {
+  APPROVAL_REQUIRED: 0,
+  WALI_ONLY: 1,
+  MUTUAL_ONLY: 2,
+};
+
+const INDEX_TO_VIS: PhotoVisibility[] = [
+  'APPROVAL_REQUIRED',
+  'WALI_ONLY',
+  'MUTUAL_ONLY',
+];
+
 // ─── props ────────────────────────────────────────────────────────────────────
 interface PrivacyScreenProps {
   onBack?: () => void;
   onYourPhotos?: () => void;
+  /** Current wali's name — shown in option subtitle */
+  waliName?: string;
+  /** Currently saved photo visibility from backend */
+  initialPhotoVisibility?: string;
+  /** Currently saved pause state from backend */
+  initialPauseRequests?: boolean;
+  /** Called with new visibility value when user changes it */
+  onPhotoVisibilityChange?: (visibility: PhotoVisibility) => void;
+  /** Called with new pause state when user toggles it */
+  onPauseRequestsChange?: (paused: boolean) => void;
 }
 
 // ─── screen ───────────────────────────────────────────────────────────────────
-export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
+export function PrivacyScreen({
+  onBack,
+  onYourPhotos,
+  waliName,
+  initialPhotoVisibility,
+  initialPauseRequests = false,
+  onPhotoVisibilityChange,
+  onPauseRequestsChange,
+}: PrivacyScreenProps) {
   const insets = useSafeAreaInsets();
-  const [selectedOption, setSelectedOption] = useState(0);
-  const [pauseRequests, setPauseRequests] = useState(false);
+  const [selectedOption, setSelectedOption] = useState(
+    initialPhotoVisibility ? (VIS_TO_INDEX[initialPhotoVisibility] ?? 0) : 0,
+  );
+  const [pauseRequests, setPauseRequests] = useState(initialPauseRequests);
+
+  const handleSelectOption = useCallback((i: number) => {
+    setSelectedOption(i);
+    onPhotoVisibilityChange?.(INDEX_TO_VIS[i]);
+  }, [onPhotoVisibilityChange]);
+
+  const handleTogglePause = useCallback(() => {
+    setPauseRequests(v => {
+      const next = !v;
+      onPauseRequestsChange?.(next);
+      return next;
+    });
+  }, [onPauseRequestsChange]);
+
+  const waliLabel = waliName ?? 'Your wali';
 
   const photoOptions = [
     {
@@ -178,15 +228,11 @@ export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
     },
     {
       title: 'Anyone my wali has approved',
-      subtitle: 'Imran decides on your behalf. You are still told each time.',
+      subtitle: `${waliLabel} decides on your behalf. You are still told each time.`,
     },
     {
       title: 'Anyone I have accepted a proposal from',
       subtitle: 'Shared automatically once a proposal is mutual.',
-    },
-    {
-      title: 'Everyone who matches my criteria',
-      subtitle: 'Shown on your card straight away. Fewer steps, less privacy.',
     },
   ];
 
@@ -221,7 +267,7 @@ export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
                 selected={selectedOption === i}
                 title={opt.title}
                 subtitle={opt.subtitle}
-                onPress={() => setSelectedOption(i)}
+                onPress={() => handleSelectOption(i)}
               />
             </View>
           ))}
@@ -253,7 +299,7 @@ export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
               <Text style={styles.lit}>Pause photo requests</Text>
               <Text style={styles.lis}>Stop receiving new requests for now</Text>
             </View>
-            <Toggle on={pauseRequests} onToggle={() => setPauseRequests(v => !v)} />
+            <Toggle on={pauseRequests} onToggle={handleTogglePause} />
           </View>
         </View>
 

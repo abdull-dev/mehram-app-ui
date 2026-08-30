@@ -212,7 +212,7 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
         <Pressable style={styles.backBtn} onPress={onBack} hitSlop={10}>
           <ChevLeft />
         </Pressable>
-        <Text style={styles.topBarTitle}>Family</Text>
+        <Text style={styles.topBarTitle}>Your Wali</Text>
       </View>
 
       <ScrollView
@@ -306,6 +306,15 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
   );
 }
 
+// ─── module-level cache (survives component unmount/remount) ──────────────────
+// Fetched once; cleared when wali is removed or changed.
+let _cachedMember: WaliMember | null | undefined = undefined; // undefined = not yet fetched
+let _cachedStats: WaliStats | null = null;
+export function clearFamilyScreenCache() {
+  _cachedMember = undefined;
+  _cachedStats = null;
+}
+
 // ─── FamilyScreen ─────────────────────────────────────────────────────────────
 export function FamilyScreen({
   waliState,
@@ -316,10 +325,11 @@ export function FamilyScreen({
   onSwitchToProfile,
 }: FamilyScreenProps) {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading]         = useState(true);
-  const [loadError, setLoadError]     = useState<string | null>(null);
-  const [member, setMember]           = useState<WaliMember | null>(null);
-  const [stats, setStats]             = useState<WaliStats | null>(null);
+  // Seed state from cache so remounts don't show a loading flash
+  const [loading, setLoading]     = useState(_cachedMember === undefined);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [member, setMember]       = useState<WaliMember | null>(_cachedMember ?? null);
+  const [stats, setStats]         = useState<WaliStats | null>(_cachedStats);
 
   // Fetch on mount (and after change-wali)
   const loadWali = useCallback(async () => {
@@ -327,16 +337,17 @@ export function FamilyScreen({
     setLoadError(null);
     try {
       const linked = await getLinkedWali();
+      _cachedMember = linked;
       setMember(linked);
       if (linked) {
         const s = await getWaliStats(linked.membershipId);
+        _cachedStats = s;
         setStats(s);
       } else {
+        _cachedStats = null;
         setStats(null);
       }
     } catch (err) {
-      // Keep member null (no wali found) but surface load errors so the
-      // invite screen doesn't silently appear when the issue is auth/network.
       setMember(null);
       setStats(null);
       if (err instanceof ApiError) {
@@ -355,6 +366,8 @@ export function FamilyScreen({
       setLoading(false);
       return;
     }
+    // Skip if we already have cached data from a previous mount
+    if (_cachedMember !== undefined) return;
     loadWali();
   }, [waliState, loadWali]);
 
@@ -366,6 +379,8 @@ export function FamilyScreen({
     } catch {
       // Proceed optimistically — the membership may already be gone
     }
+    _cachedMember = null;
+    _cachedStats = null;
     setMember(null);
     setStats(null);
   }

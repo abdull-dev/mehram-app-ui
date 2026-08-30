@@ -534,11 +534,7 @@ export function AccountVerificationScreen({
           {/* Phone card */}
           <Animated.View style={[s.card, riseStyle(aPhone)]}>
             <Text style={s.cardLabel}>Mobile number</Text>
-            {__DEV__ && (
-              <View style={s.devBanner}>
-                <Text style={s.devBannerText}>Dev: SMS not sent — use code <Text style={s.devBannerCode}>000000</Text></Text>
-              </View>
-            )}
+
             {renderPhoneRow()}
           </Animated.View>
 
@@ -657,10 +653,6 @@ const s = StyleSheet.create({
   errText:      { fontSize: 12, fontWeight: '700', color: '#D9304F', marginTop: 6 },
   verifyingText: { fontSize: 12, color: Colors.ink3, marginTop: 6, fontStyle: 'italic' },
 
-  // ── dev banner ──
-  devBanner:     { backgroundColor: '#FFF9C4', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 10 },
-  devBannerText: { fontSize: 11.5, color: '#7A6000' },
-  devBannerCode: { fontWeight: '800', fontFamily: 'Courier', letterSpacing: 2 },
 
   // ── resend ──
   resendWrap:  { marginTop: 8, alignSelf: 'flex-start' },

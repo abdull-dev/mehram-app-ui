@@ -1,14 +1,15 @@
 /**
  * WaliCodeEntryScreen — W2
  *
- * Six-digit OTP code entry.
+ * Six-character alphanumeric code entry.
  * Progress bar at 25% — "Step 1 of 3".
  * "Codes last 7 days" gold banner.
- * Continue is disabled until 6 digits.
+ * Continue is disabled until 6 characters.
  */
 
 import React, { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -42,26 +43,29 @@ function ClockIcon() {
 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface WaliCodeEntryScreenProps {
-  onContinue?: (code: string) => void;
   onBack?: () => void;
-  onUseLink?: () => void;
+  /** Called when user taps Create account — verifies code and registers */
+  onVerify?: (code: string) => void;
+  loading?: boolean;
+  error?: string;
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliCodeEntryScreen({
-  onContinue,
   onBack,
-  onUseLink,
+  onVerify,
+  loading = false,
+  error,
 }: WaliCodeEntryScreenProps) {
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
   const inputRef = useRef<TextInput>(null);
-  const isReady = code.length === 6;
+  const isReady = code.length === 6 && !loading;
 
   function handleChange(text: string) {
-    const digits = text.replace(/\D/g, '').slice(0, 6);
-    setCode(digits);
-    if (digits.length === 6) {
+    const cleaned = text.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+    setCode(cleaned);
+    if (cleaned.length === 6) {
       inputRef.current?.blur();
     }
   }
@@ -86,41 +90,43 @@ export function WaliCodeEntryScreen({
         <Pressable onPress={onBack} hitSlop={8} style={styles.backBtn}>
           <BackIcon />
         </Pressable>
-        <View style={styles.progressTrack}>
-          <LinearGradient
-            colors={[...GRAD]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={styles.progressFill}
-          />
-        </View>
       </View>
 
       <View style={styles.body}>
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.stepBadge}>
-            <Text style={styles.stepText}>Step 1 of 3</Text>
-          </View>
-          <Text style={styles.heading}>Enter the code{'\n'}she gave you</Text>
-          <Text style={styles.subheading}>Six digits. She can read it to you over the phone.</Text>
+          <Text style={styles.heading}>Enter the code{'\n'}Your Dependent gave you</Text>
+          <Text style={styles.subheading}>Six characters. Your Dependent can read it to you over the phone.</Text>
         </View>
 
         {/* OTP boxes — tapping focuses the hidden input */}
-        <Pressable onPress={() => inputRef.current?.focus()} style={styles.otpRow}>
-          {renderBoxes()}
-        </Pressable>
+        {/* OTP boxes + invisible full-cover input (enables paste context menu) */}
+        <View style={[styles.otpContainer, loading && { opacity: 0.5 }]}>
+          <Pressable onPress={() => inputRef.current?.focus()} style={styles.otpRow}>
+            {renderBoxes()}
+          </Pressable>
+          <TextInput
+            ref={inputRef}
+            value={code}
+            onChangeText={handleChange}
+            keyboardType="default"
+            autoCapitalize="characters"
+            maxLength={6}
+            style={styles.hiddenInput}
+            editable={!loading}
+          />
+        </View>
 
-        {/* Hidden TextInput that captures actual input */}
-        <TextInput
-          ref={inputRef}
-          value={code}
-          onChangeText={handleChange}
-          keyboardType="number-pad"
-          maxLength={6}
-          style={styles.hiddenInput}
-          caretHidden
-        />
+        {/* Verifying loader */}
+        {loading ? (
+          <View style={styles.loaderRow}>
+            <ActivityIndicator size="small" color={Colors.vio} />
+            <Text style={styles.loaderText}>Verifying…</Text>
+          </View>
+        ) : null}
+
+        {/* Inline error */}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {/* Gold banner */}
         <View style={styles.banner}>
@@ -132,10 +138,10 @@ export function WaliCodeEntryScreen({
         </View>
       </View>
 
-      {/* Footer buttons */}
+      {/* Footer */}
       <View style={styles.footer}>
         <Pressable
-          onPress={() => isReady && onContinue?.(code)}
+          onPress={() => isReady && onVerify?.(code)}
           style={({ pressed }) => [{ opacity: pressed && isReady ? 0.9 : 1 }]}>
           {isReady ? (
             <LinearGradient
@@ -143,19 +149,15 @@ export function WaliCodeEntryScreen({
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
               style={styles.btnFilled}>
-              <Text style={styles.btnFilledText}>Continue</Text>
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.btnFilledText}>Create account</Text>}
             </LinearGradient>
           ) : (
             <View style={[styles.btnFilled, styles.btnDisabled]}>
-              <Text style={styles.btnDisabledText}>Continue</Text>
+              <Text style={styles.btnDisabledText}>Create account</Text>
             </View>
           )}
-        </Pressable>
-
-        <Pressable
-          onPress={onUseLink}
-          style={({ pressed }) => [styles.btnGhost, { opacity: pressed ? 0.7 : 1 }]}>
-          <Text style={styles.btnGhostText}>I have a link instead</Text>
         </Pressable>
       </View>
     </View>
@@ -189,39 +191,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  progressTrack: {
-    flex: 1,
-    height: 7,
-    borderRadius: 5,
-    backgroundColor: 'rgba(155,123,240,0.16)',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    width: '25%',
-    height: 7,
-    borderRadius: 5,
-  },
   body: {
     flex: 1,
     paddingTop: 18,
   },
   header: {
     marginBottom: 2,
-  },
-  stepBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.vioSoft,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 9,
-    marginBottom: 10,
-  },
-  stepText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: Colors.vioInk,
   },
   heading: {
     fontSize: 24,
@@ -236,10 +211,12 @@ const styles = StyleSheet.create({
     color: Colors.ink2,
     lineHeight: 20,
   },
+  otpContainer: {
+    marginTop: 16,
+  },
   otpRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 16,
   },
   otpBox: {
     flex: 1,
@@ -269,9 +246,28 @@ const styles = StyleSheet.create({
   },
   hiddenInput: {
     position: 'absolute',
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     opacity: 0,
+  },
+  loaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  loaderText: {
+    fontSize: 13,
+    color: Colors.vio,
+    fontWeight: '600',
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#C0392B',
+    marginTop: 10,
+    textAlign: 'center',
   },
   banner: {
     flexDirection: 'row',
@@ -314,15 +310,5 @@ const styles = StyleSheet.create({
     fontSize: 15.5,
     fontWeight: '800',
     color: '#A79EC6',
-  },
-  btnGhost: {
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnGhostText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.ink2,
   },
 });

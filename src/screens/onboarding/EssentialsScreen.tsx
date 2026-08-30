@@ -26,6 +26,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { getMyProfile } from '../../api/profile';
 
 // ─── date-picker constants ────────────────────────────────────────────────────
 const MONTHS = [
@@ -291,6 +292,46 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
       heightCm: parseInt(heightInput.trim(), 10),
     });
   }
+
+  // ── pre-populate from API on mount ────────────────────────────────────────────
+  useEffect(() => {
+    getMyProfile().then(profile => {
+      if (profile.fullName) setName(profile.fullName);
+      if (profile.gender === 'MALE') setGender('man');
+      else if (profile.gender === 'FEMALE') setGender('woman');
+      if (profile.dateOfBirth) {
+        const [yearStr, monthStr, dayStr] = profile.dateOfBirth.split('T')[0].split('-');
+        const year = parseInt(yearStr, 10);
+        const month = parseInt(monthStr, 10) - 1; // 0-indexed
+        const day = parseInt(dayStr, 10);
+        const yearIdx = YEARS.indexOf(year);
+        if (yearIdx !== -1) {
+          setDobYear(yearIdx);
+          setDobMonth(month);
+          setDobDay(day - 1); // DAYS[i] = i+1
+          setDobSet(true);
+        }
+      }
+      const MARITAL_REVERSE: Record<string, string> = {
+        NEVER_MARRIED: 'Never married',
+        DIVORCED: 'Divorced',
+        WIDOWED: 'Widowed',
+      };
+      if (profile.maritalStatus && MARITAL_REVERSE[profile.maritalStatus]) {
+        setMaritalStatus(MARITAL_REVERSE[profile.maritalStatus]);
+      }
+      const SECT_REVERSE: Record<string, string> = {
+        SUNNI: 'Sunni', SHIA: 'Shia', ISMAILI: 'Ismaili',
+        AHMADI: 'Other', OTHER: 'Other', PREFER_NOT_SAY: 'Other',
+      };
+      const s = profile.religiousProfile?.sect;
+      if (s && SECT_REVERSE[s]) setSect(SECT_REVERSE[s]);
+      if (profile.occupation) setOccupation(profile.occupation);
+      if (profile.educationLevel) setEducationLevel(profile.educationLevel);
+      if (profile.heightCm) setHeightInput(String(profile.heightCm));
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── entrance animations ───────────────────────────────────────────────────────
   const hdr = useFadeRise(0);

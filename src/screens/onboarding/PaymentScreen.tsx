@@ -12,7 +12,7 @@
  *   │  Membership unlocks…            │
  *   │                                 │
  *   │  ┌─────────────────────────┐    │
- *   │  │  PKR 4,000  (gradient)  │    │  dark card .price
+ *   │  │  PKR 4,500  (gradient)  │    │  dark card .price
  *   │  │  One payment. No…       │    │
  *   │  └─────────────────────────┘    │
  *   │                                 │
@@ -203,7 +203,7 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
               start={{ x: 0.1, y: 0 }}
               end={{ x: 0.4, y: 1 }}
               style={styles.priceCard}>
-              <Text style={styles.priceAmount}>PKR 4,000</Text>
+              <Text style={styles.priceAmount}>PKR 4,500</Text>
               <Text style={styles.priceLabel}>One payment. No renewal, ever.</Text>
             </LinearGradient>
           </Animated.View>

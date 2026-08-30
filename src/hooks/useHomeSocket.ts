@@ -1,52 +1,23 @@
 /**
  * useHomeSocket
  *
- * Connects to the /notifications Socket.io namespace and calls `onStale`
- * whenever the server signals that home-screen stats have changed:
- *   - 'stats:stale'  → emitted after a profile view or a match is created
+ * Subscribes to the Supabase Realtime notifications channel and calls
+ * `onStale` whenever the server broadcasts 'stats:stale' — which happens
+ * after a profile view or when a match is created.
  *
- * The hook connects once on mount (with the stored access token) and
- * disconnects on unmount. The `onStale` callback is kept in a ref so
- * changing it never triggers a reconnect.
+ * The hook is a no-op until `userId` is non-empty (i.e. user is signed in).
+ * The `onStale` callback is kept in a ref so changing it never triggers a
+ * channel reconnect.
  */
 import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { Platform } from 'react-native';
-import { getAccessToken } from '../storage/authStorage';
+import { subscribeToNotification } from '../lib/notificationChannel';
 
-/** Base host — no path, no /v1 */
-const SOCKET_HOST =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:3001'
-    : 'http://localhost:3001';
-
-export function useHomeSocket(onStale: () => void): void {
+export function useHomeSocket(userId: string, onStale: () => void): void {
   const onStaleRef = useRef(onStale);
   useEffect(() => { onStaleRef.current = onStale; }, [onStale]);
 
   useEffect(() => {
-    let socket: Socket | null = null;
-    let mounted = true;
-
-    async function connect() {
-      const token = await getAccessToken();
-      if (!token || !mounted) return;
-
-      socket = io(`${SOCKET_HOST}/notifications`, {
-        auth: { token },
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionDelay: 2000,
-      });
-
-      socket.on('stats:stale', () => onStaleRef.current());
-    }
-
-    connect();
-
-    return () => {
-      mounted = false;
-      socket?.disconnect();
-    };
-  }, []); // connect once; callback updates via ref
+    if (!userId) return;
+    return subscribeToNotification(userId, 'stats:stale', () => onStaleRef.current());
+  }, [userId]);
 }

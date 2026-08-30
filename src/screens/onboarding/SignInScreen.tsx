@@ -175,9 +175,11 @@ function GoogleIcon() {
 interface SignInScreenProps {
   onBack?: () => void;
   /** Called after successful login with tokens already saved */
-  onSignIn?: (email: string, password: string, emailVerified: boolean) => void;
+  onSignIn?: (email: string, password: string, emailVerified: boolean, role: string) => void;
   onGoogleSignIn?: () => void;
   onCreateAccount?: () => void;
+  /** When true, shows wali-specific copy and hides seeker-only options */
+  isWali?: boolean;
 }
 
 export function SignInScreen({
@@ -185,6 +187,7 @@ export function SignInScreen({
   onSignIn,
   onGoogleSignIn,
   onCreateAccount,
+  isWali = false,
 }: SignInScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -243,7 +246,7 @@ export function SignInScreen({
     setLoading(true);
     try {
       const result = await login({ email: identifier.trim().toLowerCase(), password });
-      onSignIn?.(identifier, password, result.user.emailVerified);
+      onSignIn?.(identifier, password, result.user.emailVerified, result.user.role);
     } catch (err: any) {
       const msg: string = err?.message ?? 'Invalid credentials. Please try again.';
       setErrors(e => ({ ...e, identifier: msg }));
@@ -306,11 +309,15 @@ export function SignInScreen({
           {/* ── Heading section ───────────────────────────────────────── */}
           <Animated.View style={[styles.qSection, riseStyle(question.anim)]}>
             <View style={styles.kicker}>
-              <Text style={styles.kickerText}>Welcome back</Text>
+              <Text style={styles.kickerText}>{isWali ? 'Wali sign in' : 'Welcome back'}</Text>
             </View>
-            <Text style={styles.heading}>{'Sign in to\nMehram'}</Text>
+            <Text style={styles.heading}>
+              {isWali ? 'Sign in\nas Wali' : 'Sign in to\nMehram'}
+            </Text>
             <Text style={styles.subtitle}>
-              Use the same method you signed up with.
+              {isWali
+                ? 'Enter the credentials you set up when you joined.'
+                : 'Use the same method you signed up with.'}
             </Text>
           </Animated.View>
 
@@ -382,31 +389,35 @@ export function SignInScreen({
               loading={loading}
             />
 
-            <View style={styles.orWrap}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.orLine} />
-            </View>
+            {!isWali ? (
+              <>
+                <View style={styles.orWrap}>
+                  <View style={styles.orLine} />
+                  <Text style={styles.orText}>or</Text>
+                  <View style={styles.orLine} />
+                </View>
 
-            <Pressable
-              onPress={onGoogleSignIn}
-              style={({ pressed }) => [
-                styles.googleBtn,
-                pressed && styles.googleBtnPressed,
-              ]}>
-              <GoogleIcon />
-              <Text style={styles.googleLabel}>Continue with Google</Text>
-            </Pressable>
+                <Pressable
+                  onPress={onGoogleSignIn}
+                  style={({ pressed }) => [
+                    styles.googleBtn,
+                    pressed && styles.googleBtnPressed,
+                  ]}>
+                  <GoogleIcon />
+                  <Text style={styles.googleLabel}>Continue with Google</Text>
+                </Pressable>
 
-            <TouchableOpacity
-              onPress={onCreateAccount}
-              style={styles.createAccountBtn}
-              activeOpacity={0.7}>
-              <Text style={styles.createAccountText}>
-                New here?{' '}
-                <Text style={styles.createAccountBold}>Create an account</Text>
-              </Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onCreateAccount}
+                  style={styles.createAccountBtn}
+                  activeOpacity={0.7}>
+                  <Text style={styles.createAccountText}>
+                    New here?{' '}
+                    <Text style={styles.createAccountBold}>Create an account</Text>
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>

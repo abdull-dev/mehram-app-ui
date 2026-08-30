@@ -53,14 +53,13 @@ function CheckCircle() {
 interface WaliSetupCompleteScreenProps {
   dependentName?: string;
   onGoHome?: () => void;
-  onSeeDependent?: () => void;
+  onSeeDependent?: () => void; // kept for backwards-compat, unused
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliSetupCompleteScreen({
   dependentName = 'Sana',
   onGoHome,
-  onSeeDependent,
 }: WaliSetupCompleteScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -77,13 +76,6 @@ export function WaliSetupCompleteScreen({
           moment one arrives.
         </Text>
 
-        {/* "Nothing to review yet" card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Nothing to review yet</Text>
-          <Text style={styles.cardBody}>
-            Her search has just started. We will message you when there is something to look at.
-          </Text>
-        </View>
       </View>
 
       {/* Footer buttons */}
@@ -98,12 +90,6 @@ export function WaliSetupCompleteScreen({
             style={styles.btnFilled}>
             <Text style={styles.btnFilledText}>Go to my home</Text>
           </LinearGradient>
-        </Pressable>
-
-        <Pressable
-          onPress={onSeeDependent}
-          style={({ pressed }) => [styles.btnOutline, { opacity: pressed ? 0.8 : 1 }]}>
-          <Text style={styles.btnOutlineText}>See what {dependentName} can see</Text>
         </Pressable>
       </View>
     </View>
@@ -153,30 +139,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  card: {
-    width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 22,
-    padding: 17,
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 3,
-    textAlign: 'left',
-  },
-  cardTitle: {
-    fontSize: 15.5,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-    color: Colors.ink,
-    marginBottom: 4,
-  },
-  cardBody: {
-    fontSize: 12.5,
-    color: Colors.ink2,
-    lineHeight: 19,
-  },
   footer: {
     gap: 9,
   },
@@ -190,24 +152,5 @@ const styles = StyleSheet.create({
     fontSize: 15.5,
     fontWeight: '800',
     color: '#fff',
-  },
-  btnOutline: {
-    height: 54,
-    borderRadius: 19,
-    borderWidth: 1.6,
-    borderColor: 'rgba(155,123,240,0.28)',
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 1,
-  },
-  btnOutlineText: {
-    fontSize: 15.5,
-    fontWeight: '800',
-    color: Colors.vioInk,
   },
 });

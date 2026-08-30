@@ -327,35 +327,34 @@ export function WhoIsForScreen({ onBack, onContinue }: WhoIsForScreenProps) {
         {/* Nav bar */}
         <NavBar onBack={onBack} progressPercent={0} />
 
-        {/* Scrollable body */}
+        {/* Body — vertically centered */}
         <View style={styles.body}>
 
-          {/* Question header */}
+          {/* Heading */}
           <Animated.View style={[styles.question, riseStyle(question.anim)]}>
-            <Text style={styles.heading}>
-              Who is this{'\n'}account for?
-            </Text>
+            <Text style={styles.heading}>Create account as</Text>
+            <Text style={styles.subheading}>Choose how you'll use Mehram.</Text>
           </Animated.View>
 
-          {/* Selection cards — .field.segr */}
+          {/* Selection cards */}
           <Animated.View style={[styles.cardsField, riseStyle(cards.anim)]}>
             <SelectionCard
               selected={selection === 'self'}
               onPress={() => setSelection('self')}
               icon={<UserIcon color={selection === 'self' ? '#fff' : Colors.vioD} />}
-              title="For myself"
-              subtitle="I am looking to marry"
+              title="I am a seeker"
+              subtitle="I am looking for a rishta"
             />
             <SelectionCard
               selected={selection === 'wali'}
               onPress={() => setSelection('wali')}
               icon={<FamilyIcon color={selection === 'wali' ? '#fff' : Colors.vioD} />}
               title="I am a wali"
-              subtitle="Someone invited me"
+              subtitle="I was invited by my dependent"
             />
           </Animated.View>
 
-          {/* Info banner — .bn.bn-ind */}
+          {/* Info banner */}
           <Animated.View style={riseStyle(banner.anim)}>
             <InfoBanner
               icon={<ShieldIcon />}
@@ -440,32 +439,35 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     flexDirection: 'column',
+    justifyContent: 'center',
+    paddingBottom: 40,
   },
 
-  // ── question header ─────────────────────────────────────────────────────
-
-  // .q — padding:18px 2px 2px
   question: {
-    paddingTop: 18,
     paddingHorizontal: 2,
-    paddingBottom: 2,
+    marginBottom: 20,
     flexShrink: 0,
   },
 
-  // .qh — 24px 800, letterSpacing:-0.7, lineHeight:1.2
   heading: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '800',
     letterSpacing: -0.7,
-    lineHeight: 29, // 24 × 1.2
+    lineHeight: 34,
     color: Colors.ink,
+  },
+
+  subheading: {
+    fontSize: 14,
+    color: Colors.ink2,
+    marginTop: 6,
+    lineHeight: 20,
   },
 
   // ── selection cards ─────────────────────────────────────────────────────
 
-  // .field.an.d2 — margin-top:14
   cardsField: {
-    marginTop: 14,
+    marginTop: 0,
     gap: 10,
     flexShrink: 0,
   },

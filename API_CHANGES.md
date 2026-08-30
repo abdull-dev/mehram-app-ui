@@ -75,7 +75,7 @@ These endpoints existed in the original backend but are not used by the Mehram a
 
 | Method | Old Path | New Path |
 |---|---|---|
-| `POST` | `/auth/parent/redeem` | `/auth/wali/redeem` |
+| `POST` | `/auth/parent/redeem` | `/auth/wali/verification-code` |
 
 **Reason:** The app uses the Islamic term "wali" for the guardian role, not "parent".
 
@@ -309,7 +309,7 @@ All files created in `src/api/` and `src/storage/`:
 | `src/api/config.ts` | `API_BASE_URL` constant |
 | `src/api/client.ts` | `apiRequest<T>` + `apiUpload<T>` HTTP client with Bearer token |
 | `src/storage/authStorage.ts` | AsyncStorage token persistence (`@mehram_access_token`, `@mehram_refresh_token`) |
-| `src/api/auth.ts` | `sendOtp`, `verifyOtp`, `resendOtp`, `getMe`, `logout`, `refreshTokens`, `redeemWaliInvite` |
+| `src/api/auth.ts` | `sendOtp`, `verifyOtp`, `resendOtp`, `getMe`, `logout`, `refreshTokens`, `verifyInviteCode` |
 | `src/api/profile.ts` | All profile update functions + enum mappers for Prisma enums |
 | `src/api/wali.ts` | `createWaliInvite`, `redeemWaliCode` |
 | `src/api/verification.ts` | `submitFaceVerification`, `submitCnicVerification`, `getVerificationStatus` |

@@ -90,7 +90,7 @@ export async function getHomeStats(filters?: IntroductionFilters): Promise<HomeS
     if (filters.minReligiosity && filters.minReligiosity !== 'Any') params.set('minReligiosity', filters.minReligiosity);
   }
   const qs = params.toString();
-  return apiRequest<HomeStats>(qs ? `/introductions/stats?${qs}` : '/introductions/stats');
+  return apiRequest<HomeStats>(qs ? `/matches/stats?${qs}` : '/matches/stats');
 }
 
 export interface IntroductionFilters {
@@ -124,7 +124,7 @@ export async function getIntroductions(limit = 10, filters?: IntroductionFilters
     (filters.maritalStatuses ?? []).filter(m => m !== 'Any').forEach(m => params.append('maritalStatuses', m));
     if (filters.minReligiosity && filters.minReligiosity !== 'Any') params.set('minReligiosity', filters.minReligiosity);
   }
-  return apiRequest<Introduction[]>(`/introductions?${params.toString()}`);
+  return apiRequest<Introduction[]>(`/matches/discover?${params.toString()}`);
 }
 
 /**
@@ -132,12 +132,12 @@ export async function getIntroductions(limit = 10, filters?: IntroductionFilters
  * Used by ProfileDetailScreen (P2).
  */
 export async function getIntroduction(id: string): Promise<FullIntroduction> {
-  return apiRequest<FullIntroduction>(`/introductions/${id}`);
+  return apiRequest<FullIntroduction>(`/matches/candidates/${id}`);
 }
 
 /**
  * Mark an introduction as "not suitable".
  */
 export async function skipIntroduction(id: string): Promise<void> {
-  return apiRequest<void>(`/introductions/${id}/skip`, { method: 'POST' });
+  return apiRequest<void>(`/matches/skip/${id}`, { method: 'POST' });
 }
