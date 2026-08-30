@@ -1568,7 +1568,8 @@ export default function App() {
                   recipientAge: intro?.age ?? null,
                   recipientCity: intro?.city ?? null,
                   recipientOccupation: intro?.occupation ?? null,
-                  stage: 'MY_WALI_APPROVED',
+                  // Optimistic placeholder; the server returns the real stage on refresh.
+                  stage: 'HIS_WALI_PENDING',
                   createdAt: new Date().toISOString(),
                 };
                 // Wait for the API before removing from intro feed — keeps the

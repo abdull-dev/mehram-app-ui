@@ -13,6 +13,7 @@
  *  - rejectMatch()           → POST /family/wali/proposals/:id/decline
  */
 import { apiRequest } from './client';
+import type { ProposalStage } from '../lib/proposalSteps';
 import type { Introduction } from './introductions';
 
 function whatsappShareUrl(code: string): string {
@@ -249,7 +250,6 @@ export async function rejectMatch(matchId: string): Promise<void> {
 //   - /matches/wards/interests returns SENT interests only, so
 //     getWardReceivedProposals() cannot work; incoming proposals come from
 //     GET /family/wali/queue filtered on reviewing === 'incoming'.
-//   - WardProposal.stage still uses the retired PENDING_MY_WALI vocabulary.
 
 /** Wali removes their linked ward (dependent). Both sides lose the link. */
 export async function removeWard(membershipId: string): Promise<void> {
@@ -269,7 +269,7 @@ export interface WardProposal {
   recipientAge: number | null;
   recipientCity: string | null;
   recipientOccupation: string | null;
-  stage: 'PENDING_MY_WALI' | 'MY_WALI_APPROVED' | 'HER_WALI_APPROVED' | 'MATCHED';
+  stage: ProposalStage;
   createdAt: string;
 }
 
@@ -286,7 +286,7 @@ export interface WardReceivedProposal {
   senderAge: number | null;
   senderCity: string | null;
   senderOccupation: string | null;
-  stage: 'PENDING_MY_WALI' | 'MY_WALI_APPROVED' | 'HER_WALI_APPROVED' | 'MATCHED';
+  stage: ProposalStage;
   createdAt: string;
 }
 

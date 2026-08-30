@@ -13,6 +13,7 @@
  *  - getProposals()     → list of sent proposals with profile snapshot + status
  */
 import { apiRequest } from './client';
+import type { ProposalStage } from '../lib/proposalSteps';
 
 export interface ProposalStats {
   /** Number of candidate profiles matching the user's criteria. Shown on H12. */
@@ -32,11 +33,15 @@ export interface ProposalResult {
  * A sent proposal returned by GET /matches/interests?direction=sent.
  * Extends the Introduction profile snapshot with proposal-specific fields.
  */
-export type ProposalStage =
-  | 'PENDING_MY_WALI'
-  | 'MY_WALI_APPROVED'
-  | 'HER_WALI_APPROVED'
-  | 'MATCHED';
+/**
+ * The server's stage vocabulary (`ProposalStage` in prisma/schema.prisma).
+ *
+ * Re-exported from the shared step model so there is one definition: the app
+ * previously carried its own set — PENDING_MY_WALI, MY_WALI_APPROVED,
+ * HER_WALI_APPROVED, MATCHED — that shared no member with what the server sends,
+ * so every stage lookup in the UI silently fell through to a default.
+ */
+export type { ProposalStage } from '../lib/proposalSteps';
 
 export interface SentProposal {
   userId: string;
@@ -44,6 +49,8 @@ export interface SentProposal {
   sentAt: string;
   matchId: string | null;
   stage: ProposalStage;
+  /** Viewer-aware copy computed by the server; prefer it over local chip text. */
+  stageLabel?: string;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;
@@ -62,9 +69,11 @@ export interface SentProposal {
 export interface ReceivedProposal {
   userId: string;
   fullName: string | null;
-  receivedAt: string;
+  sentAt: string;
   matchId: string | null;
   stage: ProposalStage;
+  /** Viewer-aware copy computed by the server; prefer it over local chip text. */
+  stageLabel?: string;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;

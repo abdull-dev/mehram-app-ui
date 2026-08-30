@@ -190,6 +190,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { formatHeight } from '../../utils/height';
+import { buildProposalSteps } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -609,9 +610,9 @@ function ReviewTab({
   onIntroSendProposal?: (userId: string, note: string) => Promise<void> | void;
 }) {
   // Proposals the ward SENT that the wali needs to approve
-  const pendingSent = wardProposals.filter(p => p.stage === 'PENDING_MY_WALI');
+  const pendingSent = wardProposals.filter(p => p.stage === 'HIS_WALI_PENDING');
   // Proposals the ward RECEIVED where sender's wali approved and now ward's wali must act
-  const pendingReceived = wardReceivedProposals.filter(p => p.stage === 'MY_WALI_APPROVED');
+  const pendingReceived = wardReceivedProposals.filter(p => p.stage === 'HER_WALI_REVIEWING');
   const pendingCount = pendingSent.length + pendingReceived.length;
 
   const firstPendingSent = pendingSent[0] ?? null;
@@ -643,7 +644,7 @@ function ReviewTab({
         proposal: {
           userId: firstPendingReceived.fromUserId,
           fullName: firstPendingReceived.senderName,
-          receivedAt: firstPendingReceived.createdAt,
+          sentAt: firstPendingReceived.createdAt,
           matchId: null,
           stage: firstPendingReceived.stage,
           status: 'pending',
@@ -792,19 +793,23 @@ function fmtProposalDate(iso?: string, type: 'sent' | 'received' = 'sent'): stri
 }
 
 // Stage labels from the SENDER's perspective (ward sent the proposal)
-const SENT_STAGE_CONFIG: Record<WardProposal['stage'], { variant: ChipVariant; label: string; doneSteps: number }> = {
-  PENDING_MY_WALI:    { variant: 'gold', label: 'Awaiting your approval', doneSteps: 0 },
-  MY_WALI_APPROVED:   { variant: 'ind',  label: 'Sent — under review',    doneSteps: 1 },
-  HER_WALI_APPROVED:  { variant: 'mint', label: 'Accepted',               doneSteps: 4 },
-  MATCHED:            { variant: 'mint', label: 'Matched',                 doneSteps: 4 },
+const SENT_STAGE_CONFIG: Record<WardProposal['stage'], { variant: ChipVariant; label: string }> = {
+  HIS_WALI_PENDING:     { variant: 'gold', label: 'Awaiting your approval' },
+  HER_WALI_REVIEWING:   { variant: 'ind',  label: 'Sent — under review' },
+  HER_DECISION_PENDING: { variant: 'ind',  label: 'She is deciding' },
+  ACCEPTED:             { variant: 'mint', label: 'Accepted' },
+  DECLINED:             { variant: 'ind',  label: 'Not taken forward' },
+  WITHDRAWN:            { variant: 'ind',  label: 'Withdrawn' },
 };
 
 // Stage labels from the RECIPIENT's perspective (ward received the proposal)
-const RECEIVED_STAGE_CONFIG: Record<WardReceivedProposal['stage'], { variant: ChipVariant; label: string; doneSteps: number }> = {
-  PENDING_MY_WALI:    { variant: 'ind',  label: "Pending sender's wali",  doneSteps: 0 },
-  MY_WALI_APPROVED:   { variant: 'gold', label: 'Awaiting your approval', doneSteps: 1 },
-  HER_WALI_APPROVED:  { variant: 'mint', label: 'Accepted',               doneSteps: 4 },
-  MATCHED:            { variant: 'mint', label: 'Matched',                 doneSteps: 4 },
+const RECEIVED_STAGE_CONFIG: Record<WardReceivedProposal['stage'], { variant: ChipVariant; label: string }> = {
+  HIS_WALI_PENDING:     { variant: 'ind',  label: "Pending sender's wali" },
+  HER_WALI_REVIEWING:   { variant: 'gold', label: 'Awaiting your approval' },
+  HER_DECISION_PENDING: { variant: 'ind',  label: 'With your ward' },
+  ACCEPTED:             { variant: 'mint', label: 'Accepted' },
+  DECLINED:             { variant: 'ind',  label: 'Not taken forward' },
+  WITHDRAWN:            { variant: 'ind',  label: 'Withdrawn' },
 };
 
 function ProposalsTab({
@@ -877,7 +882,8 @@ function ProposalsTab({
           </View>
         ) : (
           wardProposals.map(p => {
-            const { variant, label, doneSteps } = SENT_STAGE_CONFIG[p.stage] ?? SENT_STAGE_CONFIG.PENDING_MY_WALI;
+            const { variant, label } = SENT_STAGE_CONFIG[p.stage] ?? SENT_STAGE_CONFIG.HIS_WALI_PENDING;
+            const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'suitorWali' });
             const who = [
               p.recipientName ?? null,
               p.recipientAge ? `${p.recipientAge} yrs` : null,
@@ -896,7 +902,7 @@ function ProposalsTab({
                     sentAt: p.createdAt,
                     matchId: null,
                     stage: p.stage,
-                    status: p.stage === 'MATCHED' ? 'matched' : 'pending',
+                    status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.recipientAge,
                     city: p.recipientCity,
                     countryCode: null,
@@ -944,7 +950,8 @@ function ProposalsTab({
           </View>
         ) : (
           wardReceivedProposals.map(p => {
-            const { variant, label, doneSteps } = RECEIVED_STAGE_CONFIG[p.stage] ?? RECEIVED_STAGE_CONFIG.PENDING_MY_WALI;
+            const { variant, label } = RECEIVED_STAGE_CONFIG[p.stage] ?? RECEIVED_STAGE_CONFIG.HIS_WALI_PENDING;
+            const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'recipientWali' });
             const who = [
               p.senderName ?? null,
               p.senderAge ? `${p.senderAge} yrs` : null,
@@ -960,10 +967,10 @@ function ProposalsTab({
                   proposal: {
                     userId: p.fromUserId,
                     fullName: p.senderName,
-                    receivedAt: p.createdAt,
+                    sentAt: p.createdAt,
                     matchId: null,
                     stage: p.stage,
-                    status: p.stage === 'MATCHED' ? 'matched' : 'pending',
+                    status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.senderAge,
                     city: p.senderCity,
                     countryCode: null,
@@ -1464,8 +1471,8 @@ export function WaliHomeScreen({
           ).map(({ id, label, Icon }) => {
             const isActive = activeTab === id;
             const pendingReviewCount =
-              wardProposals.filter(p => p.stage === 'PENDING_MY_WALI').length +
-              wardReceivedProposals.filter(p => p.stage === 'MY_WALI_APPROVED').length;
+              wardProposals.filter(p => p.stage === 'HIS_WALI_PENDING').length +
+              wardReceivedProposals.filter(p => p.stage === 'HER_WALI_REVIEWING').length;
             const badge = id === 'review' && pendingReviewCount > 0 ? pendingReviewCount : 0;
             return (
               <Pressable

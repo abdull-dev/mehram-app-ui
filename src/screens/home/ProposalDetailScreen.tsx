@@ -21,6 +21,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { withdrawProposal } from '../../api/proposals';
+import { buildProposalSteps, type ProposalFlow } from '../../lib/proposalSteps';
 import { withdrawWardProposal } from '../../api/wali';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
 import { formatHeight } from '../../utils/height';
@@ -185,28 +186,25 @@ function Banner({ variant, icon, title, body }: {
 }
 
 // ─── StepTracker ──────────────────────────────────────────────────────────────
-type StepState = 'd' | 'n' | 'w'; // done | current | waiting
+// Rows arrive already ordered by src/lib/proposalSteps: completed approvals
+// first, in the sequence they happened, then whatever is still outstanding.
 
-interface Step {
-  state: StepState;
-  label: string;
-  sub?: string;
-  num: number;
-}
-
-function StepTracker({ steps }: { steps: Step[] }) {
-  const doneCount = steps.filter(s => s.state === 'd').length;
-  const activeIdx = steps.findIndex(s => s.state === 'n');
-  const totalSteps = steps.length;
-  const remaining = totalSteps - doneCount - (activeIdx >= 0 ? 1 : 0);
-  const stepNum = activeIdx >= 0 ? activeIdx + 1 : totalSteps;
+function StepTracker({ flow }: { flow: ProposalFlow }) {
+  const { steps, terminal, doneCount, total } = flow;
+  const activeIdx = steps.findIndex(s => s.state === 'current');
+  const remaining = total - doneCount - (activeIdx >= 0 ? 1 : 0);
+  const stepNum = Math.min(doneCount + 1, total);
 
   return (
     <View style={styles.card}>
       {/* Header */}
       <View style={styles.stepsHeader}>
         <Text style={styles.stepsTitle}>Proposal status</Text>
-        <Text style={styles.stepsCounter}>Step {stepNum} of {totalSteps}</Text>
+        <Text style={styles.stepsCounter}>
+          {terminal
+            ? terminal === 'declined' ? 'Not taken forward' : 'Withdrawn'
+            : `Step ${stepNum} of ${total}`}
+        </Text>
       </View>
 
       {/* Progress bar */}
@@ -232,43 +230,43 @@ function StepTracker({ steps }: { steps: Step[] }) {
             <View key={i} style={styles.stepRow}>
               {/* Left column: dot + connecting line */}
               <View style={styles.stepLeft}>
-                {step.state === 'n' ? (
+                {step.state === 'current' ? (
                   <View style={styles.dotHaloWrap}>
                     <View style={[styles.stepDot, styles.dotNext]}>
-                      <Text style={[styles.dotNum, styles.dotNumActive]}>{step.num}</Text>
+                      <Text style={[styles.dotNum, styles.dotNumActive]}>{step.order}</Text>
                     </View>
                   </View>
                 ) : (
-                  <View style={[styles.stepDot, step.state === 'd' ? styles.dotDone : styles.dotWait]}>
-                    {step.state === 'd' ? (
+                  <View style={[styles.stepDot, step.state === 'done' ? styles.dotDone : styles.dotWait]}>
+                    {step.state === 'done' ? (
                       <Text style={styles.dotCheck}>✓</Text>
                     ) : (
-                      <Text style={styles.dotNum}>{step.num}</Text>
+                      <Text style={styles.dotNum}>{step.order}</Text>
                     )}
                   </View>
                 )}
                 {!isLast && (
                   <View style={[
                     styles.stepLine,
-                    step.state === 'd' ? styles.stepLineDone : styles.stepLineWait,
+                    step.state === 'done' ? styles.stepLineDone : styles.stepLineWait,
                   ]} />
                 )}
               </View>
 
               {/* Right column: content */}
-              <View style={[styles.stepContent, { paddingTop: step.state === 'n' ? 17 : 10 }]}>
+              <View style={[styles.stepContent, { paddingTop: step.state === 'current' ? 17 : 10 }]}>
                 <Text style={[
                   styles.stepLabel,
-                  step.state === 'w' && styles.stepLabelWait,
+                  step.state === 'waiting' && styles.stepLabelWait,
                 ]}>
                   {step.label}
                 </Text>
                 {!!step.sub ? (
                   <Text style={styles.stepSub}>{step.sub}</Text>
-                ) : step.state === 'w' ? (
+                ) : step.state === 'waiting' ? (
                   <Text style={styles.stepSub}>Not started</Text>
                 ) : null}
-                {step.state === 'n' && (
+                {step.state === 'current' && (
                   <View style={styles.inProgressBadge}>
                     <ClockIcon color={C.indInk} />
                     <Text style={styles.inProgressText}>In progress</Text>
@@ -374,171 +372,45 @@ function ActionButtons({ buttons }: { buttons: [BtnVariant, string, (() => void)
 }
 
 // ─── Stage helpers ────────────────────────────────────────────────────────────
+// The step flow itself now lives in src/lib/proposalSteps, which knows all four
+// viewpoints. The three builders that used to sit here were keyed on a stage
+// vocabulary the server no longer sends, so each one fell through to its default.
 
-function stepsForSentStage(stage: ProposalStage, sentAt: string): Step[] {
-  const sent = fmtStepTime(sentAt);
-  const d = (label: string, sub?: string, num = 0): Step => ({ state: 'd', label, sub, num });
-  const n = (label: string, sub?: string, num = 0): Step => ({ state: 'n', label, sub, num });
-  const w = (label: string, num = 0): Step => ({ state: 'w', label, num });
-
+/**
+ * What withdrawing costs at this point, in the reader's terms.
+ *
+ * `waliSent` matters only before the proposal leaves the sending side: a wali
+ * who sent it himself has no separate approval of his own still to come.
+ */
+function lockText(
+  stage: ProposalStage,
+  viewer: 'suitor' | 'suitorWali',
+  waliSent: boolean,
+): string {
   switch (stage) {
-    case 'PENDING_MY_WALI':
-      return [
-        d('You sent the proposal', sent, 1),
-        n('Your wali is reviewing', undefined, 2),
-        w('Her wali reviews', 3),
-        w('She decides', 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'MY_WALI_APPROVED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('Your wali approved', undefined, 2),
-        n('Her wali is reviewing', undefined, 3),
-        w('She decides', 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'HER_WALI_APPROVED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('Your wali approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        n('She is deciding', undefined, 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'MATCHED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('Your wali approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        d('She accepted', undefined, 4),
-        d('Chat open with both walis', undefined, 5),
-      ];
-  }
-}
-
-// Wali viewing their ward's sent proposal — "you" = the wali
-function stepsForSentStageWali(stage: ProposalStage, sentAt: string, wardName?: string): Step[] {
-  const sent = fmtStepTime(sentAt);
-  const d = (label: string, sub?: string, num = 0): Step => ({ state: 'd', label, sub, num });
-  const n = (label: string, sub?: string, num = 0): Step => ({ state: 'n', label, sub, num });
-  const w = (label: string, num = 0): Step => ({ state: 'w', label, num });
-  const firstName = wardName
-    ? (wardName.includes(' ') ? wardName.split(' ')[0] : wardName)
-    : 'Your dependent';
-  const step1Label = `${firstName} sent proposal`;
-
-  switch (stage) {
-    case 'PENDING_MY_WALI':
-      return [
-        d(step1Label, sent, 1),
-        n('You are reviewing', undefined, 2),
-        w('Her wali reviews', 3),
-        w('She decides', 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'MY_WALI_APPROVED':
-      return [
-        d(step1Label, sent, 1),
-        d('You approved', undefined, 2),
-        n('Her wali is reviewing', undefined, 3),
-        w('She decides', 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'HER_WALI_APPROVED':
-      return [
-        d(step1Label, sent, 1),
-        d('You approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        n('She is deciding', undefined, 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'MATCHED':
-      return [
-        d(step1Label, sent, 1),
-        d('You approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        d('She accepted', undefined, 4),
-        d('Chat open with both walis', undefined, 5),
-      ];
-  }
-}
-
-function lockTextForStage(stage: ProposalStage): string {
-  switch (stage) {
-    case 'PENDING_MY_WALI':
-      return 'Withdrawing now is silent — your wali will not be asked to review this.';
-    case 'MY_WALI_APPROVED':
-      return 'Withdrawing now is silent — her family will not be told your wali approved.';
-    case 'HER_WALI_APPROVED':
+    case 'HIS_WALI_PENDING':
+      if (waliSent) {
+        return 'Withdrawing now is silent — her family will not be told you proposed.';
+      }
+      return viewer === 'suitorWali'
+        ? 'Withdrawing now is silent — the other family will not be notified.'
+        : 'Withdrawing now is silent — your wali will not be asked to review this.';
+    case 'HER_WALI_REVIEWING':
+      return viewer === 'suitorWali'
+        ? 'Withdrawing now is silent — her family will not be told you approved.'
+        : 'Withdrawing now is silent — her family will not be told your wali approved.';
+    case 'HER_DECISION_PENDING':
       return 'Both walis approved. Withdrawing is still silent — she will not be told.';
-    case 'MATCHED':
+    case 'ACCEPTED':
       return 'She has accepted. A chat with both walis is now open.';
+    case 'DECLINED':
+      return 'This proposal was not taken forward.';
+    case 'WITHDRAWN':
+      return 'This proposal was withdrawn.';
   }
 }
 
-function lockTextForStageWali(stage: ProposalStage): string {
-  switch (stage) {
-    case 'PENDING_MY_WALI':
-      return 'Withdrawing now is silent — the other family will not be notified.';
-    case 'MY_WALI_APPROVED':
-      return 'Withdrawing now is silent — her family will not be told you approved.';
-    case 'HER_WALI_APPROVED':
-      return 'Both walis approved. Withdrawing is still silent — she will not be told.';
-    case 'MATCHED':
-      return 'She has accepted. A chat with both walis is now open.';
-  }
-}
 
-// Wali sent the proposal themselves on behalf of their ward
-function stepsForSentStageWaliSender(stage: ProposalStage, sentAt: string): Step[] {
-  const sent = fmtStepTime(sentAt);
-  const d = (label: string, sub?: string, num = 0): Step => ({ state: 'd', label, sub, num });
-  const n = (label: string, sub?: string, num = 0): Step => ({ state: 'n', label, sub, num });
-  const w = (label: string, num = 0): Step => ({ state: 'w', label, num });
-
-  switch (stage) {
-    case 'PENDING_MY_WALI': // shouldn't normally occur when wali is sender
-    case 'MY_WALI_APPROVED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('You approved', undefined, 2),
-        n('Her wali is reviewing', undefined, 3),
-        w('She decides', 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'HER_WALI_APPROVED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('You approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        n('She is deciding', undefined, 4),
-        w('Chat opens with both walis', 5),
-      ];
-    case 'MATCHED':
-      return [
-        d('You sent the proposal', sent, 1),
-        d('You approved', undefined, 2),
-        d('Her wali approved', undefined, 3),
-        d('She accepted', undefined, 4),
-        d('Chat open with both walis', undefined, 5),
-      ];
-  }
-}
-
-function lockTextForStageWaliSender(stage: ProposalStage): string {
-  switch (stage) {
-    case 'PENDING_MY_WALI':
-    case 'MY_WALI_APPROVED':
-      return 'Withdrawing now is silent — her family will not be told you proposed.';
-    case 'HER_WALI_APPROVED':
-      return 'Both walis approved. Withdrawing is still silent — she will not be told.';
-    case 'MATCHED':
-      return 'She has accepted. A chat with both walis is now open.';
-  }
-}
-
-// ─── PR6: Sent proposal detail ────────────────────────────────────────────────
 function SentProposalDetail({
   proposal, onBack, onWithdrawSuccess, onViewProfile, isWaliView, waliIsSender, wardName,
 }: {
@@ -554,7 +426,7 @@ function SentProposalDetail({
   const [withdrawing, setWithdrawing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const stage = proposal.stage;
-  const matched = stage === 'MATCHED';
+  const matched = stage === 'ACCEPTED';
 
   async function confirmWithdraw() {
     setWithdrawing(true);
@@ -576,10 +448,14 @@ function SentProposalDetail({
   const who = [proposal.age, proposal.city].filter(Boolean).join(' · ');
   const sub = fmtSect(proposal.sect, proposal.madhhab);
 
-  const steps: Step[] =
-    isWaliView && waliIsSender ? stepsForSentStageWaliSender(stage, proposal.sentAt)
-    : isWaliView               ? stepsForSentStageWali(stage, proposal.sentAt, wardName)
-    :                            stepsForSentStage(stage, proposal.sentAt);
+  // Who is looking, and who sent it — the two things the wording turns on.
+  const flow = buildProposalSteps({
+    stage,
+    viewer: isWaliView ? 'suitorWali' : 'suitor',
+    origin: waliIsSender ? 'wali' : 'self',
+    sentAt: proposal.sentAt,
+    wardName,
+  });
 
   const educ = fmt(EDUCATION_LABELS, proposal.educationLevel);
   const family = fmt(FAMILY_TYPE_LABELS, proposal.familyType);
@@ -596,7 +472,7 @@ function SentProposalDetail({
         contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom + 100, 110) }]}
         showsVerticalScrollIndicator={false}>
 
-        <StepTracker steps={steps} />
+        <StepTracker flow={flow} />
 
         <ProfileMiniCard
           who={who}
@@ -611,9 +487,7 @@ function SentProposalDetail({
             ['Her wali',   'Father'],
           ]} />
           <LockNotice text={
-            waliIsSender ? lockTextForStageWaliSender(stage)
-            : isWaliView ? lockTextForStageWali(stage)
-            : lockTextForStage(stage)
+            lockText(stage, isWaliView ? 'suitorWali' : 'suitor', !!waliIsSender)
           } />
           {matched ? (
             <ActionButtons buttons={[
@@ -676,12 +550,15 @@ function SentProposalDetail({
 
 // ─── PR7: Received proposal detail ────────────────────────────────────────────
 function ReceivedProposalDetail({
-  proposal, onBack, onAccept, onDecline,
+  proposal, onBack, onAccept, onDecline, isWaliView = false, wardName,
 }: {
   proposal: ReceivedProposal;
   onBack: () => void;
   onAccept?: (userId: string) => void;
   onDecline?: (userId: string) => void;
+  /** True when her wali is the one reading it. */
+  isWaliView?: boolean;
+  wardName?: string;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -702,11 +579,18 @@ function ReceivedProposalDetail({
         contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom + 100, 110) }]}
         showsVerticalScrollIndicator={false}>
 
+        <StepTracker flow={buildProposalSteps({
+          stage: proposal.stage,
+          viewer: isWaliView ? 'recipientWali' : 'recipient',
+          sentAt: proposal.sentAt,
+          wardName,
+        })} />
+
         <Banner
           variant="ind"
           icon={<FamilyIcon color={C.indInk} />}
           title="His wali has already approved"
-          body="His father reviewed this before it reached you."
+          body="His wali reviewed this before it reached you."
         />
 
         <ProfileMiniCard

@@ -27,6 +27,7 @@ import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/pr
 import type { ProposalDetailSelection } from './ProposalDetailScreen';
 import { useProposalsSocket } from '../../hooks/useProposalsSocket';
 import { formatHeight } from '../../utils/height';
+import { buildProposalSteps } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -101,42 +102,48 @@ function fmtReceivedAt(iso: string): string {
 }
 
 // Stage → progress bar segments done (0-4) and chip
-const SENT_STAGE_MAP: Record<ProposalStage, { doneSteps: number; chipVariant: ChipVariant; chipLabel: string }> = {
-  PENDING_MY_WALI:   { doneSteps: 0, chipVariant: 'gold', chipLabel: 'Awaiting your wali' },
-  MY_WALI_APPROVED:  { doneSteps: 1, chipVariant: 'gold', chipLabel: 'With her wali' },
-  HER_WALI_APPROVED: { doneSteps: 2, chipVariant: 'gold', chipLabel: 'She is deciding' },
-  MATCHED:           { doneSteps: 4, chipVariant: 'mint', chipLabel: 'She accepted' },
+const SENT_STAGE_MAP: Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> = {
+  HIS_WALI_PENDING:     { chipVariant: 'gold', chipLabel: 'Awaiting your wali' },
+  HER_WALI_REVIEWING:   { chipVariant: 'gold', chipLabel: 'With her wali' },
+  HER_DECISION_PENDING: { chipVariant: 'gold', chipLabel: 'She is deciding' },
+  ACCEPTED:             { chipVariant: 'mint', chipLabel: 'She accepted' },
+  DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
+  WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
 };
 
-const RECEIVED_STAGE_MAP: Record<ProposalStage, { doneSteps: number; chipVariant: ChipVariant; chipLabel: string }> = {
-  PENDING_MY_WALI:   { doneSteps: 0, chipVariant: 'ind',  chipLabel: 'With his wali' },
-  MY_WALI_APPROVED:  { doneSteps: 1, chipVariant: 'ind',  chipLabel: 'With your wali' },
-  HER_WALI_APPROVED: { doneSteps: 2, chipVariant: 'rose', chipLabel: 'Needs your answer' },
-  MATCHED:           { doneSteps: 4, chipVariant: 'mint', chipLabel: 'Matched' },
+const RECEIVED_STAGE_MAP: Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> = {
+  HIS_WALI_PENDING:     { chipVariant: 'ind',  chipLabel: 'With his wali' },
+  HER_WALI_REVIEWING:   { chipVariant: 'ind',  chipLabel: 'With your wali' },
+  HER_DECISION_PENDING: { chipVariant: 'rose', chipLabel: 'Needs your answer' },
+  ACCEPTED:             { chipVariant: 'mint', chipLabel: 'Matched' },
+  DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
+  WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
 };
 
 function toSentCard(p: SentProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
-  const { doneSteps, chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
+  const { chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
+  const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'suitor' });
   return {
     name: p.fullName ?? 'Unknown',
     details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
     meta: fmtSentAt(p.sentAt),
     chipVariant,
-    chipLabel,
+    chipLabel: p.stageLabel ?? chipLabel,
     doneSteps,
   };
 }
 
 function toReceivedCard(p: ReceivedProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
-  const { doneSteps, chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
+  const { chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
+  const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'recipient' });
   return {
     name: p.fullName ?? 'Unknown',
     details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
-    meta: fmtReceivedAt(p.receivedAt),
+    meta: fmtReceivedAt(p.sentAt),
     chipVariant,
     chipLabel,
     doneSteps,
