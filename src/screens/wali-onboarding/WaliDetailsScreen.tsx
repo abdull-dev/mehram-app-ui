@@ -8,6 +8,7 @@
 
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -49,6 +50,10 @@ interface WaliDetailsScreenProps {
   dependentName?: string;
   onContinue?: (name: string, relationship: string) => void;
   onBack?: () => void;
+  /** True while the details are being saved; blocks a second submit. */
+  saving?: boolean;
+  /** Save failed — shown above the button so the entry is not lost. */
+  error?: string;
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
@@ -56,13 +61,15 @@ export function WaliDetailsScreen({
   dependentName = 'Sana',
   onContinue,
   onBack,
+  saving = false,
+  error,
 }: WaliDetailsScreenProps) {
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [relationship, setRelationship] = useState<Relationship | null>(null);
   const [nameFocused, setNameFocused] = useState(false);
 
-  const canContinue = name.trim().length > 0 && relationship !== null;
+  const canContinue = name.trim().length > 0 && relationship !== null && !saving;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 12 }]}>
@@ -159,6 +166,7 @@ export function WaliDetailsScreen({
 
       {/* Footer */}
       <View style={styles.footer}>
+        {!!error && <Text style={styles.errorText}>{error}</Text>}
         <Pressable
           onPress={() => canContinue && onContinue?.(name.trim(), relationship!)}
           disabled={!canContinue}
@@ -168,7 +176,9 @@ export function WaliDetailsScreen({
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={styles.btnFilled}>
-            <Text style={styles.btnFilledText}>Continue</Text>
+            {saving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.btnFilledText}>Continue</Text>}
           </LinearGradient>
         </Pressable>
       </View>
@@ -339,6 +349,12 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 17,
     color: '#584A93',
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#C0392B',
+    textAlign: 'center',
+    marginBottom: 10,
   },
   footer: {
     paddingTop: 8,

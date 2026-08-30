@@ -8,9 +8,17 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { getMe, saveOnboardingStep, logout, verifyInviteCode } from './src/api/auth';
+import {
+  getMe,
+  saveOnboardingStep,
+  logout,
+  verifyInviteCode,
+  isPendingConfirmation,
+  verifyEmailOtp,
+  resendEmailOtp,
+} from './src/api/auth';
 import { resolvePhotoUrl } from './src/api/config';
-import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal } from './src/api/wali';
+import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship } from './src/api/wali';
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import { verifyPurchase, getEntitlement } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
@@ -18,7 +26,6 @@ import { sendProposal, getProposalStats } from './src/api/proposals';
 import {
   updateLocation,
   updateEssentials,
-  updateProfileName,
   updateSect,
   updateFamilyBackground,
   updatePreferences,
@@ -84,6 +91,7 @@ import { PartnerPreferencesScreen } from './src/screens/home/PartnerPreferencesS
 import { WaliAccountSetupScreen } from './src/screens/wali-onboarding/WaliAccountSetupScreen';
 import { WaliWelcomeScreen }      from './src/screens/wali-onboarding/WaliWelcomeScreen';
 import { WaliCodeEntryScreen }    from './src/screens/wali-onboarding/WaliCodeEntryScreen';
+import { WaliEmailVerifyScreen }  from './src/screens/wali-onboarding/WaliEmailVerifyScreen';
 import { WaliRoleExplainScreen }  from './src/screens/wali-onboarding/WaliRoleExplainScreen';
 import { WaliDetailsScreen }      from './src/screens/wali-onboarding/WaliDetailsScreen';
 import { WaliSetupCompleteScreen } from './src/screens/wali-onboarding/WaliSetupCompleteScreen';
@@ -104,7 +112,7 @@ type Screen =
   | 'PrivacyPolicy' | 'TermsOfService' | 'RefundPolicy'
   | 'FoundMyMatch' | 'DownloadData' | 'PartnerPreferences' | 'YourWali'
   // Wali onboarding
-  | 'WaliAccountSetup' | 'WaliWelcome' | 'WaliCode' | 'WaliRole' | 'WaliDetails' | 'WaliComplete'
+  | 'WaliAccountSetup' | 'WaliWelcome' | 'WaliCode' | 'WaliEmailVerify' | 'WaliRole' | 'WaliDetails' | 'WaliComplete'
   // Chat
   | 'Chats' | 'ChatThread';
 
@@ -112,7 +120,7 @@ const SCREEN_ORDER: Screen[] = [
   // Onboarding
   'F1', 'SignInRole', 'SignIn', 'WhoIsFor',
   // Wali onboarding branch (sits between WhoIsFor and Phone)
-  'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliRole', 'WaliDetails', 'WaliComplete',
+  'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliEmailVerify', 'WaliRole', 'WaliDetails', 'WaliComplete',
   'Phone', 'AccountVerification', 'Code',
   'F6', 'F7', 'F8', 'F10',
   'F11', 'F12', 'F13', 'F14', 'F15', 'F16', 'F17', 'F18',
@@ -254,10 +262,37 @@ export default function App() {
   const [chatsLoading, setChatsLoading] = useState(false);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [isWali, setIsWali]                   = useState(false);
+
+  /**
+   * Applies a role to the whole shell in one move.
+   *
+   * `isWali` selects an entirely different set of screens, so it must always be
+   * *set*, never merely set-when-true. It used to be turned on by picking "wali"
+   * on WhoIsFor and then never turned off: going back and continuing as a seeker
+   * left the flag on, and the seeker finished onboarding only to land on the
+   * wali home. Every caller now states the role it means, including 'self'.
+   */
+  const applyRole = useCallback((role: 'self' | 'wali') => {
+    setSelectedRole(role);
+    setIsWali(role === 'wali');
+  }, []);
+
+  /** The server's role is the authority once we have it; the picker is only intent. */
+  const applyServerRole = useCallback((role?: string | null) => {
+    applyRole(role?.toLowerCase() === 'wali' ? 'wali' : 'self');
+  }, [applyRole]);
   const [waliCodeLoading, setWaliCodeLoading] = useState(false);
   const [waliCodeError, setWaliCodeError]     = useState<string | undefined>();
   const [waliEmail, setWaliEmail]             = useState('');
   const [waliPassword, setWaliPassword]       = useState('');
+  // Email-confirmation step (W3). `waliCodeSent` gates the screen's second
+  // phase, so a failed send leaves the wali on the address step.
+  const [waliCodeSent, setWaliCodeSent]       = useState(false);
+  const [waliEmailSending, setWaliEmailSending]   = useState(false);
+  const [waliEmailVerifying, setWaliEmailVerifying] = useState(false);
+  const [waliEmailError, setWaliEmailError]   = useState<string | undefined>();
+  const [waliDetailsSaving, setWaliDetailsSaving] = useState(false);
+  const [waliDetailsError, setWaliDetailsError]   = useState<string | undefined>();
   const [dependentName, setDependentName]     = useState('');
   const [dependentProfile, setDependentProfile] = useState<import('./src/api/wali').WaliMeResponse['ward']>(null);
   const [dependentPhotos, setDependentPhotos] = useState<Array<{ id: string; url: string }>>([]);
@@ -562,9 +597,8 @@ export default function App() {
           const savedStep = screenForStep(me.profile.onboardingStep);
           const isWaliSession = me.user.role?.toLowerCase() === 'wali' ||
             (savedStep != null && WALI_STEPS.includes(savedStep));
+          applyRole(isWaliSession ? 'wali' : 'self');
           if (isWaliSession) {
-            setSelectedRole('wali');
-            setIsWali(true);
             if (me.user.email) setUserEmail(me.user.email);
             // Restore locally-persisted proposals before loadWaliProfile runs,
             // so the prune logic inside it correctly removes any the server now confirms.
@@ -741,9 +775,8 @@ export default function App() {
                   // Wali users have a separate flow — route to the right step.
                   // Check role from /auth/me or from the login response directly.
                   const isWaliUser = me.user.role?.toLowerCase() === 'wali' || _loginRole?.toLowerCase() === 'wali';
+                  applyRole(isWaliUser ? 'wali' : 'self');
                   if (isWaliUser) {
-                    setSelectedRole('wali');
-                    setIsWali(true);
                     if (me.user.email) setUserEmail(me.user.email);
                     setWaliLoading(true);
                     loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
@@ -874,13 +907,8 @@ export default function App() {
           <WhoIsForScreen
             onBack={() => navigate('F1')}
             onContinue={(selection) => {
-              setSelectedRole(selection);
-              if (selection === 'wali') {
-                setIsWali(true);
-                navigate('WaliAccountSetup');
-              } else {
-                navigate('Phone');
-              }
+              applyRole(selection);
+              navigate(selection === 'wali' ? 'WaliAccountSetup' : 'Phone');
             }}
           />
         );
@@ -919,27 +947,116 @@ export default function App() {
               setWaliCodeError(undefined);
               setWaliCodeLoading(true);
               try {
-                const result = await verifyInviteCode(code, { email: waliEmail, password: waliPassword });
-                if (result.user.role?.toLowerCase() === 'wali') {
-                  setIsWali(true);
-                  setSelectedRole('wali');
+                // fullName is required by RedeemParentInviteDto. The real name is
+                // collected on WaliDetails and overwrites this via updateWaliDetails;
+                // sending the address local-part keeps the account creatable until then.
+                const provisionalName = waliEmail.split('@')[0] || 'Wali';
+                const result = await verifyInviteCode(code, {
+                  email: waliEmail,
+                  password: waliPassword,
+                  fullName: provisionalName,
+                });
+
+                // Email confirmation on: no session yet, the code is in their
+                // inbox. Confirmation off: signed in already, skip the step.
+                if (isPendingConfirmation(result)) {
+                  setWaliCodeSent(true);   // redeem's own signUp already sent it
+                  setWaliEmailError(undefined);
+                  navigate('WaliEmailVerify');
+                  return;
                 }
+
+                applyServerRole(result.user.role);
                 // Load wali-specific profile in background via dedicated endpoint
                 loadWaliProfile().catch(() => {});
                 navigate('WaliRole');
               } catch (e: any) {
-                const msg: string = e?.message ?? '';
+                // The server validates the invite before it creates anything —
+                // every check in ParentInviteRedemptionService runs ahead of the
+                // Supabase signUp, so reaching this branch means no account was
+                // made and the code is the thing to fix. Map its actual answer
+                // rather than collapsing everything into "something went wrong".
+                const status: number | undefined = e?.status;
+                const msg: string = (e?.message ?? '').toLowerCase();
                 setWaliCodeError(
-                  msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('not found')
-                    ? 'Invalid code. Please check and try again.'
-                    : msg.toLowerCase().includes('expired')
+                  status === 404 || msg.includes('not found')
+                    ? 'We could not find that code. Check each character and try again.'
+                    : msg.includes('expired')
                       ? 'This code has expired. Ask your dependent to send a new one.'
-                      : msg.toLowerCase().includes('already used') || msg.toLowerCase().includes('redeemed')
+                      : msg.includes('no longer valid')
                         ? 'This code has already been used.'
-                        : 'Something went wrong. Please try again.',
+                        : status === 403 || msg.includes('different email')
+                          ? 'This invite was sent to a different email address. Go back and use that one.'
+                          : msg.includes('already registered')
+                            ? 'An account already exists for this email. Sign in instead.'
+                            : msg.includes('letters or digits')
+                              ? 'That code does not look right — six letters or digits.'
+                              : 'Could not create your account. Please try again.',
                 );
               } finally {
                 setWaliCodeLoading(false);
+              }
+            }}
+          />
+        );
+
+      case 'WaliEmailVerify':
+        return (
+          <WaliEmailVerifyScreen
+            email={waliEmail}
+            codeSent={waliCodeSent}
+            sending={waliEmailSending}
+            verifying={waliEmailVerifying}
+            error={waliEmailError}
+            onBack={() => { setWaliEmailError(undefined); navigate('WaliCode'); }}
+            onChangeEmail={() => {
+              // The identity is tied to the address that was redeemed, so a
+              // correction means going back and redeeming again.
+              setWaliCodeSent(false);
+              setWaliEmailError(undefined);
+              navigate('WaliAccountSetup');
+            }}
+            onSendCode={async () => {
+              setWaliEmailError(undefined);
+              setWaliEmailSending(true);
+              try {
+                await resendEmailOtp(waliEmail);
+                setWaliCodeSent(true);
+              } catch (e: any) {
+                const msg: string = (e?.message ?? '').toLowerCase();
+                setWaliEmailError(
+                  msg.includes('rate') || msg.includes('many') || msg.includes('429')
+                    ? 'Too many requests. Please wait a minute and try again.'
+                    : 'Could not send the code. Please try again.',
+                );
+              } finally {
+                setWaliEmailSending(false);
+              }
+            }}
+            onVerify={async code => {
+              setWaliEmailError(undefined);
+              setWaliEmailVerifying(true);
+              try {
+                const result = await verifyEmailOtp(waliEmail, code);
+                applyServerRole(result.user.role);
+                setUserId(result.user.id);
+                if (result.user.email) setUserEmail(result.user.email);
+                setWaliCodeSent(false);
+                loadWaliProfile().catch(() => {});
+                navigate('WaliRole');
+              } catch (e: any) {
+                const msg: string = (e?.message ?? '').toLowerCase();
+                // The server answers a wrong code and an expired one with the
+                // same message on purpose, so the copy must not claim to know
+                // which it was — telling someone their code expired when they
+                // simply mistyped sends them to resend for no reason.
+                setWaliEmailError(
+                  msg.includes('invalid') || msg.includes('expired') || msg.includes('code')
+                    ? 'That code did not work. Check it, or send yourself a new one.'
+                    : 'Could not verify the code. Please try again.',
+                );
+              } finally {
+                setWaliEmailVerifying(false);
               }
             }}
           />
@@ -959,13 +1076,27 @@ export default function App() {
           <WaliDetailsScreen
             dependentName={dependentName || undefined}
             onBack={() => navigate('WaliRole')}
-            onContinue={async (name, _relationship) => {
-              setUserName(name.split(' ')[0]);
-              await Promise.all([
-                updateProfileName(name),
-                saveOnboardingStep(ONBOARDING_STEP.WaliComplete),
-              ]);
-              navigate('WaliComplete');
+            saving={waliDetailsSaving}
+            error={waliDetailsError}
+            onContinue={async (name, relationship) => {
+              setWaliDetailsError(undefined);
+              setWaliDetailsSaving(true);
+              try {
+                // One call: the name families see, and his kinship to the ward.
+                await updateWaliDetails({
+                  fullName: name.trim(),
+                  kinship: toKinship(relationship),
+                });
+                setUserName(name.trim().split(' ')[0]);
+                saveOnboardingStep(ONBOARDING_STEP.WaliComplete).catch(() => {});
+                navigate('WaliComplete');
+              } catch {
+                // Kept on the screen: silently moving on would leave the
+                // placeholder name from redeem showing to families.
+                setWaliDetailsError('Could not save your details. Please try again.');
+              } finally {
+                setWaliDetailsSaving(false);
+              }
             }}
           />
         );
@@ -1338,7 +1469,7 @@ export default function App() {
               onRefresh={async () => {
                 const token = await getAccessToken().catch(() => null);
                 if (!token) {
-                  setIsWali(false);
+                  applyRole('self');
                   setDependentName('');
                   setDependentProfile(null);
                   setDependentPhotos([]);
@@ -1350,7 +1481,7 @@ export default function App() {
                 await loadWaliProfile().catch(async () => {
                   const stillHasToken = await getAccessToken().catch(() => null);
                   if (!stillHasToken) {
-                    setIsWali(false);
+                    applyRole('self');
                     setDependentName('');
                     setDependentProfile(null);
                     navigate('F1');
@@ -1845,7 +1976,7 @@ export default function App() {
               onTermsOfService={() => navigate('TermsOfService')}
               onSignOut={async () => {
                 try { await logout(); } catch { await clearTokens(); }
-                setIsWali(false);
+                applyRole('self');
                 setDependentName('');
                 setDependentProfile(null);
                 setDependentPhotos([]);
@@ -1883,8 +2014,7 @@ export default function App() {
             onDownloadData={() => navigate('DownloadData')}
             onSignOut={async () => {
               try { await logout(); } catch { await clearTokens(); }
-              setIsWali(false);
-              setSelectedRole('self');
+              applyRole('self');
               navigate('F1');
             }}
             onDeleteAccount={() => navigate('DeleteAccount')}

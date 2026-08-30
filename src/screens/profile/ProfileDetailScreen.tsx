@@ -46,6 +46,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
 import { IntroductionProfile } from '../../components/introduction/IntroductionAvailableBlock';
+import { formatHeight } from '../../utils/height';
 
 // ─── icons ────────────────────────────────────────────────────────────────────
 function BackIcon() {
@@ -290,13 +291,6 @@ function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
   const m = madhhab && madhhab !== 'NONE' ? fmt(MADHHAB_LABELS, madhhab) : null;
   return m ? `${s} (${m})` : s;
 }
-function fmtHeight(cm?: number | null): string | null {
-  if (!cm) return null;
-  const feet = Math.floor(cm / 30.48);
-  const inches = Math.round((cm % 30.48) / 2.54);
-  return `${feet}ft ${inches}in (${cm} cm)`;
-}
-
 // ─── skeleton ────────────────────────────────────────────────────────────────
 function SkeletonPulse({ style }: { style: object }) {
   const opacity = useRef(new Animated.Value(1)).current;
@@ -609,7 +603,7 @@ export function ProfileDetailScreen({
             { label: 'Country', value: fmtCountry(resolvedProfile.countryCode) },
             { label: 'City', value: resolvedProfile.city },
             // Height always shown — families always want to see this
-            { label: 'Height', value: fmtHeight(resolvedProfile.heightCm) ?? 'Not specified' },
+            { label: 'Height', value: formatHeight(resolvedProfile.heightCm) ?? 'Not specified' },
             { label: 'Marital status', value: fmt(MARITAL_LABELS, resolvedProfile.maritalStatus) },
             { label: 'Has children', value: fmtBool(resolvedProfile.hasChildren) },
             { label: 'Open to relocate', value: fmtBool(resolvedProfile.willingToRelocate, 'Yes', 'No') },

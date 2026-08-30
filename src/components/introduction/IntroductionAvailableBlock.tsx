@@ -72,6 +72,7 @@ import { Colors } from '../../theme/colors';
 import { Coords, distanceKm, formatDistanceKm } from '../../utils/location';
 import { DailyDuaCard } from '../ui/DailyDuaCard';
 import { WhileYouWaitCard } from '../ui/WhileYouWaitCard';
+import { formatHeight } from '../../utils/height';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const EDUCATION_LABELS: Record<string, string> = {
@@ -123,14 +124,6 @@ function formatReligiosity(r?: string | null): string | null {
 function formatMarital(m?: string | null): string | null {
   if (!m) return null;
   return MARITAL_LABELS[m] ?? m;
-}
-
-function formatHeight(cm?: number | null): string | null {
-  if (!cm) return null;
-  const totalInches = cm / 2.54;
-  const feet = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches % 12);
-  return `${feet}ft ${inches}in`;
 }
 
 // ─── gradients ────────────────────────────────────────────────────────────────

@@ -31,7 +31,6 @@ import {
   removeWali,
   type WaliInvite,
   type WaliMember,
-  type WaliRelationship,
 } from '../../api/wali';
 
 import { WaliResignedScreen }     from './WaliResignedScreen';
@@ -121,9 +120,6 @@ function CopyIcon() {
   );
 }
 
-// ─── wali relationship options ────────────────────────────────────────────────
-const RELATIONSHIPS: WaliRelationship[] = ['Father', 'Brother', 'Uncle', 'Grandfather', 'Other'];
-
 // ─── data row ─────────────────────────────────────────────────────────────────
 function DataRow({ label, value, first }: { label: string; value: string; first?: boolean }) {
   return (
@@ -158,18 +154,20 @@ interface NoWaliCardProps {
 
 function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
   const insets = useSafeAreaInsets();
-  const [relationship, setRelationship] = useState<WaliRelationship>('Father');
-  const [inviting, setInviting]         = useState(false);
+  // Which button is waiting, not merely that one is: both actions share the
+  // same request, so a single boolean put "Creating invite…" on the WhatsApp
+  // button when the code button was the one pressed.
+  const [pending, setPending]           = useState<'whatsapp' | 'code' | null>(null);
   const [invite, setInvite]             = useState<WaliInvite | null>(null);
   const [copied, setCopied]             = useState(false);
   const [error, setError]               = useState<string | null>(null);
 
-  async function generateInvite(): Promise<WaliInvite | null> {
-    if (inviting) return null;
-    setInviting(true);
+  async function generateInvite(source: 'whatsapp' | 'code'): Promise<WaliInvite | null> {
+    if (pending) return null;
+    setPending(source);
     setError(null);
     try {
-      const result = await createWaliInvite(relationship);
+      const result = await createWaliInvite();
       setInvite(result);
       return result;
     } catch (err) {
@@ -180,18 +178,18 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
       }
       return null;
     } finally {
-      setInviting(false);
+      setPending(null);
     }
   }
 
   async function handleWhatsApp() {
-    const inv = invite ?? await generateInvite();
+    const inv = invite ?? await generateInvite('whatsapp');
     if (inv?.inviteLink) Linking.openURL(inv.inviteLink).catch(() => {});
   }
 
   async function handleCode() {
     if (invite) return;
-    await generateInvite();
+    await generateInvite('code');
   }
 
   function handleCopy() {
@@ -232,22 +230,6 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
 
           {/* Invite form */}
           <View style={styles.inviteForm}>
-            {/* Relationship chips */}
-            <Text style={styles.fieldLabel}>His relationship to you</Text>
-            <View style={styles.chipWrap}>
-              {RELATIONSHIPS.map(rel => {
-                const sel = relationship === rel;
-                return (
-                  <Pressable
-                    key={rel}
-                    onPress={() => setRelationship(rel)}
-                    style={[styles.chip, sel && styles.chipActive]}>
-                    <Text style={[styles.chipTxt, sel && styles.chipTxtActive]}>{rel}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
             {/* Error */}
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -271,29 +253,33 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
             {/* Action buttons */}
             <Pressable
               onPress={handleWhatsApp}
-              disabled={inviting}
+              disabled={pending !== null}
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnWhatsapp,
-                { opacity: pressed || inviting ? 0.8 : 1, marginTop: 18 },
+                { opacity: pressed || pending !== null ? 0.8 : 1, marginTop: 18 },
               ]}>
               <WhatsAppIcon />
               <Text style={[styles.btnText, { color: '#fff', marginLeft: 8 }]}>
-                {inviting ? 'Creating invite…' : 'Invite on WhatsApp'}
+                {pending === 'whatsapp' ? 'Creating invite…' : 'Invite on WhatsApp'}
               </Text>
             </Pressable>
 
             <Pressable
               onPress={handleCode}
-              disabled={inviting || !!invite}
+              disabled={pending !== null || !!invite}
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnOutline,
-                { opacity: pressed || inviting ? 0.8 : 1, marginTop: 9 },
+                { opacity: pressed || pending !== null ? 0.8 : 1, marginTop: 9 },
               ]}>
               <CodeIcon />
               <Text style={[styles.btnText, { color: C.indInk, marginLeft: 8 }]}>
-                {invite ? 'Code shown above' : 'Share invite code'}
+                {invite
+                  ? 'Code shown above'
+                  : pending === 'code'
+                    ? 'Creating invite…'
+                    : 'Share invite code'}
               </Text>
             </Pressable>
           </View>
@@ -551,44 +537,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 20,
   },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-    color: C.ink3,
-    marginBottom: 8,
-  },
   errorText: {
     fontSize: 11.5,
     color: '#D9304F',
     marginTop: 8,
-  },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: C.line,
-    backgroundColor: C.page,
-  },
-  chipActive: {
-    borderColor: C.indInk,
-    backgroundColor: C.indSoft,
-  },
-  chipTxt: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: C.ink2,
-  },
-  chipTxtActive: {
-    color: C.indInk,
-    fontWeight: '700',
   },
 
   // Invite code box

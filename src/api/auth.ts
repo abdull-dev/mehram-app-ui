@@ -143,18 +143,33 @@ export async function refreshTokens(refreshToken: string): Promise<AuthResponse>
 
 /**
  * Validates the invite code and registers the wali account in one step.
- * On success, tokens are persisted to secure storage.
+ *
+ * Two possible outcomes, and the caller must handle both. With email
+ * confirmation on (the default), Supabase creates an *unconfirmed* identity and
+ * emails a code, so the response is `pending_confirmation` and carries no
+ * session — the wali finishes on WaliEmailVerify. With it off, a session comes
+ * back immediately and is persisted here.
+ *
+ * Reading `result.session` unconditionally is what used to crash this flow.
  */
 export async function verifyInviteCode(
   inviteCode: string,
   credentials: { email: string; password: string; fullName: string },
-): Promise<AuthResponse> {
-  const result = await apiRequest<AuthResponse>('/auth/parent/redeem', {
+): Promise<AuthResponse | PendingConfirmation> {
+  const result = await apiRequest<AuthResponse | PendingConfirmation>('/auth/parent/redeem', {
     method: 'POST',
     body: JSON.stringify({ inviteCode, ...credentials }),
   });
+  if (isPendingConfirmation(result)) return result;
   await saveTokens(result.session.accessToken, result.session.refreshToken);
   return result;
+}
+
+/** Narrows a redeem/register result to the "check your email" branch. */
+export function isPendingConfirmation(
+  result: AuthResponse | PendingConfirmation,
+): result is PendingConfirmation {
+  return (result as PendingConfirmation).status === 'pending_confirmation';
 }
 
 // ─── email+password registration ─────────────────────────────────────────────
@@ -166,7 +181,8 @@ interface RegisterPayload {
   password: string;
 }
 
-interface PendingConfirmation {
+/** Returned when the account exists but its email is not confirmed yet. */
+export interface PendingConfirmation {
   status: 'pending_confirmation';
   email: string;
 }

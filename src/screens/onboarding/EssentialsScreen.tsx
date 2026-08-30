@@ -27,6 +27,7 @@ import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
 import { getMyProfile } from '../../api/profile';
+import { cmToFeetInches, feetInchesToCm, isHeightInRange } from '../../utils/height';
 
 // ─── date-picker constants ────────────────────────────────────────────────────
 const MONTHS = [
@@ -250,7 +251,9 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
   const [sect, setSect]                   = useState('');
   const [occupation, setOccupation]       = useState('');
   const [educationLevel, setEducationLevel] = useState('');
-  const [heightInput, setHeightInput]     = useState('');
+  // Collected as feet + inches; converted to heightCm at the API boundary.
+  const [heightFt, setHeightFt]           = useState('');
+  const [heightIn, setHeightIn]           = useState('');
   const [errors, setErrors]               = useState<{
     name?: string; gender?: string; dob?: string; marital?: string; sect?: string;
     occupation?: string; education?: string; height?: string;
@@ -271,9 +274,15 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
     if (!sect)               e.sect       = 'Please select your sect.';
     if (!occupation.trim())  e.occupation = 'Please enter your occupation.';
     if (!educationLevel)     e.education  = 'Please select your education level.';
-    const parsedHeight = parseInt(heightInput.trim(), 10);
-    if (!heightInput.trim() || isNaN(parsedHeight) || parsedHeight < 100 || parsedHeight > 250) {
-      e.height = 'Please enter a valid height (100–250 cm).';
+    // Bounds mirror the server's heightCm rule (120-250cm), which the old
+    // 100cm floor undershot — anything under 120 was accepted here and then
+    // rejected by the API.
+    const ft = parseInt(heightFt.trim(), 10);
+    const inch = heightIn.trim() === '' ? 0 : parseInt(heightIn.trim(), 10);
+    if (!heightFt.trim() || isNaN(ft) || isNaN(inch) || inch > 11) {
+      e.height = 'Please enter your height in feet and inches.';
+    } else if (!isHeightInRange(feetInchesToCm(ft, inch))) {
+      e.height = "Please enter a height between 4ft and 8ft 2in.";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -289,7 +298,10 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
       sect,
       occupation: occupation.trim(),
       educationLevel,
-      heightCm: parseInt(heightInput.trim(), 10),
+      heightCm: feetInchesToCm(
+        parseInt(heightFt.trim(), 10),
+        heightIn.trim() === '' ? 0 : parseInt(heightIn.trim(), 10),
+      ),
     });
   }
 
@@ -328,7 +340,11 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
       if (s && SECT_REVERSE[s]) setSect(SECT_REVERSE[s]);
       if (profile.occupation) setOccupation(profile.occupation);
       if (profile.educationLevel) setEducationLevel(profile.educationLevel);
-      if (profile.heightCm) setHeightInput(String(profile.heightCm));
+      if (profile.heightCm) {
+        const { feet, inches } = cmToFeetInches(profile.heightCm);
+        setHeightFt(String(feet));
+        setHeightIn(String(inches));
+      }
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -503,18 +519,34 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           {/* HEIGHT — d7 */}
           <Animated.View style={riseStyle(d7.anim)}>
             <View style={styles.field}>
-              <Text style={styles.flab}>Height in cm</Text>
-              <View style={[styles.inp, errors.height ? styles.inpError : null]}>
-                <TextInput
-                  style={styles.inpText}
-                  value={heightInput}
-                  onChangeText={v => { setHeightInput(v.replace(/[^0-9]/g, '')); if (errors.height) setErrors(e => ({ ...e, height: undefined })); }}
-                  placeholder="e.g. 170"
-                  placeholderTextColor={Colors.ink3}
-                  keyboardType="numeric"
-                  returnKeyType="done"
-                  maxLength={3}
-                />
+              <Text style={styles.flab}>Height</Text>
+              <View style={styles.heightRow}>
+                <View style={[styles.inp, styles.heightCell, errors.height ? styles.inpError : null]}>
+                  <TextInput
+                    style={styles.inpText}
+                    value={heightFt}
+                    onChangeText={v => { setHeightFt(v.replace(/[^0-9]/g, '').slice(0, 1)); if (errors.height) setErrors(e => ({ ...e, height: undefined })); }}
+                    placeholder="5"
+                    placeholderTextColor={Colors.ink3}
+                    keyboardType="numeric"
+                    returnKeyType="done"
+                    maxLength={1}
+                  />
+                  <Text style={styles.unit}>ft</Text>
+                </View>
+                <View style={[styles.inp, styles.heightCell, errors.height ? styles.inpError : null]}>
+                  <TextInput
+                    style={styles.inpText}
+                    value={heightIn}
+                    onChangeText={v => { setHeightIn(v.replace(/[^0-9]/g, '').slice(0, 2)); if (errors.height) setErrors(e => ({ ...e, height: undefined })); }}
+                    placeholder="7"
+                    placeholderTextColor={Colors.ink3}
+                    keyboardType="numeric"
+                    returnKeyType="done"
+                    maxLength={2}
+                  />
+                  <Text style={styles.unit}>in</Text>
+                </View>
               </View>
               {errors.height && <Text style={styles.errorText}>{errors.height}</Text>}
             </View>
@@ -615,6 +647,9 @@ const styles = StyleSheet.create({
   },
   inpError: { borderColor: '#D9304F' },
   inpText:    { flex: 1, fontSize: 15, color: Colors.ink },
+  heightRow:  { flexDirection: 'row', gap: 10 },
+  heightCell: { flex: 1 },
+  unit:       { fontSize: 13, fontWeight: '700', color: Colors.ink3 },
   placeholder:{ color: Colors.ink3 },
   chevron:    { fontSize: 14, color: Colors.ink3 },
 

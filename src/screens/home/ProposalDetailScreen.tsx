@@ -23,6 +23,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { withdrawProposal } from '../../api/proposals';
 import { withdrawWardProposal } from '../../api/wali';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
+import { formatHeight } from '../../utils/height';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -84,14 +85,6 @@ const MADHHAB_LABELS: Record<string, string> = {
 function fmt(map: Record<string, string>, val?: string | null): string | null {
   if (!val) return null;
   return map[val] ?? val;
-}
-
-function fmtHeight(cm: number | null | undefined): string | null {
-  if (!cm) return null;
-  const totalInches = Math.round(cm / 2.54);
-  const ft = Math.floor(totalInches / 12);
-  const inches = totalInches % 12;
-  return `${ft}ft ${inches}in`;
 }
 
 function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
@@ -699,7 +692,7 @@ function ReceivedProposalDetail({
   const educ = fmt(EDUCATION_LABELS, proposal.educationLevel);
   const marital = fmt(MARITAL_LABELS, proposal.maritalStatus);
   const family = fmt(FAMILY_TYPE_LABELS, proposal.familyType);
-  const height = fmtHeight(proposal.heightCm);
+  const height = formatHeight(proposal.heightCm);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>

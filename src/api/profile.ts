@@ -168,14 +168,6 @@ interface EssentialsPayload {
   heightCm: number;
 }
 
-/** Patch only the full name — used by wali who skips the seeker essentials step. */
-export async function updateProfileName(fullName: string): Promise<void> {
-  return apiRequest('/profile/me', {
-    method: 'PATCH',
-    body: JSON.stringify({ fullName }),
-  });
-}
-
 /** Save gender, DOB, marital status (F8 — Essentials). */
 export async function updateEssentials(data: EssentialsPayload): Promise<void> {
   return apiRequest('/profile/me', {

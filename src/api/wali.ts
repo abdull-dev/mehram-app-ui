@@ -15,23 +15,6 @@
 import { apiRequest } from './client';
 import type { Introduction } from './introductions';
 
-// Relationship label shown in UI (not stored server-side — mapped to FamilyRelationship)
-export type WaliRelationship = 'Father' | 'Brother' | 'Uncle' | 'Grandfather' | 'Other';
-
-type FamilyRelationship = 'FATHER' | 'MOTHER' | 'WALI' | 'BROTHER' | 'SISTER' | 'OTHER';
-
-const RELATIONSHIP_MAP: Record<WaliRelationship, FamilyRelationship> = {
-  Father: 'FATHER',
-  Brother: 'BROTHER',
-  Uncle: 'OTHER',
-  Grandfather: 'OTHER',
-  Other: 'OTHER',
-};
-
-function toFamilyRelationship(label?: WaliRelationship): FamilyRelationship {
-  return label ? RELATIONSHIP_MAP[label] : 'FATHER';
-}
-
 function whatsappShareUrl(code: string): string {
   return `https://wa.me/?text=${encodeURIComponent(code)}`;
 }
@@ -166,16 +149,19 @@ export interface WaliMeResponse {
  * Create a wali invitation.
  * Returns the invitation code and a WhatsApp share URL (pre-filled with the code).
  * Errors with 409 if the seeker already has an active wali.
+ *
+ * `relationship` is always WALI and is not the guardian's kinship — the wali
+ * states whether he is a father, brother and so on during his own onboarding.
+ * It is load-bearing on the server: `redeem` grants UserRole.WALI only when the
+ * invitation says WALI (anything else becomes a PARENT, which the app does not
+ * route to the wali screens), and `assertWaliSlotAvailable` counts pending wali
+ * invites by this same value. Sending FATHER here, as the relationship picker
+ * used to, produced a guardian who landed on the seeker layout.
  */
-export async function createWaliInvite(
-  relationship: WaliRelationship = 'Father',
-): Promise<WaliInvite> {
+export async function createWaliInvite(): Promise<WaliInvite> {
   const row = await apiRequest<InvitationRow>('/family/invitations', {
     method: 'POST',
-    body: JSON.stringify({
-      relationship: toFamilyRelationship(relationship),
-      method: 'LINK',
-    }),
+    body: JSON.stringify({ relationship: 'WALI', method: 'LINK' }),
   });
   return {
     invitationCode: row.inviteCode,
@@ -324,4 +310,39 @@ export async function sendWardProposal(
 /** Wali withdraws a proposal their ward sent, on the ward's behalf. */
 export async function withdrawWardProposal(toUserId: string): Promise<void> {
   return apiRequest<void>(`/matches/interest/${toUserId}`, { method: 'DELETE' });
+}
+
+/**
+ * The guardian's own onboarding details (W4).
+ *
+ * `fullName` had no update path before this: it could only be set at
+ * registration, so a wali who redeemed an invite kept the placeholder that flow
+ * derived from his email. `kinship` is his relationship to the ward — distinct
+ * from the membership's `relationship`, which stays WALI so the server keeps
+ * treating him as a guardian.
+ */
+export type WaliKinship = 'FATHER' | 'MOTHER' | 'WALI' | 'BROTHER' | 'SISTER' | 'OTHER';
+
+const KINSHIP_MAP: Record<string, WaliKinship> = {
+  Father: 'FATHER',
+  Brother: 'BROTHER',
+  // The enum has no UNCLE or GRANDFATHER member, so both record as OTHER.
+  Uncle: 'OTHER',
+  Grandfather: 'OTHER',
+  Other: 'OTHER',
+};
+
+/** Maps a picker label to the server enum. Unknown labels fall back to OTHER. */
+export function toKinship(label: string): WaliKinship {
+  return KINSHIP_MAP[label] ?? 'OTHER';
+}
+
+export async function updateWaliDetails(input: {
+  fullName?: string;
+  kinship?: WaliKinship;
+}): Promise<{ fullName: string; kinship: WaliKinship | null }> {
+  return apiRequest('/family/wali/details', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }

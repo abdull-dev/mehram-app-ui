@@ -26,6 +26,7 @@ import { getProposals, getReceivedProposals } from '../../api/proposals';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
 import type { ProposalDetailSelection } from './ProposalDetailScreen';
 import { useProposalsSocket } from '../../hooks/useProposalsSocket';
+import { formatHeight } from '../../utils/height';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -74,14 +75,6 @@ const MADHHAB_LABELS: Record<string, string> = {
   HANBALI: 'Hanbali', JAFARI: "Ja'fari", ZAIDI: 'Zaidi', OTHER: 'Other',
 };
 
-function fmtHeight(cm?: number | null): string | null {
-  if (!cm) return null;
-  const totalInches = cm / 2.54;
-  const feet = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches % 12);
-  return `${feet}ft ${inches}in`;
-}
-
 function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
   const s = sect ? SECT_LABELS[sect] ?? sect : null;
   const m = madhhab ? MADHHAB_LABELS[madhhab] ?? madhhab : null;
@@ -127,7 +120,7 @@ function toSentCard(p: SentProposal): ProposalCard {
   const { doneSteps, chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
   return {
     name: p.fullName ?? 'Unknown',
-    details: [p.age, p.city, fmtHeight(p.heightCm)].filter(Boolean).join(' · '),
+    details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
     meta: fmtSentAt(p.sentAt),
     chipVariant,
@@ -141,7 +134,7 @@ function toReceivedCard(p: ReceivedProposal): ProposalCard {
   const { doneSteps, chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
   return {
     name: p.fullName ?? 'Unknown',
-    details: [p.age, p.city, fmtHeight(p.heightCm)].filter(Boolean).join(' · '),
+    details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
     meta: fmtReceivedAt(p.receivedAt),
     chipVariant,

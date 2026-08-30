@@ -189,6 +189,7 @@ import type { WardProposal, WardReceivedProposal } from '../../api/wali';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { formatHeight } from '../../utils/height';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -392,14 +393,6 @@ const EDUCATION_LABELS: Record<string, string> = {
 const MARITAL_LABELS: Record<string, string> = {
   NEVER_MARRIED: 'Single', DIVORCED: 'Divorced', WIDOWED: 'Widowed',
 };
-
-function formatHeight(cm: number | null | undefined): string | null {
-  if (!cm) return null;
-  const totalInches = cm / 2.54;
-  const feet = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches % 12);
-  return `${feet}ft ${inches}in`;
-}
 
 function WardIntroCard({
   intro,

@@ -119,23 +119,25 @@ export function AccountVerificationScreen({
   const [phoneExpanded, setPhoneExpanded]   = useState(false);
   const [phoneVerified, setPhoneVerified]   = useState(false);
   const [phoneDigits,   setPhoneDigits]     = useState<string[]>(Array(CODE_LEN).fill(''));
-  const [phoneFocus,    setPhoneFocus]      = useState<number | null>(null);
+  const [phoneFocus,    setPhoneFocus]      = useState(false);
   const [phoneError,    setPhoneError]      = useState<string | null>(null);
   const [phoneSending,  setPhoneSending]    = useState(false);
   const [phoneVerifying, setPhoneVerifying] = useState(false);
   const [phoneSecs,     setPhoneSecs]       = useState(0);
-  const phoneRefs = useRef<(TextInput | null)[]>([]);
+  // One input per field, not one per box: the boxes are display-only and a
+  // single transparent input sits over them (see renderOtpBoxes).
+  const phoneRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   // ── email verification state ───────────────────────────────────────────────
   const [emailExpanded, setEmailExpanded]   = useState(false);
   const [emailVerified, setEmailVerified]   = useState(false);
   const [emailDigits,   setEmailDigits]     = useState<string[]>(Array(CODE_LEN).fill(''));
-  const [emailFocus,    setEmailFocus]      = useState<number | null>(null);
+  const [emailFocus,    setEmailFocus]      = useState(false);
   const [emailError,    setEmailError]      = useState<string | null>(null);
   const [emailSending,  setEmailSending]    = useState(false);
   const [emailVerifying, setEmailVerifying] = useState(false);
   const [emailSecs,     setEmailSecs]       = useState(0);
-  const emailRefs = useRef<(TextInput | null)[]>([]);
+  const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   // ── resend countdown timers ────────────────────────────────────────────────
   useEffect(() => {
@@ -191,7 +193,7 @@ export function AccountVerificationScreen({
       await sendOtp(phone);
       setPhoneSecs(RESEND_SECS);
       setPhoneExpanded(true);
-      setTimeout(() => phoneRefs.current[0]?.focus(), 120);
+      setTimeout(() => phoneRef.current?.focus(), 120);
     } catch (err: any) {
       setPhoneError(err?.message ?? 'Failed to send code. Try again.');
     } finally {
@@ -207,33 +209,20 @@ export function AccountVerificationScreen({
     try {
       await sendOtp(phone);
       setPhoneSecs(RESEND_SECS);
-      setTimeout(() => phoneRefs.current[0]?.focus(), 120);
+      setTimeout(() => phoneRef.current?.focus(), 120);
     } catch { /* silent */ }
     finally { setPhoneSending(false); }
   }
 
-  function handlePhoneDigitChange(text: string, idx: number) {
-    const char = text.replace(/[^0-9]/g, '').slice(-1);
-    const next = [...phoneDigits];
-    next[idx] = char;
-    setPhoneDigits(next);
+  // Receives the whole code, so a paste or an SMS autofill lands intact rather
+  // than being reduced to its last character. Backspace needs no special case
+  // now that one input owns the string.
+  function handlePhoneCodeChange(text: string) {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, CODE_LEN);
+    setPhoneDigits(Array.from({ length: CODE_LEN }, (_, i) => cleaned[i] ?? ''));
     setPhoneError(null);
-    if (char && idx < CODE_LEN - 1) {
-      phoneRefs.current[idx + 1]?.focus();
-    } else if (!char && idx > 0) {
-      phoneRefs.current[idx - 1]?.focus();
-    }
-    if (char && idx === CODE_LEN - 1 && next.every(d => d !== '')) {
-      doVerifyPhone(next.join(''));
-    }
-  }
-
-  function handlePhoneKeyPress(key: string, idx: number) {
-    if (key === 'Backspace' && !phoneDigits[idx] && idx > 0) {
-      const next = [...phoneDigits];
-      next[idx - 1] = '';
-      setPhoneDigits(next);
-      phoneRefs.current[idx - 1]?.focus();
+    if (cleaned.length === CODE_LEN) {
+      doVerifyPhone(cleaned);
     }
   }
 
@@ -249,7 +238,7 @@ export function AccountVerificationScreen({
       const isUserFacing = msg && !msg.includes('AsyncStorage') && !msg.includes('null') && !msg.includes('undefined');
       setPhoneError(isUserFacing ? msg : 'Invalid or expired code. Please try again.');
       setPhoneDigits(Array(CODE_LEN).fill(''));
-      setTimeout(() => phoneRefs.current[0]?.focus(), 120);
+      setTimeout(() => phoneRef.current?.focus(), 120);
     } finally {
       setPhoneVerifying(false);
     }
@@ -264,7 +253,7 @@ export function AccountVerificationScreen({
     setEmailError(null);
     setEmailSecs(RESEND_SECS);
     setEmailExpanded(true);
-    setTimeout(() => emailRefs.current[0]?.focus(), 120);
+    setTimeout(() => emailRef.current?.focus(), 120);
   }
 
   async function handleEmailResend() {
@@ -273,31 +262,15 @@ export function AccountVerificationScreen({
     setEmailError(null);
     setEmailSecs(RESEND_SECS);
     try { await resendEmailOtp(email); } catch { /* silent */ }
-    setTimeout(() => emailRefs.current[0]?.focus(), 120);
+    setTimeout(() => emailRef.current?.focus(), 120);
   }
 
-  function handleEmailDigitChange(text: string, idx: number) {
-    const char = text.replace(/[^0-9]/g, '').slice(-1);
-    const next = [...emailDigits];
-    next[idx] = char;
-    setEmailDigits(next);
+  function handleEmailCodeChange(text: string) {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, CODE_LEN);
+    setEmailDigits(Array.from({ length: CODE_LEN }, (_, i) => cleaned[i] ?? ''));
     setEmailError(null);
-    if (char && idx < CODE_LEN - 1) {
-      emailRefs.current[idx + 1]?.focus();
-    } else if (!char && idx > 0) {
-      emailRefs.current[idx - 1]?.focus();
-    }
-    if (char && idx === CODE_LEN - 1 && next.every(d => d !== '')) {
-      doVerifyEmail(next.join(''));
-    }
-  }
-
-  function handleEmailKeyPress(key: string, idx: number) {
-    if (key === 'Backspace' && !emailDigits[idx] && idx > 0) {
-      const next = [...emailDigits];
-      next[idx - 1] = '';
-      setEmailDigits(next);
-      emailRefs.current[idx - 1]?.focus();
+    if (cleaned.length === CODE_LEN) {
+      doVerifyEmail(cleaned);
     }
   }
 
@@ -315,7 +288,7 @@ export function AccountVerificationScreen({
       const isUserFacing = msg && !msg.includes('AsyncStorage') && !msg.includes('null') && !msg.includes('undefined');
       setEmailError(isUserFacing ? msg : 'Invalid or expired code. Please try again.');
       setEmailDigits(Array(CODE_LEN).fill(''));
-      setTimeout(() => emailRefs.current[0]?.focus(), 120);
+      setTimeout(() => emailRef.current?.focus(), 120);
     } finally {
       setEmailVerifying(false);
     }
@@ -325,42 +298,50 @@ export function AccountVerificationScreen({
 
   function renderOtpBoxes(
     digits: string[],
-    focusedIdx: number | null,
-    refs: React.MutableRefObject<(TextInput | null)[]>,
-    onChange: (text: string, idx: number) => void,
-    onKeyPress: (key: string, idx: number) => void,
-    onFocusIdx: (i: number) => void,
+    focused: boolean,
+    inputRef: React.RefObject<React.ComponentRef<typeof TextInput> | null>,
+    onChange: (text: string) => void,
+    onFocus: () => void,
     onBlur: () => void,
     error: string | null,
     verifying: boolean,
     secs: number,
     onResend: () => void,
   ) {
+    const code = digits.join('');
+    // The boxes only draw the code; one transparent input stretched across the
+    // row owns it. Six separate inputs each capped at two characters could
+    // never receive a pasted six-digit code — only its last digit survived —
+    // and there was no single field for the paste menu or SMS autofill to
+    // target. Same arrangement as WaliCodeEntryScreen.
     return (
       <View style={s.otpSection}>
         <View style={s.otpRow}>
           {Array.from({ length: CODE_LEN }).map((_, i) => (
-            <TextInput
+            <View
               key={i}
-              ref={r => { refs.current[i] = r; }}
               style={[
                 s.ob,
-                focusedIdx === i && s.obFocused,
+                focused && i === Math.min(code.length, CODE_LEN - 1) && s.obFocused,
                 !!error && s.obError,
-              ]}
-              value={digits[i]}
-              onChangeText={t => onChange(t, i)}
-              onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key, i)}
-              onFocus={() => onFocusIdx(i)}
-              onBlur={onBlur}
-              keyboardType="number-pad"
-              maxLength={2}
-              textAlign="center"
-              selectTextOnFocus
-              caretHidden
-              editable={!verifying}
-            />
+              ]}>
+              <Text style={s.obChar}>{digits[i]}</Text>
+            </View>
           ))}
+          <TextInput
+            ref={inputRef}
+            style={s.otpOverlay}
+            value={code}
+            onChangeText={onChange}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
+            maxLength={CODE_LEN}
+            caretHidden
+            editable={!verifying}
+          />
         </View>
         {verifying && <Text style={s.verifyingText}>Verifying…</Text>}
         {!!error && !verifying && <Text style={s.errText}>{error}</Text>}
@@ -409,9 +390,9 @@ export function AccountVerificationScreen({
         </View>
         {phoneExpanded &&
           renderOtpBoxes(
-            phoneDigits, phoneFocus, phoneRefs,
-            handlePhoneDigitChange, handlePhoneKeyPress,
-            i => setPhoneFocus(i), () => setPhoneFocus(null),
+            phoneDigits, phoneFocus, phoneRef,
+            handlePhoneCodeChange,
+            () => setPhoneFocus(true), () => setPhoneFocus(false),
             phoneError, phoneVerifying,
             phoneSecs, handlePhoneResend,
           )
@@ -458,9 +439,9 @@ export function AccountVerificationScreen({
         )}
         {emailExpanded &&
           renderOtpBoxes(
-            emailDigits, emailFocus, emailRefs,
-            handleEmailDigitChange, handleEmailKeyPress,
-            i => setEmailFocus(i), () => setEmailFocus(null),
+            emailDigits, emailFocus, emailRef,
+            handleEmailCodeChange,
+            () => setEmailFocus(true), () => setEmailFocus(false),
             emailError, emailVerifying,
             emailSecs, handleEmailResend,
           )
@@ -636,12 +617,14 @@ const s = StyleSheet.create({
     backgroundColor: Colors.page,
     borderWidth: 1.5,
     borderColor: 'rgba(155,123,240,0.2)',
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.ink,
-    textAlign: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
     elevation: 1,
   },
+  obChar: { fontSize: 20, fontWeight: '800', color: Colors.ink },
+  // Invisible, but a real input: it covers the whole row so a tap anywhere
+  // focuses it and the paste menu has something to attach to.
+  otpOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0 },
   obFocused: { borderColor: Colors.vio, shadowColor: Colors.vio, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.18, shadowRadius: 4, elevation: 3 },
   obError:   { borderColor: '#D9304F', backgroundColor: '#FFF4F8' },
   errText:      { fontSize: 12, fontWeight: '700', color: '#D9304F', marginTop: 6 },

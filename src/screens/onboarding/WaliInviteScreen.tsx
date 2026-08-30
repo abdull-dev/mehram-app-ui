@@ -48,7 +48,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
-import { createWaliInvite, WaliRelationship } from '../../api/wali';
+import { createWaliInvite } from '../../api/wali';
 
 // ─── animation helpers (mirrors WelcomeScreen pattern) ───────────────────────
 const RISE_DURATION = 550;
@@ -74,16 +74,16 @@ function riseStyle(anim: Animated.Value) {
   };
 }
 
-// ─── relationship options (matches HTML prototype chip list) ──────────────────
-const RELATIONSHIPS = ['Father', 'Brother', 'Uncle', 'Grandfather', 'Other'] as const;
-type Relationship = (typeof RELATIONSHIPS)[number];
+// The guardian's kinship is not collected here — the wali states it during his
+// own onboarding (WaliDetailsScreen). The seeker only names him and sends the
+// invite, which is always a WALI invitation.
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface WaliInviteScreenProps {
   onBack?: () => void;
   onLater?: () => void;
-  onInviteWhatsApp?: (name: string, relationship: Relationship) => void;
-  onReadCode?: (name: string, relationship: Relationship) => void;
+  onInviteWhatsApp?: (name: string) => void;
+  onReadCode?: (name: string) => void;
   onSkip?: () => void;
 }
 
@@ -98,8 +98,10 @@ export function WaliInviteScreen({
   const [name, setName] = useState('');
   const [nameFocused, setNameFocused] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [relationship, setRelationship] = useState<Relationship>('Father');
-  const [inviting, setInviting] = useState(false);
+  // Which button is waiting. A single boolean drove the WhatsApp button's
+  // spinner from either press, so tapping "Read him a code instead" showed
+  // progress on the wrong button — and that button showed none at all.
+  const [pending, setPending] = useState<'whatsapp' | 'code' | null>(null);
 
   function requireName(): boolean {
     if (!name.trim()) {
@@ -112,7 +114,6 @@ export function WaliInviteScreen({
   // Staggered entrance: .an (0 ms) → .an.d1 (70 ms) → .an.d2 (150 ms)
   const questionAnim = useFadeRise(0);
   const fieldAnim = useFadeRise(70);
-  const chipsAnim = useFadeRise(150);
 
   useEffect(() => {
     const makeRise = ({ anim, delay }: ReturnType<typeof useFadeRise>) =>
@@ -127,7 +128,6 @@ export function WaliInviteScreen({
     Animated.parallel([
       makeRise(questionAnim),
       makeRise(fieldAnim),
-      makeRise(chipsAnim),
     ]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -230,75 +230,43 @@ export function WaliInviteScreen({
             {!!nameError && <Text style={styles.errorText}>{nameError}</Text>}
           </Animated.View>
 
-          {/* Relationship chips — .field .an .d2 (150 ms) */}
-          <Animated.View style={[styles.field, riseStyle(chipsAnim.anim)]}>
-            <Text style={styles.fieldLabel}>Relationship</Text>
-            <View style={styles.chipWrap}>
-              {RELATIONSHIPS.map((rel) => {
-                const selected = relationship === rel;
-                return (
-                  <Pressable
-                    key={rel}
-                    onPress={() => setRelationship(rel)}
-                    style={({ pressed }) => [
-                      { opacity: pressed ? 0.88 : 1 },
-                      { transform: [{ scale: pressed ? 0.96 : 1 }] },
-                    ]}>
-                    {selected ? (
-                      <LinearGradient
-                        colors={[...GradientColors.primary]}
-                        locations={[...GradientColors.primaryLocations]}
-                        start={{ x: 0, y: 0.5 }}
-                        end={{ x: 1, y: 0.5 }}
-                        style={[styles.chip, styles.chipOn]}>
-                        <Text style={styles.chipOnText}>{rel}</Text>
-                      </LinearGradient>
-                    ) : (
-                      <View style={[styles.chip, styles.chipOff]}>
-                        <Text style={styles.chipOffText}>{rel}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </Animated.View>
         </ScrollView>
 
         {/* ── Footer — .foot ─────────────────────────────────────────────── */}
         <View style={styles.footer}>
           {/* .btn-f — primary gradient */}
           <GradientButton
-            label={inviting ? 'Creating invite…' : 'Invite on WhatsApp'}
-            loading={inviting}
+            label={pending === 'whatsapp' ? 'Creating invite…' : 'Invite on WhatsApp'}
+            loading={pending === 'whatsapp'}
             onPress={async () => {
-              if (!requireName() || inviting) return;
-              setInviting(true);
+              if (!requireName() || pending) return;
+              setPending('whatsapp');
               try {
-                await createWaliInvite(relationship as WaliRelationship);
-                onInviteWhatsApp?.(name.trim(), relationship);
+                await createWaliInvite();
+                onInviteWhatsApp?.(name.trim());
               } catch {
-                onInviteWhatsApp?.(name.trim(), relationship);
+                onInviteWhatsApp?.(name.trim());
               } finally {
-                setInviting(false);
+                setPending(null);
               }
             }}
           />
           {/* .btn-o — outline, margin-top:9px (.btn+.btn) */}
           <View style={styles.footerGap} />
           <GradientButton
-            label="Read him a code instead"
+            label={pending === 'code' ? 'Creating invite…' : 'Read him a code instead'}
+            loading={pending === 'code'}
             variant="outline"
             onPress={async () => {
-              if (!requireName() || inviting) return;
-              setInviting(true);
+              if (!requireName() || pending) return;
+              setPending('code');
               try {
-                await createWaliInvite(relationship as WaliRelationship);
-                onReadCode?.(name.trim(), relationship);
+                await createWaliInvite();
+                onReadCode?.(name.trim());
               } catch {
-                onReadCode?.(name.trim(), relationship);
+                onReadCode?.(name.trim());
               } finally {
-                setInviting(false);
+                setPending(null);
               }
             }}
           />
@@ -493,52 +461,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
-  // ── Chip group (.chipwrap) ─────────────────────────────────────────────────
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-
-  // Base chip shape — applied to both selected (LinearGradient) and unselected
-  chip: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: 15,
-  },
-
-  // .chip — unselected state
-  chipOff: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderWidth: 1.6,
-    borderColor: 'rgba(155,123,240,0.2)',
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4.5,
-    elevation: 1,
-  },
-
-  chipOffText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.ink2,
-  },
-
-  // .chip.on — selected state (applied to LinearGradient wrapper)
-  chipOn: {
-    shadowColor: '#B464C8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  chipOnText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#fff',
-  },
 
   // ── Footer (.foot) ─────────────────────────────────────────────────────────
   footer: {

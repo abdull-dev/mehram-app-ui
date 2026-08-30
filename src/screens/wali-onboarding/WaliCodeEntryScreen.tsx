@@ -1,10 +1,11 @@
 /**
  * WaliCodeEntryScreen — W2
  *
- * Six-character alphanumeric code entry.
+ * Alphanumeric invite code entry.
  * Progress bar at 25% — "Step 1 of 3".
  * "Codes last 7 days" gold banner.
- * Continue is disabled until 6 characters.
+ *
+ * Length tracks the server's INVITE_CODE_PATTERN (/^[A-Za-z0-9]{6,16}$/).
  */
 
 import React, { useRef, useState } from 'react';
@@ -20,6 +21,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Colors, GRAD } from '../../theme/colors';
+
+// Every code the generator issues is exactly this long, so the field is a fixed
+// row of six and refuses a seventh character. The server still accepts 6-16 for
+// invites minted by earlier generators; those are not typeable here by design,
+// because letting the row grow made a predictive keyboard's autocorrect spill
+// whole words into the field.
+const CODE_LENGTH = 6;
 
 // ─── icons ────────────────────────────────────────────────────────────────────
 function BackIcon() {
@@ -60,21 +68,20 @@ export function WaliCodeEntryScreen({
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
   const inputRef = useRef<TextInput>(null);
-  const isReady = code.length === 6 && !loading;
+  const isReady = code.length === CODE_LENGTH && !loading;
 
   function handleChange(text: string) {
-    const cleaned = text.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+    const cleaned = text.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, CODE_LENGTH);
     setCode(cleaned);
-    if (cleaned.length === 6) {
+    if (cleaned.length === CODE_LENGTH) {
       inputRef.current?.blur();
     }
   }
 
-  // Render 6 boxes showing each digit
   function renderBoxes() {
-    return Array.from({ length: 6 }).map((_, i) => {
+    return Array.from({ length: CODE_LENGTH }).map((_, i) => {
       const char = code[i] ?? '';
-      const focused = i === code.length && code.length < 6;
+      const focused = i === code.length && code.length < CODE_LENGTH;
       return (
         <View key={i} style={[styles.otpBox, focused && styles.otpBoxFocused]}>
           <Text style={styles.otpChar}>{char}</Text>
@@ -109,9 +116,12 @@ export function WaliCodeEntryScreen({
             ref={inputRef}
             value={code}
             onChangeText={handleChange}
-            keyboardType="default"
+            keyboardType="visible-password"
+            autoCorrect={false}
+            autoComplete="off"
+            spellCheck={false}
             autoCapitalize="characters"
-            maxLength={6}
+            maxLength={CODE_LENGTH}
             style={styles.hiddenInput}
             editable={!loading}
           />
@@ -120,7 +130,11 @@ export function WaliCodeEntryScreen({
         {/* Verifying loader */}
         {loading ? (
           <View style={styles.loaderRow}>
-            <ActivityIndicator size="small" color={Colors.vio} />
+            {/* Fixed box: an ActivityIndicator has no dependable intrinsic size
+                inside a row here, and collapsed to a clipped sliver without one. */}
+            <View style={styles.loaderSpinner}>
+              <ActivityIndicator size="small" color={Colors.vio} />
+            </View>
             <Text style={styles.loaderText}>Verifying…</Text>
           </View>
         ) : null}
@@ -257,6 +271,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 12,
+  },
+  loaderSpinner: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loaderText: {
     fontSize: 13,

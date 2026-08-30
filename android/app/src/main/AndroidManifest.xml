@@ -4,6 +4,15 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      Google Play in-app purchases (membership, F17). Declared by hand because
+      the app has no Play Billing dependency to merge it in: purchases are made
+      through the store and the receipt is verified by our own backend
+      (POST /billing/verify-purchase). Play Console refuses to let you create a
+      one-time product until an uploaded build declares this.
+    -->
+    <uses-permission android:name="com.android.vending.BILLING" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
