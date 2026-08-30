@@ -41,34 +41,37 @@ export interface WaliMember {
   proposalsAwaitingReview: number;
 }
 
-/** Item in the wali queue (GET /family/wali/queue) */
-export type WaliQueueItem =
-  | {
-      type: 'MATCH';
-      matchId: string;
-      seekerUserId: string;
-      seekerName: string;
-      wardApproved: boolean;
-      chatUnlocked: boolean;
-      createdAt: string;
-      compatibility: number;
-      counterpart: WaliQueueProfile;
-    }
-  | {
-      type: 'PENDING_INTEREST';
-      matchId: null;
-      seekerUserId: string;
-      createdAt: string;
-      sender: WaliQueueProfile;
-    };
-
-export interface WaliQueueProfile {
-  userId: string;
-  fullName: string;
-  age: number;
-  city: string;
-  occupation: string | null;
-  photoUrl: string | null;
+/**
+ * Item in the wali queue (GET /family/wali/queue).
+ *
+ * Mirrors WaliReviewService.queue(). `reviewing` is the server telling us which
+ * of the wali's two roles applies, so we never re-derive it from the stage:
+ * 'outgoing' is a ward's proposal awaiting this wali, 'incoming' is one their
+ * ward received that the suitor's wali already cleared.
+ */
+export interface WaliQueueItem {
+  proposalId: string;
+  stage: ProposalStage;
+  wardUserId: string;
+  reviewing: 'outgoing' | 'incoming';
+  proposedAt: string;
+  waliNote: string | null;
+  /** Null when the suitor has no wali, which is itself worth showing. */
+  suitorWaliName: string | null;
+  /** True when the counterpart's wali sent it rather than the counterpart. */
+  sentByWali?: boolean;
+  counterpart: {
+    userId: string;
+    fullName: string | null;
+    gender: string | null;
+    dateOfBirth: string | null;
+    city: string | null;
+    countryCode: string | null;
+    occupation: string | null;
+    educationLevel: string | null;
+    maritalStatus: string | null;
+    bio: string | null;
+  };
 }
 
 interface FamilyStatusResponse {
@@ -247,9 +250,9 @@ export async function rejectMatch(matchId: string): Promise<void> {
 //   - /auth/me returns { user, profile, family:{seekerCount,parentCount} }, so
 //     WaliMeResponse.ward is never populated. No endpoint exposes a ward's full
 //     profile to their wali (backend ask).
-//   - /matches/wards/interests returns SENT interests only, so
-//     getWardReceivedProposals() cannot work; incoming proposals come from
-//     GET /family/wali/queue filtered on reviewing === 'incoming'.
+//   - RESOLVED: getWardReceivedProposals() now reads GET /family/wali/queue
+//     filtered on reviewing === 'incoming'. /matches/wards/interests still
+//     returns SENT interests only, which is what getWardProposals() wants.
 
 /** Wali removes their linked ward (dependent). Both sides lose the link. */
 export async function removeWard(membershipId: string): Promise<void> {
@@ -270,6 +273,8 @@ export interface WardProposal {
   recipientCity: string | null;
   recipientOccupation: string | null;
   stage: ProposalStage;
+  /** True when the wali sent this on the ward's behalf. See SentProposal. */
+  sentByWali?: boolean;
   createdAt: string;
 }
 
@@ -287,12 +292,52 @@ export interface WardReceivedProposal {
   senderCity: string | null;
   senderOccupation: string | null;
   stage: ProposalStage;
+  /**
+   * True when the *sender's* wali sent it on the sender's behalf — the mirror
+   * of the flag on WardProposal, which is about our own ward's wali.
+   */
+  sentByWali?: boolean;
   createdAt: string;
 }
 
-/** All proposals received by the wali's ward. See note above — currently returns sent. */
+/** Years between an ISO date and today; null when the server sent no date. */
+function ageFrom(dateOfBirth: string | null): number | null {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDelta = now.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+/**
+ * Proposals the ward has *received* that now need this wali's decision.
+ *
+ * Sourced from the wali queue, not /matches/wards/interests: that endpoint
+ * returns the ward's SENT interests, so filtering it for incoming proposals
+ * returned the ward's own outgoing ones. Since a wali-sent proposal opens at
+ * HER_WALI_REVIEWING, that mis-source put every proposal a wali sent straight
+ * into his own "needs your review" queue.
+ */
 export async function getWardReceivedProposals(): Promise<WardReceivedProposal[]> {
-  return apiRequest<WardReceivedProposal[]>('/matches/wards/interests');
+  const queue = await apiRequest<WaliQueueItem[]>('/family/wali/queue');
+  return queue
+    .filter(item => item.reviewing === 'incoming')
+    .map(item => ({
+      id: item.proposalId,
+      fromUserId: item.counterpart.userId,
+      senderName: item.counterpart.fullName,
+      senderAge: ageFrom(item.counterpart.dateOfBirth),
+      senderCity: item.counterpart.city,
+      senderOccupation: item.counterpart.occupation,
+      stage: item.stage,
+      sentByWali: item.sentByWali,
+      createdAt: item.proposedAt,
+    }));
 }
 
 /** Wali sends a proposal on behalf of their ward. */

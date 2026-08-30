@@ -448,11 +448,18 @@ function SentProposalDetail({
   const who = [proposal.age, proposal.city].filter(Boolean).join(' · ');
   const sub = fmtSect(proposal.sect, proposal.madhhab);
 
+  // Derived from the proposal, not just the prop: neither caller passes
+  // `waliIsSender`, so keying on it alone left every proposal reading as
+  // self-sent. The prop stays as an override. Everything that turns on "who
+  // sent this" reads this one value — the title and the withdraw copy used to
+  // read the raw prop and contradict the tracker right below them.
+  const waliSent = (waliIsSender ?? proposal.sentByWali) ?? false;
+
   // Who is looking, and who sent it — the two things the wording turns on.
   const flow = buildProposalSteps({
     stage,
     viewer: isWaliView ? 'suitorWali' : 'suitor',
-    origin: waliIsSender ? 'wali' : 'self',
+    origin: waliSent ? 'wali' : 'self',
     sentAt: proposal.sentAt,
     wardName,
   });
@@ -464,7 +471,7 @@ function SentProposalDetail({
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" />
       <TopBar
-        title={waliIsSender ? 'Your proposal' : isWaliView ? "Ward's proposal" : 'Your proposal'}
+        title={waliSent ? 'Your proposal' : isWaliView ? "Ward's proposal" : 'Your proposal'}
         subtitle={who}
         onBack={onBack}
       />
@@ -487,7 +494,7 @@ function SentProposalDetail({
             ['Her wali',   'Father'],
           ]} />
           <LockNotice text={
-            lockText(stage, isWaliView ? 'suitorWali' : 'suitor', !!waliIsSender)
+            lockText(stage, isWaliView ? 'suitorWali' : 'suitor', waliSent)
           } />
           {matched ? (
             <ActionButtons buttons={[
@@ -582,6 +589,7 @@ function ReceivedProposalDetail({
         <StepTracker flow={buildProposalSteps({
           stage: proposal.stage,
           viewer: isWaliView ? 'recipientWali' : 'recipient',
+          origin: proposal.sentByWali ? 'wali' : 'self',
           sentAt: proposal.sentAt,
           wardName,
         })} />
@@ -667,6 +675,8 @@ export function ProposalDetailScreen({ selected, onBack, onWithdrawSuccess, onVi
       onBack={onBack}
       onAccept={onAccept}
       onDecline={onDecline}
+      isWaliView={isWaliView}
+      wardName={wardName}
     />
   );
 }
