@@ -123,7 +123,13 @@ const RECEIVED_STAGE_MAP: Record<ProposalStage, { chipVariant: ChipVariant; chip
 function toSentCard(p: SentProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
   const { chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
-  const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'suitor' });
+  // Origin matters even for a bare count: a wali-sent proposal has two
+  // approvals in hand at send time, not one.
+  const { doneCount: doneSteps } = buildProposalSteps({
+    stage: p.stage,
+    viewer: 'suitor',
+    origin: p.sentByWali ? 'wali' : 'self',
+  });
   return {
     name: p.fullName ?? 'Unknown',
     details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
@@ -138,7 +144,11 @@ function toSentCard(p: SentProposal): ProposalCard {
 function toReceivedCard(p: ReceivedProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
   const { chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
-  const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'recipient' });
+  const { doneCount: doneSteps } = buildProposalSteps({
+    stage: p.stage,
+    viewer: 'recipient',
+    origin: p.sentByWali ? 'wali' : 'self',
+  });
   return {
     name: p.fullName ?? 'Unknown',
     details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),

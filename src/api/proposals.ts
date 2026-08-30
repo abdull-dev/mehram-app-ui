@@ -51,6 +51,13 @@ export interface SentProposal {
   stage: ProposalStage;
   /** Viewer-aware copy computed by the server; prefer it over local chip text. */
   stageLabel?: string;
+  /**
+   * True when the seeker's wali sent this on their behalf. Drives the step
+   * tracker's ordering and copy — a wali-sent proposal carries the ward's
+   * approval implicitly. Optional: older servers omit it, and absent reads as
+   * self-sent, which is the common case.
+   */
+  sentByWali?: boolean;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;
@@ -74,6 +81,13 @@ export interface ReceivedProposal {
   stage: ProposalStage;
   /** Viewer-aware copy computed by the server; prefer it over local chip text. */
   stageLabel?: string;
+  /**
+   * True when the seeker's wali sent this on their behalf. Drives the step
+   * tracker's ordering and copy — a wali-sent proposal carries the ward's
+   * approval implicitly. Optional: older servers omit it, and absent reads as
+   * self-sent, which is the common case.
+   */
+  sentByWali?: boolean;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;
