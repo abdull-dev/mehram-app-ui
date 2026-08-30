@@ -82,8 +82,8 @@ android {
         applicationId "com.mehram.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 4
+        versionName "1.1"
     }
     signingConfigs {
         debug {
@@ -92,15 +92,24 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (project.hasProperty('KINDRED_UPLOAD_STORE_FILE')) {
+                storeFile file(KINDRED_UPLOAD_STORE_FILE)
+                storePassword KINDRED_UPLOAD_STORE_PASSWORD
+                keyAlias KINDRED_UPLOAD_KEY_ALIAS
+                keyPassword KINDRED_UPLOAD_KEY_PASSWORD
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Play upload key — KINDRED_UPLOAD_* lives in ~/.gradle/gradle.properties
+            signingConfig project.hasProperty('KINDRED_UPLOAD_STORE_FILE')
+                ? signingConfigs.release
+                : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -110,6 +119,11 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // Play Billing Library 8+ is required to upload a BILLING-enabled AAB
+    // (Play treats a bare BILLING permission as the deprecated AIDL API).
+    // This also unlocks one-time product creation in Play Console.
+    implementation("com.android.billingclient:billing:8.0.0")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

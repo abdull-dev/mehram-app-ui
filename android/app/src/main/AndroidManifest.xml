@@ -5,11 +5,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
-      Google Play in-app purchases (membership, F17). Declared by hand because
-      the app has no Play Billing dependency to merge it in: purchases are made
-      through the store and the receipt is verified by our own backend
-      (POST /billing/verify-purchase). Play Console refuses to let you create a
-      one-time product until an uploaded build declares this.
+      Google Play in-app purchases (membership, F17). The Play Billing Library
+      also merges this permission and writes com.google.android.play.billingclient.version
+      so Console does not treat the app as the deprecated AIDL billing API.
+      Receipts are verified by POST /billing/verify-purchase.
     -->
     <uses-permission android:name="com.android.vending.BILLING" />
 
@@ -21,6 +20,7 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:networkSecurityConfig="@xml/network_security_config"
       android:supportsRtl="true">
       <!-- TODO: Replace with your Google Maps API key from https://console.cloud.google.com -->
       <meta-data

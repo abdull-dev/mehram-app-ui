@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Hosted API is HTTP. Debug already allows all cleartext; release
+         would otherwise block 13.233.88.125. Restrict the exception to that host. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">13.233.88.125</domain>
+    </domain-config>
+</network-security-config>
