@@ -30,6 +30,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -37,6 +39,8 @@ import {
   Text,
   View,
 } from 'react-native';
+
+const PHOTO_SLIDE_W = Dimensions.get('window').width - 32; // full content width (16px padding each side)
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
@@ -128,6 +132,54 @@ function Badge({ label, variant }: { label: string; variant: 'mint' | 'indigo' }
   );
 }
 
+// ─── photo carousel (wali view) ───────────────────────────────────────────────
+function PhotoCarousel({ urls }: { urls: string[] }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  if (urls.length === 0) {
+    return (
+      <View style={styles.photoWrap}>
+        <View style={styles.photoInner}>
+          <PersonIcon />
+          <Text style={styles.photoHintText}>No photos uploaded yet</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={[styles.photoWrap, { overflow: 'hidden' }]}>
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={e => {
+            const idx = Math.round(e.nativeEvent.contentOffset.x / PHOTO_SLIDE_W);
+            setActiveIndex(idx);
+          }}>
+          {urls.map((url, i) => (
+            <Image
+              key={i}
+              source={{ uri: url }}
+              style={{ width: PHOTO_SLIDE_W, height: 268 }}
+              resizeMode="cover"
+            />
+          ))}
+        </ScrollView>
+      </View>
+      {urls.length > 1 && (
+        <View style={carouselStyles.dots}>
+          {urls.map((_, i) => (
+            <View key={i} style={[carouselStyles.dot, i === activeIndex && carouselStyles.dotActive]} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── profile row ──────────────────────────────────────────────────────────────
 function ProfileRow({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
   return (
@@ -213,6 +265,7 @@ const MADHHAB_LABELS: Record<string, string> = {
 };
 const RELIGIOSITY_LABELS: Record<string, string> = {
   VERY_PRACTICING: 'Very practicing', PRACTICING: 'Practicing',
+  MODERATELY_PRACTICING: 'Moderately practicing',
   MODERATE: 'Moderate', CULTURAL: 'Cultural',
 };
 const PRAYER_LABELS: Record<string, string> = {
@@ -309,14 +362,39 @@ function ProfileDetailSkeleton({ onBack, insetTop }: { onBack?: () => void; inse
   );
 }
 
+// ─── proposal context ─────────────────────────────────────────────────────────
+/**
+ * Controls which action buttons appear at the bottom of the profile.
+ *   'none'              → fresh introduction: "Not suitable" + "Send proposal"
+ *   'sent_pending'      → I sent a proposal, awaiting approval: "Withdraw" + "Proposal sent ✓"
+ *   'sent_matched'      → she accepted: "Open chat"
+ *   'received_pending'  → she proposed to me: "Decline" + "Accept proposal"
+ *   'received_matched'  → we matched via her proposal: "Open chat"
+ */
+export type ProposalContext =
+  | 'none'
+  | 'sent_pending'
+  | 'sent_matched'
+  | 'received_pending'
+  | 'received_matched';
+
 // ─── props ────────────────────────────────────────────────────────────────────
 interface ProfileDetailScreenProps {
   profile?: IntroductionProfile;
   loading?: boolean;
+  isWaliView?: boolean;
+  /** True when the wali is viewing their own ward's profile — hides photo request and action buttons */
+  isDependent?: boolean;
+  /** Controls which action buttons show based on proposal relationship */
+  proposalContext?: ProposalContext;
   onBack?: () => void;
   onNotSuitable?: () => void;
   onRequestPhoto?: () => void;
   onSendProposal?: () => void;
+  onWithdrawProposal?: () => void;
+  onAcceptProposal?: () => void;
+  onDeclineProposal?: () => void;
+  onOpenChat?: () => void;
 }
 
 const DEFAULT_PROFILE: IntroductionProfile = {
@@ -364,10 +442,17 @@ const DEFAULT_PROFILE: IntroductionProfile = {
 export function ProfileDetailScreen({
   profile,
   loading = false,
+  isWaliView = false,
+  isDependent = false,
+  proposalContext = 'none',
   onBack,
   onNotSuitable,
   onRequestPhoto,
   onSendProposal,
+  onWithdrawProposal,
+  onAcceptProposal,
+  onDeclineProposal,
+  onOpenChat,
 }: ProfileDetailScreenProps) {
   const insets = useSafeAreaInsets();
   const [photoRequested, setPhotoRequested] = useState(false);
@@ -414,71 +499,87 @@ export function ProfileDetailScreen({
         showsVerticalScrollIndicator={false}>
 
         {/* ── Photo area ──────────────────────────────────────────────── */}
-        <View style={styles.photoWrap}>
-          <View style={styles.photoInner}>
-            <PersonIcon />
-            <Text style={styles.photoHintText}>Photo not shared yet</Text>
-          </View>
-
-          {/* gradient fades bottom of photo → identity overlay */}
-          <LinearGradient
-            colors={['transparent', 'rgba(15,10,42,0.82)']}
-            style={styles.photoGradient}>
-            {resolvedProfile.displayName ? (
-              <Text style={styles.overlayName}>{resolvedProfile.displayName}</Text>
-            ) : null}
-            <Text style={styles.overlayAge}>{resolvedProfile.age} · {resolvedProfile.city}</Text>
-            {fmtSect(resolvedProfile.sect, resolvedProfile.madhhab) || fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity) ? (
-              <Text style={styles.overlaySect}>
-                {[fmtSect(resolvedProfile.sect, resolvedProfile.madhhab), fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity)]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-            ) : null}
-            {(resolvedProfile.idVerified || resolvedProfile.waliRegistered) ? (
-              <View style={styles.overlayBadges}>
-                {resolvedProfile.idVerified ? (
-                  <View style={styles.overlayBadge}>
-                    <ShieldCheckIcon />
-                    <Text style={styles.overlayBadgeText}>ID verified</Text>
-                  </View>
-                ) : null}
-                {resolvedProfile.waliRegistered ? (
-                  <View style={[styles.overlayBadge, styles.overlayBadgeVio]}>
-                    <UsersIcon />
-                    <Text style={[styles.overlayBadgeText, styles.overlayBadgeTextVio]}>Wali registered</Text>
-                  </View>
-                ) : null}
+        {isWaliView ? (
+          resolvedProfile.blurPhotos || !resolvedProfile.photoUrls?.length ? (
+            <View style={styles.photoWrap}>
+              <View style={styles.photoInner}>
+                <Svg width={40} height={40} viewBox="0 0 24 24" fill="none">
+                  <Rect x={4} y={11} width={16} height={10} rx={2.5} stroke={Colors.vio} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M8 11V7a4 4 0 0 1 8 0v4" stroke={Colors.vio} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.photoHintText}>Photos are locked</Text>
               </View>
-            ) : null}
-          </LinearGradient>
-        </View>
+            </View>
+          ) : (
+            <PhotoCarousel urls={resolvedProfile.photoUrls} />
+          )
+        ) : (
+          <View style={styles.photoWrap}>
+            <View style={styles.photoInner}>
+              <PersonIcon />
+            </View>
 
-        {/* ── Photo request card ──────────────────────────────────────── */}
-        <View style={styles.card}>
-          {photoRequested ? (
+            {/* gradient fades bottom of photo → identity overlay */}
+            <LinearGradient
+              colors={['transparent', 'rgba(15,10,42,0.82)']}
+              style={styles.photoGradient}>
+              {resolvedProfile.displayName ? (
+                <Text style={styles.overlayName}>{resolvedProfile.displayName}</Text>
+              ) : null}
+              <Text style={styles.overlayAge}>{resolvedProfile.age} · {resolvedProfile.city}</Text>
+              {fmtSect(resolvedProfile.sect, resolvedProfile.madhhab) || fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity) ? (
+                <Text style={styles.overlaySect}>
+                  {[fmtSect(resolvedProfile.sect, resolvedProfile.madhhab), fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity)]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              ) : null}
+              {(resolvedProfile.idVerified || resolvedProfile.waliRegistered) ? (
+                <View style={styles.overlayBadges}>
+                  {resolvedProfile.idVerified ? (
+                    <View style={styles.overlayBadge}>
+                      <ShieldCheckIcon />
+                      <Text style={styles.overlayBadgeText}>ID verified</Text>
+                    </View>
+                  ) : null}
+                  {resolvedProfile.waliRegistered ? (
+                    <View style={[styles.overlayBadge, styles.overlayBadgeVio]}>
+                      <UsersIcon />
+                      <Text style={[styles.overlayBadgeText, styles.overlayBadgeTextVio]}>Wali registered</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </LinearGradient>
+          </View>
+        )}
+
+        {/* ── Photo request card ───────────────────────────────────────── */}
+        {!isDependent && <View style={styles.card}>
+          {resolvedProfile.photoRequestsPaused ? (
+            /* Paused state — shown to other users when the viewed user has paused requests */
+            <View style={styles.sentRow}>
+              <View style={[styles.sentDot, { backgroundColor: '#B5820D' }]} />
+              <Text style={styles.sentText}>
+                This person has paused photo requests for now.
+              </Text>
+            </View>
+          ) : photoRequested ? (
             /* Sent state */
             <View style={styles.sentRow}>
               <View style={styles.sentDot} />
               <Text style={styles.sentText}>
-                Photo request sent — she'll be notified when she logs in.
+                {isWaliView
+                  ? 'Photo request sent on your ward\'s behalf.'
+                  : 'Photo request sent — she\'ll be notified when she logs in.'}
               </Text>
             </View>
           ) : (
             /* Request state */
             <>
-              <View style={styles.lockRow}>
-                <View style={styles.lockIconWrap}>
-                  <LockIcon />
-                </View>
-                <View style={styles.lockTexts}>
-                  <Text style={styles.lockTitle}>Photo not yet available</Text>
-                  <Text style={styles.lockBody}>
-                    Send a proposal to express your interest. After she accepts, you can request to see her photo.
-                  </Text>
-                </View>
-              </View>
-
+              <Text style={styles.photoReqHint}>
+                Photos are kept private until both sides have approved the proposal. Once approved, you can request a photo directly.
+              </Text>
               <Pressable
                 onPress={handleRequestPhoto}
                 style={({ pressed }) => ({
@@ -491,12 +592,14 @@ export function ProfileDetailScreen({
                   end={{ x: 1, y: 0.5 }}
                   style={styles.photoReqBtn}>
                   <CameraIcon />
-                  <Text style={styles.photoReqBtnText}>Request photo update</Text>
+                  <Text style={styles.photoReqBtnText}>
+                    Request photo
+                  </Text>
                 </LinearGradient>
               </Pressable>
             </>
           )}
-        </View>
+        </View>}
 
         {/* ── Basic info card ──────────────────────────────────────────── */}
         <DetailCard title="Basic info">
@@ -573,31 +676,105 @@ export function ProfileDetailScreen({
         ) : null}
 
         {/* ── Actions ─────────────────────────────────────────────────── */}
-        <View style={styles.actions}>
-          <Pressable
-            onPress={onNotSuitable}
-            style={({ pressed }) => [
-              styles.btnOutline,
-              { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
-            ]}>
-            <Text style={styles.btnOutlineText}>Not suitable</Text>
-          </Pressable>
+        {!isDependent && (
+          <View style={styles.actions}>
+            {(proposalContext === 'sent_matched' || proposalContext === 'received_matched') && (
+              /* Matched — only show Open chat */
+              <Pressable
+                onPress={onOpenChat}
+                style={({ pressed }) => ({
+                  opacity: pressed ? 0.88 : 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  width: '100%',
+                })}>
+                <LinearGradient
+                  colors={['#3ECFB0', '#22B89A']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={styles.btnPrimary}>
+                  <Text style={styles.btnPrimaryText}>Open chat</Text>
+                </LinearGradient>
+              </Pressable>
+            )}
 
-          <Pressable
-            onPress={onSendProposal}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.88 : 1,
-              transform: [{ scale: pressed ? 0.97 : 1 }],
-            })}>
-            <LinearGradient
-              colors={['#F2559A', '#E6396E']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.btnPrimary}>
-              <Text style={styles.btnPrimaryText}>Send proposal</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
+            {proposalContext === 'sent_pending' && (
+              /* Sent, waiting — Withdraw + disabled "Proposal sent" */
+              <>
+                <Pressable
+                  onPress={onWithdrawProposal}
+                  style={({ pressed }) => [
+                    styles.btnOutline,
+                    { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+                  ]}>
+                  <Text style={styles.btnOutlineText}>Withdraw proposal</Text>
+                </Pressable>
+                <View style={[styles.btnPrimary, { backgroundColor: '#B5BAC8', opacity: 0.7 }]}>
+                  <Text style={styles.btnPrimaryText}>Proposal sent ✓</Text>
+                </View>
+              </>
+            )}
+
+            {proposalContext === 'received_pending' && (
+              /* Received, pending — Decline + Accept */
+              <>
+                <Pressable
+                  onPress={onDeclineProposal}
+                  style={({ pressed }) => [
+                    styles.btnOutline,
+                    { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+                  ]}>
+                  <Text style={styles.btnOutlineText}>Decline</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onAcceptProposal}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    transform: [{ scale: pressed ? 0.97 : 1 }],
+                  })}>
+                  <LinearGradient
+                    colors={['#F2559A', '#E6396E']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.btnPrimary}>
+                    <Text style={styles.btnPrimaryText}>Accept proposal</Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
+            )}
+
+            {proposalContext === 'none' && (
+              /* Default — Not suitable + Send proposal */
+              <>
+                <Pressable
+                  onPress={onNotSuitable}
+                  style={({ pressed }) => [
+                    styles.btnOutline,
+                    { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+                  ]}>
+                  <Text style={styles.btnOutlineText}>
+                    {isWaliView ? 'Not suitable for ward' : 'Not suitable'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={onSendProposal}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.88 : 1,
+                    transform: [{ scale: pressed ? 0.97 : 1 }],
+                  })}>
+                  <LinearGradient
+                    colors={['#F2559A', '#E6396E']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.btnPrimary}>
+                    <Text style={styles.btnPrimaryText}>
+                      {isWaliView ? 'Send proposal for ward' : 'Send proposal'}
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
+            )}
+          </View>
+        )}
 
       </ScrollView>
     </View>
@@ -836,6 +1013,14 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 
+  photoReqHint: {
+    fontSize: 12.5,
+    color: Colors.ink2,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+
   sentText: {
     flex: 1,
     fontSize: 13,
@@ -926,6 +1111,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#fff',
+  },
+});
+
+// ─── carousel styles ──────────────────────────────────────────────────────────
+const carouselStyles = StyleSheet.create({
+  dots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(60,40,122,0.18)',
+  },
+  dotActive: {
+    backgroundColor: '#7C5AE0',
+    width: 18,
+    borderRadius: 3,
   },
 });
 

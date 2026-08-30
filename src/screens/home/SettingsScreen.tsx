@@ -5,8 +5,9 @@
  * account options, help/legal links, and account-leaving actions.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
@@ -123,15 +124,16 @@ interface ListItemProps {
   value?: string;
   first?: boolean;
   danger?: boolean;
+  loading?: boolean;
   onPress?: () => void;
 }
 
-function ListItem({ iconName, iconBg, title, subtitle, value, first, danger, onPress }: ListItemProps) {
+function ListItem({ iconName, iconBg, title, subtitle, value, first, danger, loading, onPress }: ListItemProps) {
   const { bg, icon } = BG_MAP[iconBg];
   return (
     <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.li, first && styles.liFirst, pressed && { opacity: 0.7 }]}>
+      onPress={loading ? undefined : onPress}
+      style={({ pressed }) => [styles.li, first && styles.liFirst, pressed && !loading && { opacity: 0.7 }]}>
       <View style={[styles.lic, { backgroundColor: bg }]}>
         <Icon name={iconName} color={icon} />
       </View>
@@ -140,7 +142,9 @@ function ListItem({ iconName, iconBg, title, subtitle, value, first, danger, onP
         {!!subtitle && <Text style={styles.lis}>{subtitle}</Text>}
       </View>
       {!!value && <Text style={styles.liv}>{value}</Text>}
-      <ChevRight />
+      {loading
+        ? <ActivityIndicator size="small" color={danger ? '#D9304F' : '#9B7BF0'} />
+        : <ChevRight />}
     </Pressable>
   );
 }
@@ -167,7 +171,7 @@ interface SettingsScreenProps {
   onRefundPolicy?: () => void;
   onFoundMyMatch?: () => void;
   onDownloadData?: () => void;
-  onSignOut?: () => void;
+  onSignOut?: () => Promise<void>;
   onDeleteAccount?: () => void;
   userName?: string;
   userCity?: string;
@@ -197,6 +201,7 @@ export function SettingsScreen({
   userCity = 'Lahore',
 }: SettingsScreenProps) {
   const insets = useSafeAreaInsets();
+  const [signingOut, setSigningOut] = useState(false);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -246,8 +251,6 @@ export function SettingsScreen({
         <View style={[styles.card, styles.cardOverflow]}>
           <ListItem first iconName="card"  iconBg="mint"   title="Membership"       subtitle="Paid 26 August · no renewal" onPress={onMembership} />
           <ListItem       iconName="bell"  iconBg="gold"   title="Notifications"                                           onPress={onNotifications} />
-          <ListItem       iconName="globe" iconBg="grey"   title="Language"         value="English"                        onPress={onLanguage} />
-          <ListItem       iconName="ban"   iconBg="grey"   title="Blocked people"   value="0"                              onPress={onBlockedPeople} />
         </View>
 
         <SectionHeader label="Help and legal" />
@@ -262,7 +265,7 @@ export function SettingsScreen({
         <View style={[styles.card, styles.cardOverflow]}>
           <ListItem first iconName="ring"  iconBg="mint" title="I found my match"    subtitle="Archive your profile and tell us" onPress={onFoundMyMatch} />
           <ListItem       iconName="down"  iconBg="grey" title="Download my data"                                                onPress={onDownloadData} />
-          <ListItem       iconName="out"   iconBg="grey" title="Sign out"                                                        onPress={onSignOut} />
+          <ListItem       iconName="out"   iconBg="grey" title="Sign out"   loading={signingOut}  onPress={async () => { setSigningOut(true); try { await onSignOut?.(); } finally { setSigningOut(false); } }} />
           <ListItem       iconName="trash" iconBg="rose" title="Delete account" danger                                           onPress={onDeleteAccount} />
         </View>
 

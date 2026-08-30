@@ -94,7 +94,7 @@ interface HomeScreenProps {
   /** H16: "View profile" tapped → opens ProfileDetailScreen (introduction card) */
   onViewProfile?: () => void;
   /** Proposals: "View profile" tapped → opens ProfileDetailScreen for the given userId */
-  onViewProposalProfile?: (userId: string) => void;
+  onViewProposalProfile?: (userId: string, type: 'sent' | 'received', matchId: string | null) => void;
   /** Proposals: called after a proposal is successfully withdrawn — refresh home feed */
   onProposalWithdrawn?: () => void;
   /** H16: "Send proposal" tapped */
@@ -139,6 +139,10 @@ interface HomeScreenProps {
   onTabChange?: (tab: NavTab) => void;
   /** Badge count on Proposals tab */
   proposalsBadge?: number;
+  /** Increment to trigger a silent refresh of the Proposals tab */
+  proposalsRefreshKey?: number;
+  /** Called when the received proposals count changes — used to drive the badge */
+  onProposalsBadgeChange?: (count: number) => void;
   /** Settings (burger) icon tapped — opens SettingsScreen */
   onOpenSettings?: () => void;
   /** Wali state for the Family tab */
@@ -197,6 +201,8 @@ export function HomeScreen({
   activeTab = 'home',
   onTabChange,
   proposalsBadge,
+  proposalsRefreshKey,
+  onProposalsBadgeChange,
   onOpenSettings,
   waliState = 'unresponsive',
   onAskWaliAgain,
@@ -288,29 +294,7 @@ export function HomeScreen({
   // ── Build page content (single return so the tab animation wrapper is consistent)
   let pageContent: React.ReactNode;
 
-  if (activeTab === 'family') {
-    pageContent = (
-      <>
-        <FamilyScreen
-          waliState={waliState}
-          onBack={() => onTabChange?.('home')}
-          onAskWaliAgain={onAskWaliAgain}
-          onChooseAnotherWali={onChooseAnotherWali}
-          onRemindWali={onRemindWali}
-          onChangeWali={onChangeWali}
-          onReviewProposal={onReviewProposal}
-          onSwitchToProfile={() => { onTabChange?.('home'); onSwitchToProfile?.(); }}
-        />
-      </>
-    );
-  } else if (activeTab === 'proposals') {
-    pageContent = (
-      <ProposalsScreen
-        onSeeIntroduction={onViewProfile}
-        onSelectProposal={openDetail}
-      />
-    );
-  } else if (profileIncomplete && !allSectionsDone(resumeScreen)) {
+  if (profileIncomplete && !allSectionsDone(resumeScreen)) {
     pageContent = (
       <>
         <ProfileIncompleteBlock
@@ -419,9 +403,33 @@ export function HomeScreen({
   return (
     <View style={styles.wrapper}>
       {/* Animated page content — slides on tab change, nav excluded */}
-      <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: tabSlideAnim }] }]}>
+      <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: tabSlideAnim }] }, (activeTab === 'proposals' || activeTab === 'family') && { display: 'none' }]}>
         {pageContent}
       </Animated.View>
+
+      {/* Proposals tab — always mounted so state + socket survive tab switches */}
+      <View style={[StyleSheet.absoluteFill, { display: activeTab === 'proposals' ? 'flex' : 'none' }]}>
+        <ProposalsScreen
+          onSeeIntroduction={onViewProfile}
+          onSelectProposal={openDetail}
+          refreshKey={proposalsRefreshKey}
+          onReceivedCountChange={onProposalsBadgeChange}
+        />
+      </View>
+
+      {/* Family tab — always mounted so wali data is not re-fetched on every tab switch */}
+      <View style={[StyleSheet.absoluteFill, { display: activeTab === 'family' ? 'flex' : 'none' }]}>
+        <FamilyScreen
+          waliState={waliState}
+          onBack={() => onTabChange?.('home')}
+          onAskWaliAgain={onAskWaliAgain}
+          onChooseAnotherWali={onChooseAnotherWali}
+          onRemindWali={onRemindWali}
+          onChangeWali={onChangeWali}
+          onReviewProposal={onReviewProposal}
+          onSwitchToProfile={() => { onTabChange?.('home'); onSwitchToProfile?.(); }}
+        />
+      </View>
 
       {/* Bottom nav — always fixed, never animates */}
       {nav}

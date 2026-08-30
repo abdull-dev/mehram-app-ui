@@ -181,7 +181,7 @@ export function MembershipScreen({
         {/* Main membership card */}
         <View style={styles.card}>
           <View style={styles.amountWrap}>
-            <Text style={styles.amount}>PKR 4,000</Text>
+            <Text style={styles.amount}>PKR 4,500</Text>
             <Text style={styles.amountSub}>Paid in full · no renewal</Text>
           </View>
           <View style={styles.rows}>

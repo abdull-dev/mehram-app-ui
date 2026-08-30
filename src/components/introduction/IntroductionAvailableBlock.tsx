@@ -101,6 +101,7 @@ const MADHHAB_LABELS: Record<string, string> = {
 };
 const RELIGIOSITY_LABELS: Record<string, string> = {
   VERY_PRACTICING: 'Very practicing', PRACTICING: 'Practicing',
+  MODERATELY_PRACTICING: 'Moderately practicing',
   MODERATE: 'Moderate', CULTURAL: 'Cultural',
 };
 const MARITAL_LABELS: Record<string, string> = {
@@ -268,6 +269,7 @@ export interface IntroductionProfile {
   // Verification
   idVerified?: boolean;
   waliRegistered?: boolean;
+  photoRequestsPaused?: boolean;
   // Location detail
   countryCode?: string | null;
 }

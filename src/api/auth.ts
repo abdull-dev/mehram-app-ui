@@ -7,7 +7,7 @@
  *  3. resendOtp(phone)        → re-sends SMS when timer expires
  *
  * Wali flow:
- *  - redeemWaliInvite({ inviteCode, email, password, fullName }) → POST /auth/parent/redeem
+ *  - verifyInviteCode(code)   → wali submits 6-character invite code
  */
 import { apiRequest } from './client';
 import { API_BASE_URL } from './config';
@@ -32,7 +32,20 @@ export interface MeResponse {
     onboardingCompleted: boolean;
     onboardingStep: number;
   };
-  family: unknown;
+  /** Populated for wali users — contains their linked dependent's basic profile. */
+  family: {
+    dependentUserId?: string;
+    dependentName?: string;
+    dependentAge?: number;
+    dependentCity?: string;
+    dependentSect?: string;
+    dependentEducationLevel?: string;
+    dependentOccupation?: string;
+    dependentBio?: string;
+    dependentOnboardingCompleted?: boolean;
+    dependentIdVerified?: boolean;
+    memberSince?: string;
+  } | null;
 }
 
 export interface AuthSession {
@@ -77,7 +90,7 @@ export async function verifyOtp(
   phone: string,
   otp: string,
 ): Promise<AuthResponse> {
-  const result = await apiRequest<AuthResponse>('/auth/verify-otp', {
+  const result = await apiRequest<AuthResponse>('/auth/verify-phone-otp', {
     method: 'POST',
     body: JSON.stringify({ phone, otp }),
   });
@@ -124,21 +137,21 @@ export async function refreshTokens(refreshToken: string): Promise<AuthResponse>
   return result;
 }
 
+// ─── wali registration ────────────────────────────────────────────────────────
+
 // ─── wali invite redemption ───────────────────────────────────────────────────
 
 /**
- * Wali redeems the 6-digit code that the seeker read out / shared.
- * Call this from the wali's onboarding after they enter the code.
+ * Validates the invite code and registers the wali account in one step.
+ * On success, tokens are persisted to secure storage.
  */
-export async function redeemWaliInvite(payload: {
-  inviteCode: string;
-  email: string;
-  password: string;
-  fullName: string;
-}): Promise<AuthResponse> {
+export async function verifyInviteCode(
+  inviteCode: string,
+  credentials: { email: string; password: string; fullName: string },
+): Promise<AuthResponse> {
   const result = await apiRequest<AuthResponse>('/auth/parent/redeem', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ inviteCode, ...credentials }),
   });
   await saveTokens(result.session.accessToken, result.session.refreshToken);
   return result;

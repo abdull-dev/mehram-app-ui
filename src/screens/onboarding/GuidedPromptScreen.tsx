@@ -45,6 +45,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { getMyProfile } from '../../api/profile';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -149,6 +150,14 @@ export function GuidedPromptScreen({
 
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
+
+  // Pre-populate existing bio when navigating back
+  useEffect(() => {
+    getMyProfile().then(profile => {
+      if (profile.bio) setText(profile.bio);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Staggered entrance animations: d1 / d2 / d3
   const header = useFadeRise(70);

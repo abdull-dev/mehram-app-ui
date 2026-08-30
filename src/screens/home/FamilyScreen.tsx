@@ -210,7 +210,7 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
         <Pressable style={styles.backBtn} onPress={onBack} hitSlop={10}>
           <ChevLeft />
         </Pressable>
-        <Text style={styles.topBarTitle}>Family</Text>
+        <Text style={styles.topBarTitle}>Your Wali</Text>
       </View>
 
       <ScrollView
@@ -304,6 +304,13 @@ function NoWaliCard({ onBack, onWaliLinked }: NoWaliCardProps) {
   );
 }
 
+// ─── module-level cache (survives component unmount/remount) ──────────────────
+// Fetched once; cleared when wali is removed or changed.
+let _cachedMember: WaliMember | null | undefined = undefined; // undefined = not yet fetched
+export function clearFamilyScreenCache() {
+  _cachedMember = undefined;
+}
+
 // ─── FamilyScreen ─────────────────────────────────────────────────────────────
 export function FamilyScreen({
   waliState,
@@ -314,19 +321,20 @@ export function FamilyScreen({
   onSwitchToProfile,
 }: FamilyScreenProps) {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading]         = useState(true);
-  const [loadError, setLoadError]     = useState<string | null>(null);
-  const [member, setMember]           = useState<WaliMember | null>(null);
+  // Seed state from cache so remounts don't show a loading flash
+  const [loading, setLoading]     = useState(_cachedMember === undefined);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [member, setMember]       = useState<WaliMember | null>(_cachedMember ?? null);
 
   // Fetch on mount (and after change-wali)
   const loadWali = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      setMember(await getFamilyStatus());
+      const linked = await getFamilyStatus();
+      _cachedMember = linked;
+      setMember(linked);
     } catch (err) {
-      // Keep member null (no wali found) but surface load errors so the
-      // invite screen doesn't silently appear when the issue is auth/network.
       setMember(null);
       if (err instanceof ApiError) {
         setLoadError(err.message);
@@ -344,6 +352,8 @@ export function FamilyScreen({
       setLoading(false);
       return;
     }
+    // Skip if we already have cached data from a previous mount
+    if (_cachedMember !== undefined) return;
     loadWali();
   }, [waliState, loadWali]);
 
@@ -355,6 +365,7 @@ export function FamilyScreen({
     } catch {
       // Proceed optimistically — the membership may already be gone
     }
+    _cachedMember = null;
     setMember(null);
   }
 

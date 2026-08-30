@@ -8,26 +8,36 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { getMe, saveOnboardingStep } from './src/api/auth';
+import { getMe, saveOnboardingStep, logout, verifyInviteCode } from './src/api/auth';
+import { resolvePhotoUrl } from './src/api/config';
+import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal } from './src/api/wali';
+import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import { verifyPurchase, getEntitlement } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal, getProposalStats } from './src/api/proposals';
 import {
   updateLocation,
   updateEssentials,
+  updateProfileName,
   updateSect,
   updateFamilyBackground,
   updatePreferences,
   updatePrompts,
+  updatePhotoPrivacy,
   toGender,
   toMaritalStatus,
   toSect,
   parseDob,
 } from './src/api/profile';
-import { resumeFromOnboardingStep, stepNumberFor } from './src/onboarding/steps';
+import { ONBOARDING_STEP, resumeFromOnboardingStep, screenForStep, stepNumberFor } from './src/onboarding/steps';
 import { type IntroductionProfile } from './src/components/introduction/IntroductionAvailableBlock';
 import { getAccessToken, getPendingEmail, getPendingPhone, savePendingEmail, savePendingPhone, clearTokens } from './src/storage/authStorage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useHomeSocket } from './src/hooks/useHomeSocket';
+
+const WALI_LOCAL_PROPOSALS_KEY = '@mehram_wali_local_proposals';
+import { useProposalsSocket } from './src/hooks/useProposalsSocket';
+import { useChatListSocket } from './src/hooks/useChatListSocket';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WelcomeScreen } from './src/screens/onboarding/WelcomeScreen';
 import { PhoneScreen } from './src/screens/onboarding/PhoneScreen';
@@ -52,9 +62,10 @@ import { allSectionsDone } from './src/components/onboarding/ProfileIncompleteBl
 import { NarrowCriteriaScreen } from './src/screens/onboarding/NarrowCriteriaScreen';
 import { AdjustFiltersScreen, FilterValues } from './src/screens/home/AdjustFiltersScreen';
 import { captureCurrentLocation, Coords } from './src/utils/location';
-import { ProfileDetailScreen } from './src/screens/profile/ProfileDetailScreen';
+import { ProfileDetailScreen, type ProposalContext } from './src/screens/profile/ProfileDetailScreen';
 import { AccountVerificationScreen } from './src/screens/onboarding/AccountVerificationScreen';
 import { SignInScreen } from './src/screens/onboarding/SignInScreen';
+import { SignInRoleScreen } from './src/screens/onboarding/SignInRoleScreen';
 import { SettingsScreen } from './src/screens/home/SettingsScreen';
 import { FamilyScreen } from './src/screens/home/FamilyScreen';
 import { PrivacyScreen } from './src/screens/home/PrivacyScreen';
@@ -76,10 +87,15 @@ import { WaliCodeEntryScreen }    from './src/screens/wali-onboarding/WaliCodeEn
 import { WaliRoleExplainScreen }  from './src/screens/wali-onboarding/WaliRoleExplainScreen';
 import { WaliDetailsScreen }      from './src/screens/wali-onboarding/WaliDetailsScreen';
 import { WaliSetupCompleteScreen } from './src/screens/wali-onboarding/WaliSetupCompleteScreen';
+import { WaliHomeScreen, type WaliConversation } from './src/screens/home/WaliHomeScreen';
+import { WaliSettingsScreen } from './src/screens/home/WaliSettingsScreen';
+import { listConversations, type ChatListItem } from './src/api/chat';
+import { ChatsListScreen, type ChatSummary } from './src/screens/chats/ChatsListScreen';
+import { ChatThreadScreen } from './src/screens/chats/ChatThreadScreen';
 
 // ─── screen order (used to determine slide direction) ────────────────────────
 type Screen =
-  | 'F1' | 'SignIn' | 'WhoIsFor' | 'Phone' | 'AccountVerification' | 'Code'
+  | 'F1' | 'SignInRole' | 'SignIn' | 'WhoIsFor' | 'Phone' | 'AccountVerification' | 'Code'
   | 'F6' | 'F7' | 'F8' | 'F10'
   | 'F11' | 'F12' | 'F13' | 'F14' | 'F15' | 'F16' | 'F17' | 'F18'
   | 'F21' | 'F22' | 'H11' | 'Filters' | 'Home' | 'ProfileDetail'
@@ -88,11 +104,13 @@ type Screen =
   | 'PrivacyPolicy' | 'TermsOfService' | 'RefundPolicy'
   | 'FoundMyMatch' | 'DownloadData' | 'PartnerPreferences' | 'YourWali'
   // Wali onboarding
-  | 'WaliAccountSetup' | 'WaliWelcome' | 'WaliCode' | 'WaliRole' | 'WaliDetails' | 'WaliComplete';
+  | 'WaliAccountSetup' | 'WaliWelcome' | 'WaliCode' | 'WaliRole' | 'WaliDetails' | 'WaliComplete'
+  // Chat
+  | 'Chats' | 'ChatThread';
 
 const SCREEN_ORDER: Screen[] = [
   // Onboarding
-  'F1', 'SignIn', 'WhoIsFor',
+  'F1', 'SignInRole', 'SignIn', 'WhoIsFor',
   // Wali onboarding branch (sits between WhoIsFor and Phone)
   'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliRole', 'WaliDetails', 'WaliComplete',
   'Phone', 'AccountVerification', 'Code',
@@ -222,6 +240,37 @@ export default function App() {
   const [detailProfile, setDetailProfile] = useState<IntroductionProfile | undefined>(undefined);
   // True while the profile API is in-flight — ProfileDetailScreen shows skeleton.
   const [detailLoading, setDetailLoading] = useState(false);
+  // Proposal relationship context — drives which action buttons ProfileDetailScreen shows.
+  const [profileProposalContext, setProfileProposalContext] = useState<ProposalContext>('none');
+  // matchId for the active proposal profile (used to navigate to chat).
+  const [profileMatchId, setProfileMatchId] = useState<string | null>(null);
+  // Proposals tab badge + refresh
+  const [proposalsBadge, setProposalsBadge] = useState(0);
+  const [proposalsRefreshKey, setProposalsRefreshKey] = useState(0);
+  const [viewingDependent, setViewingDependent] = useState(false);
+  // Chat
+  const [userId, setUserId] = useState('');
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(false);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [isWali, setIsWali]                   = useState(false);
+  const [waliCodeLoading, setWaliCodeLoading] = useState(false);
+  const [waliCodeError, setWaliCodeError]     = useState<string | undefined>();
+  const [waliEmail, setWaliEmail]             = useState('');
+  const [waliPassword, setWaliPassword]       = useState('');
+  const [dependentName, setDependentName]     = useState('');
+  const [dependentProfile, setDependentProfile] = useState<import('./src/api/wali').WaliMeResponse['ward']>(null);
+  const [dependentPhotos, setDependentPhotos] = useState<Array<{ id: string; url: string }>>([]);
+  const [waliLoading, setWaliLoading] = useState(false);
+  const [wardIntroductions, setWardIntroductions] = useState<import('./src/api/introductions').Introduction[]>([]);
+  const [wardProposals, setWardProposals] = useState<WardProposal[]>([]);
+  // Locally-persisted proposals that the server doesn't yet return from
+  // GET /wali/ward-proposals (backend stores them under the wali's userId, not
+  // the ward's). Survives restarts via AsyncStorage. Remove once the backend
+  // fix is live and GET /wali/ward-proposals returns these records.
+  const [localWardProposals, setLocalWardProposals] = useState<WardProposal[]>([]);
+  const [wardReceivedProposals, setWardReceivedProposals] = useState<WardReceivedProposal[]>([]);
+  const [dependentMembershipId, setDependentMembershipId] = useState('');
   // City name shown on H16 empty-state — populated from profile city.
   const [introductionCity] = useState('');
   // True once the user has completed F18 (DoneScreen) and gone home.
@@ -263,15 +312,62 @@ export default function App() {
   // higher limit once so we know the total count for the day.
   const isFirstIntroLoad = useRef(true);
 
+  // Persist localWardProposals to AsyncStorage so they survive app restarts.
+  // Once the backend returns these from GET /wali/ward-proposals, they are
+  // pruned from local state and this key will be empty.
+  useEffect(() => {
+    if (localWardProposals.length === 0) {
+      AsyncStorage.removeItem(WALI_LOCAL_PROPOSALS_KEY).catch(() => {});
+    } else {
+      AsyncStorage.setItem(WALI_LOCAL_PROPOSALS_KEY, JSON.stringify(localWardProposals)).catch(() => {});
+    }
+  }, [localWardProposals]);
+
   const captureAndStoreLocation = useCallback(async () => {
     const coords = await captureCurrentLocation();
     if (coords) setUserCoords(coords);
   }, []);
 
+  /**
+   * Fetch wali-specific profile from GET /wali/me — the dedicated wali endpoint.
+   * Populates wali name and full dependent (ward) details from a single call.
+   * Throws on network / auth errors so callers can handle session loss.
+   * For fire-and-forget call sites, wrap with .catch(() => {}).
+   */
+  async function loadWaliProfile() {
+    const [me, intros, proposals, receivedProposals, convItems] = await Promise.all([
+      getWaliMe(),
+      getWardIntroductions().catch(() => []),
+      getWardProposals().catch(() => []),
+      getWardReceivedProposals().catch(() => []),
+      listConversations().catch(() => []),
+    ]);
+    if (me.fullName) setUserName(me.fullName.split(' ')[0]);
+    if (me.ward) {
+      if (me.ward.fullName) setDependentName(me.ward.fullName);
+      setDependentPhotos(
+        (me.ward.photos ?? []).map(p => ({ ...p, url: resolvePhotoUrl(p.url) ?? p.url })),
+      );
+      setDependentMembershipId(me.ward.membershipId ?? '');
+      setDependentProfile(me.ward);
+    }
+    setWardIntroductions(intros);
+    setWardProposals(proposals);
+    // Prune any local proposals the server now confirms (backend fix landed).
+    setLocalWardProposals(prev =>
+      prev.filter(p => !proposals.some(s => s.toUserId === p.toUserId)),
+    );
+    setWardReceivedProposals(receivedProposals);
+    if (convItems.length > 0) setChats(mapChatItems(convItems));
+  }
+
+  const [introductionsLoading, setIntroductionsLoading] = useState(false);
+
   // Load (or reload) today's next introduction and update card state.
   // On the very first call fetches up to 50 to record the total count for
   // the "X of Y" label; subsequent calls fetch 1 at a time.
   const loadNextIntroduction = useCallback((): Promise<void> => {
+    setIntroductionsLoading(true);
     const limit = isFirstIntroLoad.current ? 50 : 1;
     return getIntroductions(limit)
       .then(list => {
@@ -315,7 +411,8 @@ export default function App() {
       })
       .catch(() => {
         // Network failure — keep whatever state was already set.
-      });
+      })
+      .finally(() => setIntroductionsLoading(false));
   }, []);
 
   // Trigger initial load when the user reaches H16 (paid + active).
@@ -347,8 +444,8 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedFilters, preferenceFilters]);
 
-  // Re-fetch stats whenever the server signals a change via socket.
-  useHomeSocket(() => {
+  // Re-fetch stats whenever the server signals a change via Supabase Realtime.
+  useHomeSocket(userId, () => {
     if (!introductionAvailable) return;
     getHomeStats()
       .then(stats => {
@@ -357,6 +454,61 @@ export default function App() {
       })
       .catch(() => {});
   });
+
+  // Wali: re-fetch ward proposals whenever any proposal changes (sent, withdrawn, stage change).
+  useProposalsSocket(userId, () => {
+    if (!isWali) return;
+    loadWaliProfile().catch(() => {});
+  });
+
+  // ── shared chat list mapper (newest message on top) ─────────────────────────
+  const mapChatItems = useCallback((items: ChatListItem[]) => {
+    const mapped = items.map(c => ({
+      id: c.id,
+      matchId: c.matchId,
+      name: c.partnerName,
+      age: c.partnerAge,
+      lastMessage: c.lastMessage ?? '',
+      lastMessageAt: c.lastMessageAt ?? new Date().toISOString(),
+      lastMessageSenderId: c.lastMessageSenderId,
+      myUserId: userId,
+      participantCount: c.participantCount,
+      unreadCount: c.unreadCount,
+    }));
+    // Sort by latest message descending
+    mapped.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+    return mapped;
+  }, [userId]);
+
+  // Real-time refresh — fires when any conversation in the backend gets a new message.
+  // This is the ONLY mechanism that updates the chat list after initial load.
+  useChatListSocket(userId, () => {
+    listConversations()
+      .then(items => setChats(mapChatItems(items)))
+      .catch(() => {});
+  });
+
+  // Initial load — only fetch when the list is empty (first time Chats screen is opened).
+  // After that, useChatListSocket keeps it up to date in real-time.
+  // We do NOT refetch every time screen === 'Chats' to avoid the reload flash when
+  // coming back from a chat thread.
+  useEffect(() => {
+    if (screen !== 'Chats' || chats.length > 0) return;
+    setChatsLoading(true);
+    listConversations()
+      .then(items => setChats(mapChatItems(items)))
+      .catch(() => {})
+      .finally(() => setChatsLoading(false));
+  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wali: load conversations when the conversations tab is opened.
+  // Uses the same chats state as the seeker flow so ChatThread can resolve titles.
+  useEffect(() => {
+    if (!isWali || activeTab !== 'chats') return;
+    listConversations()
+      .then(items => setChats(mapChatItems(items)))
+      .catch(() => {});
+  }, [isWali, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Session restore — only call /auth/me if a token is actually stored.
   // Skipping the request when there is no token avoids a noisy 401 on
@@ -401,7 +553,45 @@ export default function App() {
 
       getMe()
         .then(async me => {
+          setUserId(me.user.id);
           setUserName(me.profile.fullName?.split(' ')[0] ?? '');
+
+          // Restore role — wali users have a separate flow.
+          // Check the DB role OR the onboarding step (wali steps are never user steps).
+          const WALI_STEPS = ['WaliRole', 'WaliDetails', 'WaliComplete'];
+          const savedStep = screenForStep(me.profile.onboardingStep);
+          const isWaliSession = me.user.role?.toLowerCase() === 'wali' ||
+            (savedStep != null && WALI_STEPS.includes(savedStep));
+          if (isWaliSession) {
+            setSelectedRole('wali');
+            setIsWali(true);
+            if (me.user.email) setUserEmail(me.user.email);
+            // Restore locally-persisted proposals before loadWaliProfile runs,
+            // so the prune logic inside it correctly removes any the server now confirms.
+            try {
+              const saved = await AsyncStorage.getItem(WALI_LOCAL_PROPOSALS_KEY);
+              if (saved) {
+                const parsed: WardProposal[] = JSON.parse(saved);
+                if (parsed.length > 0) setLocalWardProposals(parsed);
+              }
+            } catch {}
+            setWaliLoading(true);
+            loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
+            const step = savedStep as Screen | undefined;
+            const waliNameMissing = !me.profile.fullName;
+            if (me.profile.onboardingCompleted || (step === 'WaliComplete' && !waliNameMissing)) {
+              // Fully done — go straight to Home.
+              setOnboardingComplete(true);
+              setScreen('Home');
+            } else if (step === 'WaliDetails' || (step === 'WaliComplete' && waliNameMissing)) {
+              // Name still missing — re-show WaliDetails to collect it.
+              setScreen('WaliDetails');
+            } else {
+              // WaliRole saved or no step yet — must accept the role first.
+              setScreen('WaliRole');
+            }
+            return;
+          }
 
           // If the user has an email but hasn't verified it yet, redirect to
           // AccountVerification regardless of onboarding progress.
@@ -515,7 +705,15 @@ export default function App() {
         return (
           <WelcomeScreen
             onContinue={() => navigate('WhoIsFor')}
-            onSignIn={() => navigate('SignIn')}
+            onSignIn={() => navigate('SignInRole')}
+          />
+        );
+
+      case 'SignInRole':
+        return (
+          <SignInRoleScreen
+            onBack={() => navigate('F1')}
+            onContinue={role => { setSelectedRole(role); navigate('SignIn'); }}
           />
         );
 
@@ -523,8 +721,9 @@ export default function App() {
       case 'SignIn':
         return (
           <SignInScreen
-            onBack={() => navigate('F1')}
-            onSignIn={(_email, _password, emailVerified) => {
+            onBack={() => navigate('SignInRole')}
+            isWali={selectedRole === 'wali'}
+            onSignIn={(_email, _password, emailVerified, _loginRole) => {
               // If email is not verified, redirect to AccountVerification immediately.
               if (!emailVerified && _email) {
                 setUserEmail(_email);
@@ -536,7 +735,31 @@ export default function App() {
               // login() already saved tokens; check onboarding status
               getMe()
                 .then(me => {
+                  setUserId(me.user.id);
                   setUserName(me.profile.fullName?.split(' ')[0] ?? '');
+
+                  // Wali users have a separate flow — route to the right step.
+                  // Check role from /auth/me or from the login response directly.
+                  const isWaliUser = me.user.role?.toLowerCase() === 'wali' || _loginRole?.toLowerCase() === 'wali';
+                  if (isWaliUser) {
+                    setSelectedRole('wali');
+                    setIsWali(true);
+                    if (me.user.email) setUserEmail(me.user.email);
+                    setWaliLoading(true);
+                    loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
+                    const step = screenForStep(me.profile.onboardingStep) as Screen | undefined;
+                    const waliNameMissing = !me.profile.fullName;
+                    if (me.profile.onboardingCompleted || (step === 'WaliComplete' && !waliNameMissing)) {
+                      setOnboardingComplete(true);
+                      navigate('Home');
+                    } else if (step === 'WaliDetails' || (step === 'WaliComplete' && waliNameMissing)) {
+                      navigate('WaliDetails');
+                    } else {
+                      navigate('WaliRole');
+                    }
+                    return;
+                  }
+
                   if (me.profile.onboardingCompleted) {
                     setOnboardingComplete(true);
                     setIntroductionAvailable(true);
@@ -602,6 +825,7 @@ export default function App() {
               // After verification, determine where to resume based on the user's state.
               getMe()
                 .then(me => {
+                  setUserId(me.user.id);
                   setUserName(me.profile.fullName?.split(' ')[0] ?? '');
                   if (me.profile.onboardingCompleted) {
                     setOnboardingComplete(true);
@@ -652,6 +876,7 @@ export default function App() {
             onContinue={(selection) => {
               setSelectedRole(selection);
               if (selection === 'wali') {
+                setIsWali(true);
                 navigate('WaliAccountSetup');
               } else {
                 navigate('Phone');
@@ -665,7 +890,12 @@ export default function App() {
         return (
           <WaliAccountSetupScreen
             onBack={() => navigate('WhoIsFor')}
-            onContinue={(_email, _password) => navigate('WaliCode')}
+            onContinue={(email, password) => {
+              setWaliEmail(email);
+              setWaliPassword(password);
+              setWaliCodeError(undefined);
+              navigate('WaliCode');
+            }}
           />
         );
 
@@ -682,9 +912,36 @@ export default function App() {
       case 'WaliCode':
         return (
           <WaliCodeEntryScreen
-            onBack={() => navigate('WaliWelcome')}
-            onContinue={_code => navigate('WaliRole')}
-            onUseLink={() => navigate('WaliRole')}
+            onBack={() => { setWaliCodeError(undefined); navigate('WaliAccountSetup'); }}
+            loading={waliCodeLoading}
+            error={waliCodeError}
+            onVerify={async code => {
+              setWaliCodeError(undefined);
+              setWaliCodeLoading(true);
+              try {
+                const result = await verifyInviteCode(code, { email: waliEmail, password: waliPassword });
+                if (result.user.role?.toLowerCase() === 'wali') {
+                  setIsWali(true);
+                  setSelectedRole('wali');
+                }
+                // Load wali-specific profile in background via dedicated endpoint
+                loadWaliProfile().catch(() => {});
+                navigate('WaliRole');
+              } catch (e: any) {
+                const msg: string = e?.message ?? '';
+                setWaliCodeError(
+                  msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('not found')
+                    ? 'Invalid code. Please check and try again.'
+                    : msg.toLowerCase().includes('expired')
+                      ? 'This code has expired. Ask your dependent to send a new one.'
+                      : msg.toLowerCase().includes('already used') || msg.toLowerCase().includes('redeemed')
+                        ? 'This code has already been used.'
+                        : 'Something went wrong. Please try again.',
+                );
+              } finally {
+                setWaliCodeLoading(false);
+              }
+            }}
           />
         );
 
@@ -692,7 +949,7 @@ export default function App() {
         return (
           <WaliRoleExplainScreen
             onBack={() => navigate('WaliCode')}
-            onAccept={() => navigate('WaliDetails')}
+            onAccept={async () => { await saveOnboardingStep(ONBOARDING_STEP.WaliDetails); navigate('WaliDetails'); }}
             onDecline={() => navigate('WhoIsFor')}
           />
         );
@@ -700,16 +957,24 @@ export default function App() {
       case 'WaliDetails':
         return (
           <WaliDetailsScreen
+            dependentName={dependentName || undefined}
             onBack={() => navigate('WaliRole')}
-            onContinue={(_name, _relationship) => navigate('WaliComplete')}
+            onContinue={async (name, _relationship) => {
+              setUserName(name.split(' ')[0]);
+              await Promise.all([
+                updateProfileName(name),
+                saveOnboardingStep(ONBOARDING_STEP.WaliComplete),
+              ]);
+              navigate('WaliComplete');
+            }}
           />
         );
 
       case 'WaliComplete':
         return (
           <WaliSetupCompleteScreen
-            onGoHome={() => navigate('Home')}
-            onSeeDependent={() => navigate('Home')}
+            onGoHome={() => { setOnboardingComplete(true); navigate('Home'); }}
+            onSeeDependent={() => { setOnboardingComplete(true); navigate('Home'); }}
           />
         );
 
@@ -852,7 +1117,7 @@ export default function App() {
         return (
           <PhotosScreen
             onBack={() => navigate('F13')}
-            onContinue={() => navigateForward('F15')}
+            onContinue={() => navigateForward('F16')}
             continueLoading={stepSaving}
           />
         );
@@ -870,18 +1135,15 @@ export default function App() {
           <WaliInviteScreen
             onBack={() => navigate('F14')}
             onLater={() => { advancePastWali(); navigate('F16'); }}
-            onInviteWhatsApp={(name, _rel) => {
-              setWaliName(name);
+            onInviteWhatsApp={() => {
               advancePastWali();
               navigate('F16');
             }}
-            onReadCode={(name, _rel) => {
-              setWaliName(name);
+            onReadCode={() => {
               advancePastWali();
               navigate('F16');
             }}
             onSkip={() => {
-              setWaliName('');
               advancePastWali();
               navigate('F16');
             }}
@@ -1056,8 +1318,214 @@ export default function App() {
         );
 
       // ── Home ─────────────────────────────────────────────────────────────────
-      // Shows H5/H3/H4/H8/H12/H16/H6 based on pending state (priority order).
       case 'Home':
+        if (isWali) {
+          return (
+            <WaliHomeScreen
+              waliName={userName}
+              dependentName={dependentName}
+              loading={waliLoading}
+              proposalCount={0}
+              proposal={null}
+              activeTab={activeTab === 'home' ? 'review' : activeTab === 'proposals' ? 'proposals' : activeTab === 'chats' ? 'conversations' : 'family'}
+              onTabChange={tab => {
+                if (tab === 'review') setActiveTab('home');
+                else if (tab === 'proposals') setActiveTab('proposals');
+                else if (tab === 'conversations') setActiveTab('chats');
+                else setActiveTab('family');
+              }}
+              onOpenSettings={() => navigate('Settings')}
+              onRefresh={async () => {
+                const token = await getAccessToken().catch(() => null);
+                if (!token) {
+                  setIsWali(false);
+                  setDependentName('');
+                  setDependentProfile(null);
+                  setDependentPhotos([]);
+                  setDependentMembershipId('');
+                  navigate('F1');
+                  return;
+                }
+                // Use the dedicated wali endpoint — not the shared /auth/me
+                await loadWaliProfile().catch(async () => {
+                  const stillHasToken = await getAccessToken().catch(() => null);
+                  if (!stillHasToken) {
+                    setIsWali(false);
+                    setDependentName('');
+                    setDependentProfile(null);
+                    navigate('F1');
+                  }
+                });
+              }}
+              wardIntroductions={wardIntroductions.filter(i => {
+                const proposedIds = new Set([
+                  ...localWardProposals.map(p => p.toUserId),
+                  ...wardProposals.map(p => p.toUserId),
+                ]);
+                return !proposedIds.has(i.userId);
+              })}
+              wardProposals={[
+                ...localWardProposals.filter(l => !wardProposals.some(s => s.toUserId === l.toUserId)),
+                ...wardProposals,
+              ]}
+              wardReceivedProposals={wardReceivedProposals}
+              onViewIntroProfile={async (userId) => {
+                setViewingDependent(false);
+                setDetailProfile(undefined);
+                setDetailLoading(true);
+                navigate('ProfileDetail');
+                getIntroduction(userId)
+                  .then((intro: FullIntroduction) => {
+                    setDetailProfile({
+                      userId: intro.userId,
+                      displayName: intro.fullName,
+                      age: intro.age,
+                      city: intro.city,
+                      latitude: intro.latitude,
+                      longitude: intro.longitude,
+                      occupation: intro.occupation,
+                      educationLevel: intro.educationLevel,
+                      fieldOfStudy: intro.fieldOfStudy,
+                      employmentStatus: intro.employmentStatus,
+                      languagesSpoken: intro.languagesSpoken,
+                      bio: intro.bio,
+                      photoUrl: intro.photoUrl,
+                      photoUrls: intro.photoUrls,
+                      blurPhotos: intro.blurPhotos,
+                      hideDistance: intro.hideDistance,
+                      distanceKm: intro.distanceKm,
+                      gender: intro.gender,
+                      heightCm: intro.heightCm,
+                      maritalStatus: intro.maritalStatus,
+                      hasChildren: intro.hasChildren,
+                      willingToRelocate: intro.willingToRelocate,
+                      sect: intro.sect,
+                      madhhab: intro.madhhab,
+                      religiosity: intro.religiosity,
+                      prayerFrequency: intro.prayerFrequency,
+                      wearsHijab: intro.wearsHijab,
+                      keepsBeard: intro.keepsBeard,
+                      halalStrict: intro.halalStrict,
+                      quranMemorization: intro.quranMemorization,
+                      familyType: intro.familyType,
+                      housingStatus: intro.housingStatus,
+                      livingArrangement: intro.livingArrangement,
+                      fatherOccupation: intro.fatherOccupation,
+                      motherOccupation: intro.motherOccupation,
+                      siblingsSummary: intro.siblingsSummary,
+                      hasVehicle: intro.hasVehicle,
+                      idVerified: intro.idVerified,
+                      waliRegistered: intro.waliRegistered,
+                      countryCode: intro.countryCode,
+                    });
+                  })
+                  .finally(() => setDetailLoading(false));
+              }}
+              onIntroNotSuitable={async (userId) => {
+                // Remove immediately so the card disappears without waiting for the server
+                setWardIntroductions(prev => prev.filter(i => i.userId !== userId));
+                await skipIntroduction(userId).catch(() => {});
+                const intros = await getWardIntroductions().catch(() => null);
+                if (intros !== null) setWardIntroductions(intros);
+              }}
+              onIntroSendProposal={async (userId, note) => {
+                const intro = wardIntroductions.find(i => i.userId === userId);
+                const optimistic: WardProposal = {
+                  id: `optimistic-${userId}`,
+                  toUserId: userId,
+                  recipientName: intro?.fullName ?? null,
+                  recipientAge: intro?.age ?? null,
+                  recipientCity: intro?.city ?? null,
+                  recipientOccupation: intro?.occupation ?? null,
+                  stage: 'MY_WALI_APPROVED',
+                  createdAt: new Date().toISOString(),
+                };
+                // Wait for the API before removing from intro feed — keeps the
+                // modal mounted with its loader visible while the request is in-flight.
+                await sendWardProposal(userId, note).catch(() => {});
+                // Optimistic updates — socket's proposals:stale will trigger
+                // loadWaliProfile() which refreshes all feeds and prunes localWardProposals.
+                setWardIntroductions(prev => prev.filter(i => i.userId !== userId));
+                setLocalWardProposals(prev => [optimistic, ...prev.filter(p => p.toUserId !== userId)]);
+              }}
+              dependentProfile={dependentProfile ? {
+                membershipId: dependentProfile.membershipId,
+                fullName: dependentProfile.fullName ?? undefined,
+                age: dependentProfile.age ?? undefined,
+                city: dependentProfile.city ?? undefined,
+                sect: dependentProfile.sect ?? undefined,
+                educationLevel: dependentProfile.educationLevel ?? undefined,
+                occupation: dependentProfile.occupation ?? undefined,
+                bio: dependentProfile.bio ?? undefined,
+                onboardingComplete: dependentProfile.onboardingCompleted,
+                idVerified: dependentProfile.idVerified,
+                memberSince: dependentProfile.memberSince,
+                photos: dependentPhotos,
+              } : undefined}
+              onRemoveDependent={async (membershipId) => {
+                await removeWard(membershipId);
+                setDependentName('');
+                setDependentProfile(null);
+                setDependentPhotos([]);
+                setDependentMembershipId('');
+              }}
+              onViewDependentProfile={() => {
+                if (!dependentProfile) return;
+                setViewingDependent(true);
+                setDetailProfile({
+                  userId: dependentProfile.userId,
+                  displayName: dependentProfile.fullName ?? '',
+                  age: dependentProfile.age ?? 0,
+                  city: dependentProfile.city ?? '',
+                  occupation: dependentProfile.occupation ?? null,
+                  educationLevel: dependentProfile.educationLevel ?? null,
+                  fieldOfStudy: dependentProfile.fieldOfStudy ?? null,
+                  employmentStatus: dependentProfile.employmentStatus ?? null,
+                  languagesSpoken: dependentProfile.languagesSpoken ?? [],
+                  bio: dependentProfile.bio ?? null,
+                  photoUrl: dependentPhotos[0]?.url ?? null,
+                  photoUrls: dependentPhotos.map(p => p.url),
+                  blurPhotos: false,
+                  idVerified: dependentProfile.idVerified,
+                  gender: dependentProfile.gender ?? null,
+                  heightCm: dependentProfile.heightCm ?? null,
+                  maritalStatus: dependentProfile.maritalStatus ?? null,
+                  hasChildren: dependentProfile.hasChildren ?? null,
+                  willingToRelocate: dependentProfile.willingToRelocate ?? null,
+                  countryCode: dependentProfile.countryCode ?? null,
+                  sect: dependentProfile.sect ?? null,
+                  madhhab: dependentProfile.madhhab ?? null,
+                  religiosity: dependentProfile.religiosityLevel ?? null,
+                  prayerFrequency: dependentProfile.prayerFrequency ?? null,
+                  wearsHijab: dependentProfile.wearsHijab ?? null,
+                  keepsBeard: dependentProfile.keepsBeard ?? null,
+                  halalStrict: dependentProfile.halalStrict ?? null,
+                  quranMemorization: dependentProfile.quranMemorization ?? null,
+                  familyType: dependentProfile.familyType ?? null,
+                  housingStatus: dependentProfile.housingStatus ?? null,
+                  livingArrangement: dependentProfile.livingArrangement ?? null,
+                  fatherOccupation: dependentProfile.fatherOccupation ?? null,
+                  motherOccupation: dependentProfile.motherOccupation ?? null,
+                  siblingsSummary: dependentProfile.siblingsSummary ?? null,
+                  hasVehicle: dependentProfile.hasVehicle ?? null,
+                });
+                setDetailLoading(false);
+                navigate('ProfileDetail');
+              }}
+              conversations={chats.map((c): WaliConversation => ({
+                id: c.id,
+                participantName: c.name,
+                lastMessage: c.lastMessage,
+                lastMessageAt: c.lastMessageAt,
+                unread: (c.unreadCount ?? 0) > 0,
+              }))}
+              onOpenConversation={(chatId) => {
+                setActiveChatId(chatId);
+                navigate('ChatThread');
+              }}
+            />
+          );
+        }
         return (
           <HomeScreen
             userName={userName}
@@ -1078,7 +1546,7 @@ export default function App() {
             introductionIndex={introductionIndex}
             totalIntroductions={totalIntroductions ?? undefined}
             userCoords={userCoords ?? undefined}
-            profileIncomplete={!onboardingComplete}
+            profileIncomplete={!isWali && !onboardingComplete}
             resumeScreen={resumeScreen}
             onNotSuitable={() => {
               if (!currentIntroductionId) return;
@@ -1092,9 +1560,16 @@ export default function App() {
               // Reload the introduction card so the home feed reflects the change.
               loadNextIntroduction().catch(() => {});
             }}
-            onViewProposalProfile={(userId) => {
+            onViewProposalProfile={(userId, type, matchId) => {
+              setViewingDependent(false);
               setDetailProfile(undefined);
               setDetailLoading(true);
+              setProfileMatchId(matchId);
+              // Determine context: if matchId is set → matched, else use type
+              const ctx: ProposalContext = matchId
+                ? (type === 'sent' ? 'sent_matched' : 'received_matched')
+                : (type === 'sent' ? 'sent_pending' : 'received_pending');
+              setProfileProposalContext(ctx);
               navigate('ProfileDetail');
               getIntroduction(userId)
                 .then((intro: FullIntroduction) => {
@@ -1145,8 +1620,11 @@ export default function App() {
             }}
             onViewProfile={() => {
               if (!currentIntroductionId) return;
+              setViewingDependent(false);
               setDetailProfile(undefined);
               setDetailLoading(true);
+              setProfileProposalContext('none');
+              setProfileMatchId(null);
               navigate('ProfileDetail');
               getIntroduction(currentIntroductionId)
                 .then((intro: FullIntroduction) => {
@@ -1201,6 +1679,7 @@ export default function App() {
               await sendProposal(currentIntroductionId, note).catch(() => {});
               setMatchCriteria(c => Math.max(0, c - 1));
               setIntroductionIndex(i => i + 1);
+              setProposalsRefreshKey(k => k + 1);
               loadNextIntroduction();
             }}
             onChangeCity={() => { setH11FromHome(true); navigate('Filters'); }}
@@ -1257,8 +1736,15 @@ export default function App() {
               setH11FromHome(true);
               navigate('H11');
             }}
+            introductionsLoading={introductionsLoading}
             activeTab={activeTab}
-            onTabChange={tab => setActiveTab(tab)}
+            onTabChange={tab => {
+              if (tab === 'chats') navigate('Chats');
+              else setActiveTab(tab);
+            }}
+            proposalsBadge={proposalsBadge}
+            proposalsRefreshKey={proposalsRefreshKey}
+            onProposalsBadgeChange={setProposalsBadge}
           />
         );
 
@@ -1268,15 +1754,113 @@ export default function App() {
           <ProfileDetailScreen
             profile={detailProfile}
             loading={detailLoading}
-            onBack={() => navigate('Home')}
-            onNotSuitable={() => navigate('Home')}
+            isWaliView={isWali}
+            isDependent={viewingDependent}
+            proposalContext={profileProposalContext}
+            onBack={() => { setViewingDependent(false); setProfileProposalContext('none'); setProfileMatchId(null); navigate('Home'); }}
+            onNotSuitable={() => { setProfileProposalContext('none'); navigate('Home'); }}
             onRequestPhoto={() => console.log('Request photo')}
             onSendProposal={() => console.log('Send proposal')}
+            onWithdrawProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
+            onAcceptProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
+            onDeclineProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
+            onOpenChat={() => {
+              if (profileMatchId) {
+                // Find the conversation for this match
+                const chat = chats.find(c => c.matchId === profileMatchId);
+                if (chat) {
+                  setActiveChatId(chat.id);
+                  setProfileProposalContext('none');
+                  setProfileMatchId(null);
+                  navigate('ChatThread');
+                  return;
+                }
+              }
+              setProfileProposalContext('none');
+              setProfileMatchId(null);
+              navigate('Chats');
+            }}
           />
         );
 
+      // ── Chats: CH1 / CH2 ─────────────────────────────────────────────────
+      case 'Chats':
+        return (
+          <ChatsListScreen
+            chats={chats}
+            loading={chatsLoading}
+            onOpenChat={(chatId) => {
+              setActiveChatId(chatId);
+              navigate('ChatThread');
+            }}
+            onSeeProposals={() => { setActiveTab('proposals'); navigate('Home'); }}
+            onBack={() => navigate('Home')}
+          />
+        );
+
+      // ── Chat thread: CH3 ──────────────────────────────────────────────────
+      case 'ChatThread': {
+        const activeChat = chats.find(c => c.id === activeChatId);
+        const chatTitle = activeChat
+          ? `${activeChat.name}${activeChat.age != null ? ` · ${activeChat.age}` : ''}`
+          : 'Chat';
+        return (
+          <ChatThreadScreen
+            conversationId={activeChatId ?? ''}
+            myUserId={userId}
+            myDisplayName={userName}
+            chatTitle={chatTitle}
+            onBack={() => isWali ? navigate('Home') : navigate('Chats')}
+            onMessageSent={(text) => {
+              // Optimistically update the chat preview immediately — no waiting
+              // for the Supabase chats:stale round-trip.
+              setChats(prev => {
+                const now = new Date().toISOString();
+                const updated = prev.map(c =>
+                  c.id === activeChatId
+                    ? { ...c, lastMessage: text, lastMessageAt: now, lastMessageSenderId: userId }
+                    : c,
+                );
+                updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+                return updated;
+              });
+            }}
+          />
+        );
+      }
+
       // ── Settings: M1 ─────────────────────────────────────────────────────
       case 'Settings':
+        if (isWali) {
+          return (
+            <WaliSettingsScreen
+              waliName={userName}
+              waliEmail={userEmail || undefined}
+              dependentName={dependentName || undefined}
+              onBack={() => navigate('Home')}
+              onNotifications={() => navigate('Notifications')}
+              onLanguage={() => navigate('Language')}
+              onContactSupport={() => navigate('ContactSupport')}
+              onPrivacyPolicy={() => navigate('PrivacyPolicy')}
+              onTermsOfService={() => navigate('TermsOfService')}
+              onSignOut={async () => {
+                try { await logout(); } catch { await clearTokens(); }
+                setIsWali(false);
+                setDependentName('');
+                setDependentProfile(null);
+                setDependentPhotos([]);
+                setDependentMembershipId('');
+                setWardIntroductions([]);
+                setWardProposals([]);
+                setLocalWardProposals([]);
+                setWardReceivedProposals([]);
+                setWaliLoading(false);
+                navigate('F1');
+              }}
+              onDeleteAccount={() => navigate('DeleteAccount')}
+            />
+          );
+        }
         return (
           <SettingsScreen
             userName={userName || 'Mian Haseeb'}
@@ -1297,8 +1881,10 @@ export default function App() {
             onRefundPolicy={() => navigate('RefundPolicy')}
             onFoundMyMatch={() => navigate('FoundMyMatch')}
             onDownloadData={() => navigate('DownloadData')}
-            onSignOut={() => {
-              clearTokens();
+            onSignOut={async () => {
+              try { await logout(); } catch { await clearTokens(); }
+              setIsWali(false);
+              setSelectedRole('self');
               navigate('F1');
             }}
             onDeleteAccount={() => navigate('DeleteAccount')}
@@ -1341,8 +1927,8 @@ export default function App() {
             onBack={() => navigate('Settings')}
             onFoundMyMatch={() => { navigate('Home'); }}
             onKeepAccount={() => navigate('Settings')}
-            onDeletePermanently={() => {
-              clearTokens();
+            onDeletePermanently={async () => {
+              await clearTokens();
               navigate('F1');
             }}
           />
@@ -1422,8 +2008,8 @@ export default function App() {
         return (
           <FoundMyMatchScreen
             onBack={() => navigate('Settings')}
-            onConfirm={() => {
-              clearTokens();
+            onConfirm={async () => {
+              await clearTokens();
               navigate('F1');
             }}
           />

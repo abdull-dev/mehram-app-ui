@@ -22,7 +22,7 @@
  *   ┌──────────────────────────────────┐
  *   │  Unlock your introductions       │
  *   │  You'll receive up to three…     │
- *   │  PKR 4,000 · one payment         │
+ *   │  PKR 4,500 · one payment         │
  *   │  [Become a member]               │
  *   │  🛡 No wali-approved intro…      │
  *   └──────────────────────────────────┘
@@ -168,7 +168,7 @@ export function MatchesFoundUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>PKR 4,000</Text>
+            <Text style={styles.payPrice}>PKR 4,500</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 

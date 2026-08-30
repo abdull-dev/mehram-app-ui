@@ -93,7 +93,6 @@ export async function getProposalStats(): Promise<ProposalStats> {
 /**
  * Send a proposal to express interest in an introduction.
  * Used on HomeScreen H16 when "Send proposal" is tapped.
- * @param note Optional personal note attached to the proposal (max 300 chars).
  */
 export async function sendProposal(introductionId: string, note?: string): Promise<ProposalResult> {
   return apiRequest<ProposalResult>(`/matches/interest/${introductionId}`, {

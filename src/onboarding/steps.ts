@@ -16,6 +16,11 @@ export const ONBOARDING_STEP = {
   F17: 17,
   F18: 18,
   H11: 19,
+  // Wali onboarding branch. Numbered clear of the seeker range so the two
+  // flows can never collide, and inside the server's 0..40 bound.
+  WaliRole: 30,
+  WaliDetails: 31,
+  WaliComplete: 32,
 } as const;
 
 export type OnboardingScreen = keyof typeof ONBOARDING_STEP;
@@ -44,4 +49,12 @@ export function resumeFromOnboardingStep(step: number): ResumeOutcome {
   if (!screen) return { kind: 'home' };
   if (screen === 'F17' || screen === 'F18') return { kind: 'done' };
   return { kind: 'screen', screen: SKIP_PAST[screen] ?? screen };
+}
+
+/** Screen name for a stored step number, or undefined if unrecognised. */
+export function screenForStep(step: number | null | undefined): OnboardingScreen | undefined {
+  if (step == null) return undefined;
+  return (Object.keys(ONBOARDING_STEP) as OnboardingScreen[]).find(
+    key => ONBOARDING_STEP[key] === step,
+  );
 }

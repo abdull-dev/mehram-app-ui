@@ -170,10 +170,19 @@ function DataRow({ label, value, first }: { label: string; value: string; first?
 interface PrivacyScreenProps {
   onBack?: () => void;
   onYourPhotos?: () => void;
+  /** Current wali's name — shown in option subtitle */
+  waliName?: string;
+  /** Currently saved pause state from backend */
+  /** Called with new visibility value when user changes it */
+  /** Called with new pause state when user toggles it */
 }
 
 // ─── screen ───────────────────────────────────────────────────────────────────
-export function PrivacyScreen({ onBack, onYourPhotos }: PrivacyScreenProps) {
+export function PrivacyScreen({
+  onBack,
+  onYourPhotos,
+  waliName,
+}: PrivacyScreenProps) {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<PhotoVisibilityMode>('NOBODY');
   const [pauseRequests, setPauseRequests] = useState(false);

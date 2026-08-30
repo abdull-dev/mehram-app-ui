@@ -84,12 +84,17 @@ export const PHOTO_PRIVACY_OPTIONS: Array<{
 
 export interface MyProfile {
   id: string;
+  fullName?: string | null;
   gender: string | null;
   dateOfBirth: string | null;
   maritalStatus: string | null;
+  occupation?: string | null;
+  educationLevel?: string | null;
+  heightCm?: number | null;
   countryCode: string;
   city?: string | null;
   bio?: string | null;
+  photoVisibility?: string | null;
   onboardingCompletedAt?: string;
   photos: ProfilePhoto[];
   familyBackground?: FamilyBackground | null;
@@ -163,8 +168,29 @@ interface EssentialsPayload {
   heightCm: number;
 }
 
+/** Patch only the full name — used by wali who skips the seeker essentials step. */
+export async function updateProfileName(fullName: string): Promise<void> {
+  return apiRequest('/profile/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ fullName }),
+  });
+}
+
 /** Save gender, DOB, marital status (F8 — Essentials). */
 export async function updateEssentials(data: EssentialsPayload): Promise<void> {
+  return apiRequest('/profile/me', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update basic identity fields from the Edit Biodata screen (M6). */
+export async function updateBasicIdentity(data: {
+  fullName?: string;
+  dateOfBirth?: string; // ISO "YYYY-MM-DD"
+  maritalStatus?: MaritalStatus;
+  heightCm?: number;
+}): Promise<void> {
   return apiRequest('/profile/me', {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -176,11 +202,13 @@ export async function updateEssentials(data: EssentialsPayload): Promise<void> {
 export type SectEnum = 'SUNNI' | 'SHIA' | 'AHMADI' | 'ISMAILI' | 'OTHER' | 'PREFER_NOT_SAY';
 
 const SECT_MAP: Record<string, SectEnum> = {
+  'Sunni':          'SUNNI',
   'Sunni (Hanafi)': 'SUNNI',
   'Deobandi':       'SUNNI',
   'Barelvi':        'SUNNI',
   'Ahle Hadith':    'SUNNI',
   'Shia':           'SHIA',
+  'Ismaili':        'ISMAILI',
   'Other':          'OTHER',
 };
 
