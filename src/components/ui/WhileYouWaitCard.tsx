@@ -292,6 +292,9 @@ const s = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 22,
     overflow: 'hidden',
+    // Matches DailyDuaCard, which is what usually follows it. Without this the
+    // two cards butted together with no gap and read as one block.
+    marginBottom: 12,
     shadowColor: '#3C287A',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.055,

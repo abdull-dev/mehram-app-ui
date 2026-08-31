@@ -43,6 +43,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { warmCities } from '../../utils/cityData';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -200,6 +201,10 @@ export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, 
     setSelected(c);
     setQuery('');
     Keyboard.dismiss();
+    // Parse this country's cities now, while the user is still on this screen.
+    // The next screen needs them on its first render, and paying for it there
+    // froze the Continue press until the parse finished.
+    warmCities(c.iso2);
   };
 
   const handleContinue = () => {
@@ -264,11 +269,18 @@ export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, 
 
         {/* ── Nav bar ──────────────────────────────────────────────────── */}
         <View style={styles.nb}>
-          <Pressable
-            onPress={onBack}
-            style={({ pressed }) => [styles.back, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
-            <BackIcon />
-          </Pressable>
+          {/* No handler means this screen is where the session resumed, so
+              there is nothing behind it. A visible control that does nothing is
+              worse than none, so the space is kept and the button omitted. */}
+          {onBack ? (
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [styles.back, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
+              <BackIcon />
+            </Pressable>
+          ) : (
+            <View style={styles.back} />
+          )}
 
           {/* Progress bar — 28% */}
           <View style={styles.prg}>

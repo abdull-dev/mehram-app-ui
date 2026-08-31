@@ -23,6 +23,35 @@ export type ProposalStage =
   | 'DECLINED'
   | 'WITHDRAWN';
 
+/**
+ * Pronouns for the other party, so the flow can talk about a real person.
+ *
+ * Every gendered word here used to be hardcoded suitor-as-he /
+ * recipient-as-she, which is only right when a man proposes to a woman. A woman
+ * who proposed was told "She is deciding" about the man she wrote to.
+ *
+ * Sentence-initial and mid-sentence forms are both carried because the labels
+ * need each, and `has` covers verb agreement for the plural fallback.
+ */
+export interface Pronouns {
+  Subject: string;
+  Possessive: string;
+  subject: string;
+  possessive: string;
+  has: string;
+}
+
+const HE: Pronouns = { Subject: 'He', Possessive: 'His', subject: 'he', possessive: 'his', has: 'has' };
+const SHE: Pronouns = { Subject: 'She', Possessive: 'Her', subject: 'she', possessive: 'her', has: 'has' };
+// Used when the server does not say. Never guessed from a name.
+const THEY: Pronouns = { Subject: 'They', Possessive: 'Their', subject: 'they', possessive: 'their', has: 'have' };
+
+/** Maps the server's `Gender` to pronouns, defaulting to they/them. */
+export function pronounsFor(gender?: string | null): Pronouns {
+  const g = gender?.toUpperCase();
+  return g === 'MALE' ? HE : g === 'FEMALE' ? SHE : THEY;
+}
+
 /** The four approvals. */
 export type ApprovalKey = 'suitor' | 'suitorWali' | 'recipientWali' | 'recipient';
 
@@ -37,7 +66,13 @@ export type Viewer = 'suitor' | 'suitorWali' | 'recipient' | 'recipientWali';
  */
 export type Origin = 'self' | 'wali';
 
-export type StepState = 'done' | 'current' | 'waiting';
+/**
+ * `skipped` is a step nobody will ever act on — a wali approval on a side with
+ * no wali. It is not `done`: presenting it as approved credited a review that
+ * never happened, and a proposal sent by a seeker with no wali to a recipient
+ * with none read as three of its four approvals already granted.
+ */
+export type StepState = 'done' | 'current' | 'waiting' | 'skipped';
 
 export interface ProposalStep {
   key: ApprovalKey;
@@ -53,7 +88,9 @@ export interface ProposalFlow {
   steps: ProposalStep[];
   /** Set when the flow ended early; no step is current in that case. */
   terminal: 'declined' | 'withdrawn' | null;
+  /** Approvals actually granted. Never counts a skipped step. */
   doneCount: number;
+  /** Approvals this proposal needs — four minus any skipped wali step. */
   total: number;
 }
 
@@ -102,14 +139,28 @@ interface LabelContext {
   state: StepState;
   /** The ward's name, for a wali's screen. Falls back to "your ward". */
   wardName?: string;
+  /** Pronouns for the other party — never assumed from the role. */
+  other: Pronouns;
 }
 
 function label(key: ApprovalKey, ctx: LabelContext): string {
-  const { viewer, origin, state } = ctx;
+  const { viewer, origin, state, other } = ctx;
   const ward = ctx.wardName?.trim() || 'your ward';
   const done = state === 'done';
   const current = state === 'current';
   const waliSent = origin === 'wali';
+
+  // A step nobody will ever act on. Says why, so the row does not read as an
+  // approval still to come — or, worse, as one already granted.
+  if (state === 'skipped') {
+    const ownSide =
+      (key === 'suitorWali' &&
+        (viewer === 'suitor' || viewer === 'suitorWali')) ||
+      (key === 'recipientWali' &&
+        (viewer === 'recipient' || viewer === 'recipientWali'));
+    if (ownSide) return 'No wali on your side — not required';
+    return `${other.Subject} ${other.has} no wali — not required`;
+  }
 
   switch (viewer) {
     // ── The suitor: he sent it, or his wali sent it for him ──────────────────
@@ -128,12 +179,17 @@ function label(key: ApprovalKey, ctx: LabelContext): string {
               : "Your wali's approval";
         case 'recipientWali':
           return done
-            ? 'Her wali approved'
+            ? `${other.Possessive} wali approved`
             : current
-              ? 'Her wali is reviewing'
-              : "Her wali's approval";
+              ? `${other.Possessive} wali is reviewing`
+              : `${other.Possessive} wali's approval`;
+        // Named by whose approval it is rather than by what they are doing:
+        // "She is deciding" was both the wrong gender for half of all
+        // proposals and a different shape from every other row.
         case 'recipient':
-          return done ? 'She accepted' : current ? 'She is deciding' : 'Her approval';
+          return done
+            ? `${other.Subject} accepted`
+            : `${other.Possessive} approval`;
       }
       break;
 
@@ -153,12 +209,14 @@ function label(key: ApprovalKey, ctx: LabelContext): string {
               : 'Your approval';
         case 'recipientWali':
           return done
-            ? 'Her wali approved'
+            ? `${other.Possessive} wali approved`
             : current
-              ? 'Her wali is reviewing'
-              : "Her wali's approval";
+              ? `${other.Possessive} wali is reviewing`
+              : `${other.Possessive} wali's approval`;
         case 'recipient':
-          return done ? 'She accepted' : current ? 'She is deciding' : 'Her approval';
+          return done
+            ? `${other.Subject} accepted`
+            : `${other.Possessive} approval`;
       }
       break;
 
@@ -166,9 +224,13 @@ function label(key: ApprovalKey, ctx: LabelContext): string {
     case 'recipient':
       switch (key) {
         case 'suitor':
-          return waliSent ? 'His wali sent the proposal' : 'He sent the proposal';
+          return waliSent
+            ? `${other.Possessive} wali sent the proposal`
+            : `${other.Subject} sent the proposal`;
         case 'suitorWali':
-          return done ? 'His wali approved' : "His wali's approval";
+          return done
+            ? `${other.Possessive} wali approved`
+            : `${other.Possessive} wali's approval`;
         case 'recipientWali':
           return done
             ? 'Your wali approved'
@@ -188,9 +250,13 @@ function label(key: ApprovalKey, ctx: LabelContext): string {
     case 'recipientWali':
       switch (key) {
         case 'suitor':
-          return waliSent ? 'His wali sent the proposal' : 'He sent the proposal';
+          return waliSent
+            ? `${other.Possessive} wali sent the proposal`
+            : `${other.Subject} sent the proposal`;
         case 'suitorWali':
-          return done ? 'His wali approved' : "His wali's approval";
+          return done
+            ? `${other.Possessive} wali approved`
+            : `${other.Possessive} wali's approval`;
         case 'recipientWali':
           return done
             ? 'You approved'
@@ -218,6 +284,22 @@ export interface BuildStepsInput {
   /** Shown on the first completed step, e.g. the sent date. */
   sentAt?: string;
   wardName?: string;
+  /**
+   * Whether each side has a guardian at all. Both default to true, which keeps
+   * the full four-step flow for any caller that does not know yet — the stage
+   * is still the authority on what has been approved, so an unknown side is
+   * shown as an outstanding step rather than a granted one.
+   */
+  suitorHasWali?: boolean;
+  recipientHasWali?: boolean;
+  /**
+   * The other party's gender, as the server sends it ('MALE' / 'FEMALE').
+   *
+   * Whoever that is depends on the viewer: the recipient on the suitor's side
+   * of the flow, the suitor on hers. Omit it and the copy falls back to
+   * they/them rather than assuming.
+   */
+  counterpartGender?: string | null;
 }
 
 /**
@@ -236,7 +318,11 @@ export function buildProposalSteps({
   origin = 'self',
   sentAt,
   wardName,
+  suitorHasWali = true,
+  recipientHasWali = true,
+  counterpartGender,
 }: BuildStepsInput): ProposalFlow {
+  const other = pronounsFor(counterpartGender);
   const terminal =
     stage === 'DECLINED' ? 'declined' : stage === 'WITHDRAWN' ? 'withdrawn' : null;
 
@@ -258,26 +344,39 @@ export function buildProposalSteps({
       ? Math.max(reached, 2)
       : reached;
 
-  const completed = sequence.slice(0, completedThrough);
+  // A wali step on a side with no wali is never acted on. The stage skips
+  // straight past it, so counting it as reached would report an approval that
+  // was never sought.
+  const skipped = new Set<ApprovalKey>();
+  if (!suitorHasWali) skipped.add('suitorWali');
+  if (!recipientHasWali) skipped.add('recipientWali');
+
+  const reachedKeys = sequence.slice(0, completedThrough);
+  const completed = reachedKeys.filter(k => !skipped.has(k));
   const completedSet = new Set<ApprovalKey>(completed);
 
   // The next approval in the sequence is the one being waited on — unless the
-  // flow ended, in which case nothing is pending on anybody.
+  // flow ended, in which case nothing is pending on anybody. Skipped steps are
+  // stepped over: nobody is waiting on a wali who does not exist.
   const currentKey =
-    terminal === null ? (sequence[completed.length] ?? null) : null;
+    terminal === null
+      ? (sequence.slice(reachedKeys.length).find(k => !skipped.has(k)) ?? null)
+      : null;
 
   const pending = LOGICAL_ORDER.filter(k => !completedSet.has(k));
 
   const toStep = (key: ApprovalKey): ProposalStep => {
-    const state: StepState = completedSet.has(key)
-      ? 'done'
-      : key === currentKey
-        ? 'current'
-        : 'waiting';
+    const state: StepState = skipped.has(key)
+      ? 'skipped'
+      : completedSet.has(key)
+        ? 'done'
+        : key === currentKey
+          ? 'current'
+          : 'waiting';
     return {
       key,
       state,
-      label: label(key, { viewer, origin, state, wardName }),
+      label: label(key, { viewer, origin, state, wardName, other }),
       // Only the first completed step carries the date; repeating it on each
       // row would imply we know when every approval happened, and we do not.
       sub: state === 'done' && key === completed[0] ? sentAt : undefined,
@@ -289,6 +388,6 @@ export function buildProposalSteps({
     steps: [...completed.map(toStep), ...pending.map(toStep)],
     terminal,
     doneCount: completed.length,
-    total: LOGICAL_ORDER.length,
+    total: LOGICAL_ORDER.length - skipped.size,
   };
 }

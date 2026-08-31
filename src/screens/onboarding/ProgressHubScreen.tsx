@@ -183,27 +183,33 @@ export function ProgressHubScreen({
         {/* ── Navigation bar (.nb) ──────────────────────────────────────── */}
         <View style={styles.nb}>
           {/* Back button (.back) */}
-          <Pressable
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              {
-                opacity: pressed ? 0.7 : 1,
-                transform: [{ scale: pressed ? 0.92 : 1 }],
-              },
-            ]}>
-            <Svg
-              width={17}
-              height={17}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={Colors.vioInk}
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round">
-              <Path d="M15 18l-6-6 6-6" />
-            </Svg>
-          </Pressable>
+          {/* Omitted when there is nothing behind this screen: entering the
+              flow straight from Home makes this its first step. */}
+          {onBack ? (
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.backBtn,
+                {
+                  opacity: pressed ? 0.7 : 1,
+                  transform: [{ scale: pressed ? 0.92 : 1 }],
+                },
+              ]}>
+              <Svg
+                width={17}
+                height={17}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={Colors.vioInk}
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round">
+                <Path d="M15 18l-6-6 6-6" />
+              </Svg>
+            </Pressable>
+          ) : (
+            <View style={styles.backSpacer} />
+          )}
 
           {/* Progress bar (.prg) — 52% fill */}
           <View style={styles.progressTrack}>
@@ -360,6 +366,10 @@ const styles = StyleSheet.create({
   },
 
   // .back — 38×38, white translucent, rounded, shadow
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

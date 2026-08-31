@@ -72,11 +72,11 @@ function PersonIcon() {
   );
 }
 
-function LockIcon() {
+function LockIcon({ color = Colors.vio }: { color?: string } = {}) {
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
-      <Rect x={4} y={11} width={16} height={10} rx={2.5} stroke={Colors.vio} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M8 11V7a4 4 0 0 1 8 0v4" stroke={Colors.vio} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Rect x={4} y={11} width={16} height={10} rx={2.5} stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M8 11V7a4 4 0 0 1 8 0v4" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -457,6 +457,26 @@ export function ProfileDetailScreen({
 
   const resolvedProfile = profile ?? DEFAULT_PROFILE;
 
+  /**
+   * A photo can only be asked for once the proposal is accepted.
+   *
+   * Both `*_matched` contexts mean exactly that — they are only set when a
+   * matchId exists, which the server issues on acceptance. Every other context
+   * is a proposal that has not been accepted (or none sent at all), and the
+   * button was live in all of them while the copy above it said photos stay
+   * private until approval.
+   */
+  const photoRequestUnlocked =
+    proposalContext === 'sent_matched' || proposalContext === 'received_matched';
+
+  // Says which step is outstanding, not just that something is.
+  const photoLockReason =
+    proposalContext === 'received_pending'
+      ? 'Photos stay private until the proposal is accepted. Accept it first, then you can request a photo here.'
+      : proposalContext === 'sent_pending'
+        ? 'Photos stay private until the proposal is accepted. You can request one here as soon as it is.'
+        : 'Photos stay private until a proposal is accepted. Send a proposal first — you can request a photo once it is accepted.';
+
   function handleRequestPhoto() {
     setPhotoRequested(true);
     onRequestPhoto?.();
@@ -569,29 +589,41 @@ export function ProfileDetailScreen({
               </Text>
             </View>
           ) : (
-            /* Request state */
-            <>
-              <Text style={styles.photoReqHint}>
-                Photos are kept private until both sides have approved the proposal. Once approved, you can request a photo directly.
-              </Text>
-              <Pressable
-                onPress={handleRequestPhoto}
-                style={({ pressed }) => ({
-                  opacity: pressed ? 0.85 : 1,
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                })}>
-                <LinearGradient
-                  colors={['#9B7BF0', '#7C5AE0']}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={styles.photoReqBtn}>
-                  <CameraIcon />
-                  <Text style={styles.photoReqBtnText}>
+            /* Request state — locked until the proposal is accepted */
+            photoRequestUnlocked ? (
+              <>
+                <Text style={styles.photoReqHint}>
+                  The proposal is accepted, so you can request a photo directly.
+                </Text>
+                <Pressable
+                  onPress={handleRequestPhoto}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.85 : 1,
+                    transform: [{ scale: pressed ? 0.97 : 1 }],
+                  })}>
+                  <LinearGradient
+                    colors={['#9B7BF0', '#7C5AE0']}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.photoReqBtn}>
+                    <CameraIcon />
+                    <Text style={styles.photoReqBtnText}>
+                      Request photo
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.photoReqHint}>{photoLockReason}</Text>
+                <View style={[styles.photoReqBtn, styles.photoReqBtnLocked]}>
+                  <LockIcon color={Colors.ink3} />
+                  <Text style={[styles.photoReqBtnText, styles.photoReqBtnTextLocked]}>
                     Request photo
                   </Text>
-                </LinearGradient>
-              </Pressable>
-            </>
+                </View>
+              </>
+            )
           )}
         </View>}
 
@@ -985,6 +1017,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',
+  },
+  // Locked until the proposal is accepted. A plain View, not a disabled
+  // Pressable: there is nothing to press, and a gradient button that does
+  // nothing on tap reads as broken rather than as unavailable.
+  photoReqBtnLocked: {
+    backgroundColor: Colors.line,
+  },
+  photoReqBtnTextLocked: {
+    color: Colors.ink3,
   },
 
   // ── Sent confirmation ────────────────────────────────────────────────────────

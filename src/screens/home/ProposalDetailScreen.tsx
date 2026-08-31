@@ -21,7 +21,11 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { withdrawProposal } from '../../api/proposals';
-import { buildProposalSteps, type ProposalFlow } from '../../lib/proposalSteps';
+import {
+  buildProposalSteps,
+  pronounsFor,
+  type ProposalFlow,
+} from '../../lib/proposalSteps';
 import { withdrawWardProposal } from '../../api/wali';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
 import { formatHeight } from '../../utils/height';
@@ -191,8 +195,10 @@ function Banner({ variant, icon, title, body }: {
 
 function StepTracker({ flow }: { flow: ProposalFlow }) {
   const { steps, terminal, doneCount, total } = flow;
-  const activeIdx = steps.findIndex(s => s.state === 'current');
-  const remaining = total - doneCount - (activeIdx >= 0 ? 1 : 0);
+  // Only granted approvals fill the bar. Counting the outstanding step as well
+  // filled it completely while that step was still waiting on somebody, so a
+  // proposal nobody had answered read as finished.
+  const remaining = total - doneCount;
   const stepNum = Math.min(doneCount + 1, total);
 
   return (
@@ -209,12 +215,12 @@ function StepTracker({ flow }: { flow: ProposalFlow }) {
 
       {/* Progress bar */}
       <View style={styles.progressTrack}>
-        {(doneCount > 0 || activeIdx >= 0) && (
+        {doneCount > 0 && (
           <LinearGradient
             colors={['#3D7A6B', C.indInk]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.progressSegment, { flex: doneCount + (activeIdx >= 0 ? 1 : 0) }]}
+            style={[styles.progressSegment, { flex: doneCount }]}
           />
         )}
         {remaining > 0 && (
@@ -257,7 +263,8 @@ function StepTracker({ flow }: { flow: ProposalFlow }) {
               <View style={[styles.stepContent, { paddingTop: step.state === 'current' ? 17 : 10 }]}>
                 <Text style={[
                   styles.stepLabel,
-                  step.state === 'waiting' && styles.stepLabelWait,
+                  (step.state === 'waiting' || step.state === 'skipped') &&
+                    styles.stepLabelWait,
                 ]}>
                   {step.label}
                 </Text>
@@ -266,12 +273,6 @@ function StepTracker({ flow }: { flow: ProposalFlow }) {
                 ) : step.state === 'waiting' ? (
                   <Text style={styles.stepSub}>Not started</Text>
                 ) : null}
-                {step.state === 'current' && (
-                  <View style={styles.inProgressBadge}>
-                    <ClockIcon color={C.indInk} />
-                    <Text style={styles.inProgressText}>In progress</Text>
-                  </View>
-                )}
               </View>
             </View>
           );
@@ -386,23 +387,41 @@ function lockText(
   stage: ProposalStage,
   viewer: 'suitor' | 'suitorWali',
   waliSent: boolean,
+  suitorHasWali = true,
+  recipientHasWali = true,
+  counterpartGender?: string | null,
 ): string {
+  // The counterpart, whoever they are. This copy said "her" throughout, which
+  // only holds when a man is proposing to a woman.
+  const other = pronounsFor(counterpartGender);
   switch (stage) {
     case 'HIS_WALI_PENDING':
       if (waliSent) {
-        return 'Withdrawing now is silent — her family will not be told you proposed.';
+        return `Withdrawing now is silent — ${other.possessive} family will not be told you proposed.`;
       }
       return viewer === 'suitorWali'
         ? 'Withdrawing now is silent — the other family will not be notified.'
         : 'Withdrawing now is silent — your wali will not be asked to review this.';
     case 'HER_WALI_REVIEWING':
       return viewer === 'suitorWali'
-        ? 'Withdrawing now is silent — her family will not be told you approved.'
-        : 'Withdrawing now is silent — her family will not be told your wali approved.';
-    case 'HER_DECISION_PENDING':
-      return 'Both walis approved. Withdrawing is still silent — she will not be told.';
+        ? `Withdrawing now is silent — ${other.possessive} family will not be told you approved.`
+        : `Withdrawing now is silent — ${other.possessive} family will not be told your wali approved.`;
+    case 'HER_DECISION_PENDING': {
+      // Only name the approvals that were actually sought. This read "Both
+      // walis approved" at every stage, including a proposal between two people
+      // with no wali — where nobody had reviewed anything.
+      const approved =
+        suitorHasWali && recipientHasWali
+          ? 'Both walis approved. '
+          : recipientHasWali
+            ? `${other.Possessive} wali approved. `
+            : suitorHasWali
+              ? 'Your wali approved. '
+              : '';
+      return `${approved}Withdrawing is still silent — ${other.subject} will not be told.`;
+    }
     case 'ACCEPTED':
-      return 'She has accepted. A chat with both walis is now open.';
+      return `${other.Subject} ${other.has} accepted. A chat with both walis is now open.`;
     case 'DECLINED':
       return 'This proposal was not taken forward.';
     case 'WITHDRAWN':
@@ -462,6 +481,9 @@ function SentProposalDetail({
     origin: waliSent ? 'wali' : 'self',
     sentAt: proposal.sentAt,
     wardName,
+    suitorHasWali: proposal.suitorHasWali,
+    recipientHasWali: proposal.recipientHasWali,
+    counterpartGender: proposal.gender,
   });
 
   const educ = fmt(EDUCATION_LABELS, proposal.educationLevel);
@@ -491,10 +513,23 @@ function SentProposalDetail({
             ['Education',  educ],
             ['Profession', proposal.occupation],
             ['Family',     family],
-            ['Her wali',   'Father'],
+            // Was hardcoded to 'Father' — a relationship the payload does not
+            // carry, asserted about a real family. Says only what the server
+            // tells us, and nothing when it says nothing.
+            [`${pronounsFor(proposal.gender).Possessive} wali`,
+                           proposal.recipientHasWali === undefined
+              ? null
+              : proposal.recipientHasWali ? 'Registered' : 'None registered'],
           ]} />
           <LockNotice text={
-            lockText(stage, isWaliView ? 'suitorWali' : 'suitor', waliSent)
+            lockText(
+              stage,
+              isWaliView ? 'suitorWali' : 'suitor',
+              waliSent,
+              proposal.suitorHasWali,
+              proposal.recipientHasWali,
+              proposal.gender,
+            )
           } />
           {matched ? (
             <ActionButtons buttons={[
@@ -529,7 +564,8 @@ function SentProposalDetail({
           <Pressable style={styles.modalCard} onPress={() => {}}>
             <Text style={styles.modalTitle}>Withdraw proposal?</Text>
             <Text style={styles.modalBody}>
-              This is silent — she will not be told. You can propose again in the future.
+              This is silent — {pronounsFor(proposal.gender).subject} will not be
+              told. You can propose again in the future.
             </Text>
             <View style={styles.modalRow}>
               <Pressable
@@ -592,6 +628,9 @@ function ReceivedProposalDetail({
           origin: proposal.sentByWali ? 'wali' : 'self',
           sentAt: proposal.sentAt,
           wardName,
+          suitorHasWali: proposal.suitorHasWali,
+          recipientHasWali: proposal.recipientHasWali,
+          counterpartGender: proposal.gender,
         })} />
 
         <Banner
@@ -866,22 +905,6 @@ const styles = StyleSheet.create({
     color: C.ink3,
     marginTop: 2,
     lineHeight: 19,
-  },
-  inProgressBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: C.indSoft,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  inProgressText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: C.indInk,
   },
 
   // ── Profile mini card ────────────────────────────────────────────────────────

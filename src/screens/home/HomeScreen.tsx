@@ -12,7 +12,15 @@
  */
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Pressable, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { VerificationBlock } from '../../components/verification/VerificationBlock';
@@ -20,7 +28,12 @@ import { PaymentFailedBlock } from '../../components/payment/PaymentFailedBlock'
 import { UnderReviewUnpaidBlock } from '../../components/review/UnderReviewUnpaidBlock';
 import { MatchesFoundUnpaidBlock } from '../../components/matches/MatchesFoundUnpaidBlock';
 import { IntroductionAvailableBlock, IntroductionProfile } from '../../components/introduction/IntroductionAvailableBlock';
-import { ProfileIncompleteBlock, allSectionsDone } from '../../components/onboarding/ProfileIncompleteBlock';
+import {
+  ProfileIncompleteBlock,
+  allSectionsDone,
+  allServerSectionsDone,
+} from '../../components/onboarding/ProfileIncompleteBlock';
+import type { ProfileCompletion } from '../../api/profile';
 import { UnderReviewScreen } from '../onboarding/UnderReviewScreen';
 import { ProposalsScreen } from './ProposalsScreen';
 import { ProposalDetailScreen, type ProposalDetailSelection } from './ProposalDetailScreen';
@@ -67,6 +80,13 @@ interface HomeScreenProps {
   underReviewUnpaid?: boolean;
   /** Verification pending AND payment made — shows H9 */
   underReviewPaid?: boolean;
+  /** The server's section-by-section profile completion, when loaded. */
+  profileCompletion?: ProfileCompletion;
+  /** Server reports a verification actually awaiting review, not merely absent. */
+  verificationPending?: boolean;
+  /** Some verification types submitted, but not all. */
+  verificationPartial?: boolean;
+  onStartVerification?: () => void;
   /** Verified, proposals available, payment not yet made — shows H12 */
   proposalsReadyUnpaid?: boolean;
   /** Number of candidate profiles for H12 */
@@ -116,7 +136,8 @@ interface HomeScreenProps {
   /** H6: the screen to resume — used to show step progress */
   resumeScreen?: string;
   /** H6: resume onboarding from last step */
-  onContinueOnboarding?: () => void;
+  /** Receives the screen of the first outstanding section, when known. */
+  onContinueOnboarding?: (target?: string) => void;
   /** H8 / H12: go to payment screen */
   onBecomeAMember?: () => void;
   /** H8: confirm wali */
@@ -166,6 +187,10 @@ export function HomeScreen({
   resumeScreen = 'WhoIsFor',
   underReviewUnpaid = false,
   underReviewPaid = false,
+  profileCompletion,
+  verificationPending = true,
+  verificationPartial = false,
+  onStartVerification,
   proposalsReadyUnpaid = false,
   matchCount = 14,
   introductionAvailable = false,
@@ -294,12 +319,23 @@ export function HomeScreen({
   // ── Build page content (single return so the tab animation wrapper is consistent)
   let pageContent: React.ReactNode;
 
-  if (profileIncomplete && !allSectionsDone(resumeScreen)) {
+  // Whether anything is actually outstanding. The server's section report is
+  // the authority; `resumeScreen` only stands in until it arrives. Judging it
+  // from `resumeScreen` alone left a hole: the verification and payment steps
+  // move it past every profile section, so a profile the server still called
+  // incomplete satisfied both this test and the block's own all-done guard,
+  // and home fell through to a page with nothing on it but the burger button.
+  const nothingOutstanding = profileCompletion
+    ? allServerSectionsDone(profileCompletion)
+    : allSectionsDone(resumeScreen);
+
+  if (profileIncomplete && !nothingOutstanding) {
     pageContent = (
       <>
         <ProfileIncompleteBlock
           userName={userName}
           resumeScreen={resumeScreen}
+          completion={profileCompletion}
           onContinue={onContinueOnboarding}
         />
         {filterOverlay}
@@ -353,7 +389,12 @@ export function HomeScreen({
   } else if (underReviewPaid) {
     pageContent = (
       <>
-        <UnderReviewScreen onGoHome={undefined} />
+        <UnderReviewScreen
+          onGoHome={undefined}
+          verificationPending={verificationPending}
+          verificationPartial={verificationPartial}
+          onStartVerification={onStartVerification}
+        />
         {filterOverlay}
         {settingsOverlay}
       </>
@@ -397,7 +438,17 @@ export function HomeScreen({
       </>
     );
   } else {
-    pageContent = settingsOverlay;
+    // Every server state maps to one of the branches above, so this is the gap
+    // before the first home-state response lands. A spinner rather than the
+    // bare burger button on an empty page.
+    pageContent = (
+      <>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={Colors.vioInk} />
+        </View>
+        {settingsOverlay}
+      </>
+    );
   }
 
   return (
@@ -460,6 +511,12 @@ const styles = StyleSheet.create({
   },
   wrapper: {
     flex: 1,
+  },
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.page,
   },
   filterBtn: {
     position: 'absolute',

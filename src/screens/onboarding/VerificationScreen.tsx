@@ -42,7 +42,6 @@ import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { VerificationBlock } from '../../components/verification/VerificationBlock';
 import { Colors, GradientColors } from '../../theme/colors';
-import { submitFaceVerification, submitCnicVerification } from '../../api/verification';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -284,15 +283,9 @@ export function VerificationScreen({
       <VerificationBlock
         variant="face"
         attemptsLeft={faceAttemptsLeft}
-        onAction={async () => {
-          // On retry: submit a face verification record, then notify parent
-          try {
-            await submitFaceVerification();
-          } catch {
-            // non-blocking
-          }
-          onRetryFace?.();
-        }}
+        // Submission belongs to the parent handler, which owns the done/failed
+        // state. Calling the API here too submitted twice per tap.
+        onAction={onRetryFace}
         onBack={onDismissFailed ?? onBack}
       />
     );
@@ -303,40 +296,50 @@ export function VerificationScreen({
     return (
       <VerificationBlock
         variant="cnic"
-        onAction={async () => {
-          // On upload: submit a CNIC verification record, then notify parent
-          try {
-            await submitCnicVerification();
-          } catch {
-            // non-blocking
-          }
-          onUploadCnic?.();
-        }}
+        onAction={onUploadCnic}
         onBack={onDismissFailed ?? onBack}
       />
     );
   }
 
   // Primary CTA: "Scan my face" until face is done, then "Continue"
-  const primaryLabel = faceDone ? 'Continue' : 'Scan my face';
+  // Three steps, so three primary actions — the middle one was missing. With
+  // the face done but no ID, the primary said "Continue" and exited, while the
+  // *secondary* link labelled "Add ID later" was the thing that actually
+  // submitted the ID. The two were swapped: the button that finishes
+  // verification is the primary one, and leaving is the text link.
+  const primaryLabel = !faceDone
+    ? 'Scan my face'
+    : !cnicDone
+      ? 'Add CNIC or passport'
+      : 'Continue';
   // The submit was awaited with no loading state, so the button sat inert for
   // the length of the request and the press read as ignored.
-  const primaryAction = faceDone ? onContinue : async () => {
-    if (submitting) return;
+  // Submission itself lives in the parent handlers, which own the done/failed
+  // state. This screen used to call submitFaceVerification() here as well, so
+  // once the parent was wired to the real API the face was submitted twice on
+  // every tap.
+  const primaryStep = !faceDone ? onScanFace : !cnicDone ? onAddId : onContinue;
+
+  // The parent handlers are async, so the spinner tracks the real request
+  // rather than a local one this screen no longer makes.
+  const primaryAction = async () => {
+    if (submitting || !primaryStep) return;
     setSubmitting(true);
     try {
-      await submitFaceVerification();
-    } catch {
-      // non-blocking — let parent handle the failed state
+      await primaryStep();
     } finally {
       setSubmitting(false);
     }
-    onScanFace?.();
   };
 
-  // Secondary text link: skip if face not done; "Add ID later" if face done
-  const secondaryLabel = faceDone ? 'Add ID later' : 'Skip for now';
-  const secondaryAction = faceDone ? onAddId : onContinue;
+  // Leaving is always the text link, never the primary button.
+  const secondaryLabel = !faceDone
+    ? 'Skip for now'
+    : !cnicDone
+      ? 'Add ID later'
+      : undefined;
+  const secondaryAction = onContinue;
 
   return (
     <View style={styles.root}>
@@ -354,14 +357,21 @@ export function VerificationScreen({
 
         {/* ── NavBar (.nb) ─────────────────────────────────────────── */}
         <View style={styles.navbar}>
-          <Pressable
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              pressed && styles.backBtnPressed,
-            ]}>
-            <BackIcon />
-          </Pressable>
+          {/* Omitted when there is no handler: opened from the home screen this
+              is the first screen of its own trip, and the step behind it in the
+              onboarding order is one the user already finished. */}
+          {onBack ? (
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.backBtn,
+                pressed && styles.backBtnPressed,
+              ]}>
+              <BackIcon />
+            </Pressable>
+          ) : (
+            <View style={styles.backSpacer} />
+          )}
 
           {/* Progress bar — 95% (.prg) */}
           <View style={styles.progressTrack}>
@@ -446,14 +456,18 @@ export function VerificationScreen({
         <View style={styles.footer}>
           <GradientButton label={primaryLabel} onPress={primaryAction} loading={submitting} />
 
-          <Pressable
-            onPress={secondaryAction}
-            style={({ pressed }) => [
-              styles.textBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}>
-            <Text style={styles.textBtnLabel}>{secondaryLabel}</Text>
-          </Pressable>
+          {/* Both steps done leaves nothing to skip, so the link goes rather
+              than sitting there as a second way to do what Continue does. */}
+          {!!secondaryLabel && (
+            <Pressable
+              onPress={secondaryAction}
+              style={({ pressed }) => [
+                styles.textBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}>
+              <Text style={styles.textBtnLabel}>{secondaryLabel}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
@@ -482,6 +496,10 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     flexShrink: 0,
   },
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

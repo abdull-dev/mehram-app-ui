@@ -58,6 +58,22 @@ export interface SentProposal {
    * self-sent, which is the common case.
    */
   sentByWali?: boolean;
+  /**
+   * Whether each side has a guardian at all.
+   *
+   * `stage` cannot answer this: a proposal opens at HER_DECISION_PENDING both
+   * when two walis cleared it and when neither party has one, so the tracker
+   * drew two approvals nobody had given. Optional — older servers omit them,
+   * and absent keeps the full four-step flow.
+   */
+  suitorHasWali?: boolean;
+  recipientHasWali?: boolean;
+  /**
+   * The counterpart's gender ('MALE' / 'FEMALE'), so the proposal copy can name
+   * a real person instead of assuming the suitor is a man. Absent falls back to
+   * they/them.
+   */
+  gender?: string | null;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;
@@ -88,6 +104,22 @@ export interface ReceivedProposal {
    * self-sent, which is the common case.
    */
   sentByWali?: boolean;
+  /**
+   * Whether each side has a guardian at all.
+   *
+   * `stage` cannot answer this: a proposal opens at HER_DECISION_PENDING both
+   * when two walis cleared it and when neither party has one, so the tracker
+   * drew two approvals nobody had given. Optional — older servers omit them,
+   * and absent keeps the full four-step flow.
+   */
+  suitorHasWali?: boolean;
+  recipientHasWali?: boolean;
+  /**
+   * The counterpart's gender ('MALE' / 'FEMALE'), so the proposal copy can name
+   * a real person instead of assuming the suitor is a man. Absent falls back to
+   * they/them.
+   */
+  gender?: string | null;
   status: 'pending' | 'matched';
   age: number | null;
   city: string | null;

@@ -36,7 +36,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { login } from '../../api/auth';
+import { login, isPendingConfirmation } from '../../api/auth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
@@ -246,6 +246,12 @@ export function SignInScreen({
     setLoading(true);
     try {
       const result = await login({ email: identifier.trim().toLowerCase(), password });
+      // An unconfirmed address comes back as pending rather than as a session,
+      // so the caller can route to verification instead of being refused.
+      if (isPendingConfirmation(result)) {
+        onSignIn?.(identifier, password, false, '');
+        return;
+      }
       onSignIn?.(identifier, password, result.user.emailVerified, result.user.role);
     } catch (err: any) {
       const msg: string = err?.message ?? 'Invalid credentials. Please try again.';

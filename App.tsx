@@ -17,7 +17,13 @@ import {
   isPendingConfirmation,
   verifyEmailOtp,
   resendEmailOtp,
+  updatePendingContact,
+  getPendingStatus,
 } from './src/api/auth';
+import {
+  submitFaceVerification,
+  submitCnicVerification,
+} from './src/api/verification';
 import { resolvePhotoUrl } from './src/api/config';
 import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship } from './src/api/wali';
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
@@ -28,7 +34,7 @@ import {
 } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal } from './src/api/proposals';
-import { getHomeState } from './src/api/home';
+import { getHomeState, hasSubmittedAllVerifications } from './src/api/home';
 import {
   updateLocation,
   updateEssentials,
@@ -41,10 +47,12 @@ import {
   toMaritalStatus,
   toSect,
   parseDob,
+  getProfileCompletion,
+  type ProfileCompletion,
 } from './src/api/profile';
 import { ONBOARDING_STEP, resumeFromOnboardingStep, screenForStep, stepNumberFor } from './src/onboarding/steps';
 import { type IntroductionProfile } from './src/components/introduction/IntroductionAvailableBlock';
-import { getAccessToken, getPendingEmail, getPendingPhone, savePendingEmail, savePendingPhone, clearTokens } from './src/storage/authStorage';
+import { getAccessToken, getPendingEmail, getPendingPhone, savePendingEmail, savePendingPhone, clearPendingEmail, clearTokens } from './src/storage/authStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useHomeSocket } from './src/hooks/useHomeSocket';
 
@@ -218,6 +226,32 @@ export default function App() {
   const [phoneE164, setPhoneE164]   = useState('');
   const [userEmail, setUserEmail]   = useState('');
   const [userPassword, setUserPassword] = useState('');
+  /**
+   * Which field AccountVerification sent the user back to PhoneScreen to fix,
+   * or null when PhoneScreen is being used to create an account.
+   *
+   * Held here rather than on either screen because it decides both how
+   * PhoneScreen opens and where its back chevron returns to.
+   */
+  const [contactEdit, setContactEdit] = useState<null | 'phone' | 'email'>(null);
+  /**
+   * The number AccountVerification confirmed, if any. Kept above that screen so
+   * a trip out to change the email does not throw the phone step away when the
+   * number itself never changed.
+   */
+  const [verifiedPhoneE164, setVerifiedPhoneE164] = useState('');
+  // Server's answer for the email, fetched when the verification screen shows.
+  const [serverEmailVerified, setServerEmailVerified] = useState(false);
+  // True while that fetch is in flight. Without it the rows render as
+  // unverified first and snap to "Verified" when the answer lands, which reads
+  // as the app losing a verification and then finding it again.
+  const [verificationStatusLoading, setVerificationStatusLoading] = useState(false);
+  /**
+   * When the signup form registered, which is when the first email code went
+   * out. The verification screen counts its resend window from this rather than
+   * from the tap that opens the code boxes.
+   */
+  const [emailCodeSentAt, setEmailCodeSentAt] = useState<number | undefined>();
   const [pendingEmail, setPendingEmail] = useState('');
   const [selectedRole, setSelectedRole] = useState<'self' | 'wali'>('self');
   const [waliName, setWaliName] = useState('');
@@ -321,6 +355,38 @@ export default function App() {
   const [h11FromHome, setH11FromHome] = useState(false);
   // When the user submitted their verification — passed to UnderReviewUnpaidBlock for "Xh ago".
   const [verificationSubmittedAt, setVerificationSubmittedAt] = useState<Date | undefined>(undefined);
+  /**
+   * A verification is genuinely awaiting review, per the server.
+   *
+   * Distinct from the under-review *screen*, which also covers "not submitted"
+   * and "rejected" — those share a card today but must not share its wording.
+   */
+  const [verificationPending, setVerificationPending] = useState(false);
+  /** Some verification types submitted, but not the full required set. */
+  const [verificationPartial, setVerificationPartial] = useState(false);
+  /** The server reports the profile itself is under 100% complete. */
+  const [serverProfileIncomplete, setServerProfileIncomplete] = useState(false);
+  /**
+   * Which profile sections the server considers finished.
+   *
+   * H6 needs this rather than `resumeScreen`: that marker sits past every
+   * profile section once verification or payment has been reached, so it read
+   * an incomplete profile as done and the card rendered nothing.
+   */
+  const [profileCompletion, setProfileCompletion] = useState<
+    ProfileCompletion | undefined
+  >(undefined);
+  /** Address the verification status has already been fetched for, so a
+   *  refetch does not put the rows back behind a skeleton. */
+  const loadedStatusForRef = useRef('');
+  /**
+   * F16 was opened from the home screen rather than reached during onboarding.
+   *
+   * It changes both ends of the screen: there is no earlier step to go back to
+   * (the one behind it is already done), and finishing must return Home rather
+   * than continue into payment, which this user has already passed.
+   */
+  const [verifyFromHome, setVerifyFromHome] = useState(false);
   // Last filters applied by the user via AdjustFiltersScreen — shown on H11.
   const [appliedFilters, setAppliedFilters] = useState<FilterValues | undefined>(undefined);
   // Full preferences saved from PartnerPreferencesScreen — used as defaults for AdjustFiltersScreen.
@@ -508,47 +574,56 @@ export default function App() {
    * verification had happened. `/matches/home-state` resolves verification,
    * billing, completeness and matching together, which is the only place all of
    * those are known at once.
+   *
+   * The flags are computed first and applied in one go. Clearing them up front
+   * and filling them in afterwards leaves the screen with nothing to render if
+   * the request fails, which is a blank page rather than a stale one.
    */
   const refreshHomeState = useCallback(async (isInitial = false) => {
     try {
       const { state, data } = await getHomeState();
 
-      // Start from a clean slate each time: leaving a previous flag set is how
-      // two states end up on screen at once.
-      setPaymentFailed(false);
-      setUnderReviewUnpaid(false);
-      setUnderReviewPaid(false);
-      setProposalsReadyUnpaid(false);
-      setIntroductionAvailable(false);
-      setHasIntroductions(true);
-      setMatchCount(data.matchCount);
+      const flags = {
+        paymentFailed: false,
+        underReviewUnpaid: false,
+        underReviewPaid: false,
+        proposalsReadyUnpaid: false,
+        introductionAvailable: false,
+        hasIntroductions: true,
+        profileIncomplete: false,
+      };
 
       switch (state) {
         case 'PAYMENT_FAILED':
-          setPaymentFailed(true);
+          flags.paymentFailed = true;
           break;
 
         // Nothing has verified this profile yet, so the introductions card must
         // not be shown whatever the billing state says.
+        //
+        // `data.verification.status` separates these: PENDING is genuinely
+        // under review, null means nothing was ever submitted. Both landed on
+        // the same "we are reviewing your profile" card, which told users with
+        // no submission that one was in progress.
         case 'VERIFICATION_NOT_STARTED':
         case 'VERIFICATION_FAILED':
         case 'RESUBMIT_REQUIRED':
         case 'UNDER_REVIEW_UNPAID':
         case 'UNDER_REVIEW_PAID':
-          if (data.isPaid) setUnderReviewPaid(true);
-          else setUnderReviewUnpaid(true);
+          if (data.isPaid) flags.underReviewPaid = true;
+          else flags.underReviewUnpaid = true;
           break;
 
         case 'MATCHES_FOUND_UNPAID':
-          setProposalsReadyUnpaid(true);
+          flags.proposalsReadyUnpaid = true;
           break;
 
         // Verified and searching, but nobody to show right now.
         case 'NO_MATCHES_IN_CITY':
         case 'CRITERIA_TOO_NARROW':
         case 'NO_MATCHES_TODAY':
-          setIntroductionAvailable(true);
-          setHasIntroductions(false);
+          flags.introductionAvailable = true;
+          flags.hasIntroductions = false;
           break;
 
         case 'INTRO_AVAILABLE':
@@ -559,22 +634,82 @@ export default function App() {
         case 'INCOMING_PHOTO_REQUEST':
         case 'SEARCH_JUST_STARTED':
         case 'FALLBACK':
-          setIntroductionAvailable(true);
+          flags.introductionAvailable = true;
+          break;
+
+        // The profile itself is unfinished, which has its own card. Routing it
+        // to the review screen told a user with an incomplete profile that we
+        // were reviewing it — and, once verification was approved, left them on
+        // a card still asking them to verify.
+        case 'PROFILE_INCOMPLETE':
+          flags.profileIncomplete = true;
           break;
 
         // Account-level states the home screen has no card for. Showing the
         // search card would be a lie, so fall back to the review screen.
         case 'SUSPENDED':
         case 'DELETION_PENDING':
-        case 'PROFILE_INCOMPLETE':
         default:
-          if (!data.isPaid) setUnderReviewUnpaid(true);
+          if (data.isPaid) flags.underReviewPaid = true;
+          else flags.underReviewUnpaid = true;
           break;
+      }
+
+      // "Under review" requires a PENDING status AND every required type
+      // submitted. Status alone was not enough: submitting only the face scan
+      // left GOVERNMENT_ID outstanding, yet the card claimed a review had
+      // started and dropped the button that leads to the remaining step.
+      // Approved counts as "nothing more to do here" for the review card, which
+      // otherwise only knew PENDING and would show the verify prompt instead.
+      setVerificationPending(
+        data.verification.status === 'APPROVED' ||
+          (data.verification.status === 'PENDING' &&
+            hasSubmittedAllVerifications(data.verification.types)),
+      );
+      // Only when something is still outstanding. An APPROVED verification has
+      // nothing left to do, but fell through to the "One step left" copy
+      // because the check only asked whether every type was present — and an
+      // approved user was told to verify again.
+      setVerificationPartial(
+        data.verification.status !== 'APPROVED' &&
+          data.verification.types.length > 0 &&
+          !hasSubmittedAllVerifications(data.verification.types),
+      );
+      // Which steps F16 shows as done. Local state alone forgot them on every
+      // relaunch, so a submitted face scan came back as still outstanding.
+      const submittedTypes = new Set(data.verification.types.map(t => t.type));
+      setFaceDone(submittedTypes.has('SELFIE_LIVENESS'));
+      setCnicDone(submittedTypes.has('GOVERNMENT_ID'));
+      setVerificationSubmittedAt(
+        data.verification.submittedAt
+          ? new Date(data.verification.submittedAt)
+          : undefined,
+      );
+      setMatchCount(data.matchCount);
+      setPaymentFailed(flags.paymentFailed);
+      setUnderReviewUnpaid(flags.underReviewUnpaid);
+      setUnderReviewPaid(flags.underReviewPaid);
+      setProposalsReadyUnpaid(flags.proposalsReadyUnpaid);
+      setIntroductionAvailable(flags.introductionAvailable);
+      setHasIntroductions(flags.hasIntroductions);
+      setServerProfileIncomplete(flags.profileIncomplete);
+
+      // Only H6 needs the section breakdown, so it is fetched only when the
+      // server says the profile is short. A failure here leaves the card on
+      // its `resumeScreen` fallback rather than blanking the screen.
+      if (flags.profileIncomplete) {
+        try {
+          setProfileCompletion(await getProfileCompletion());
+        } catch {
+          setProfileCompletion(undefined);
+        }
+      } else {
+        setProfileCompletion(undefined);
       }
     } catch {
       // On launch there is no prior state to keep, so fall back to H8 (under
-      // review). On a refresh, a network blip must not demote a paid user —
-      // leave whatever is on screen alone.
+      // review) rather than an empty screen. On a refresh, a network blip must
+      // not demote a paid user — leave whatever is on screen alone.
       if (isInitial) setUnderReviewUnpaid(true);
     }
   }, []);
@@ -693,10 +828,21 @@ export default function App() {
   // Skipping the request when there is no token avoids a noisy 401 on
   // every fresh install / logged-out launch.
   useEffect(() => {
-    Promise.all([getAccessToken(), getPendingEmail(), getPendingPhone()]).then(([token, pending, pendingPhone]) => {
+    Promise.all([getAccessToken(), getPendingEmail(), getPendingPhone()]).then(async ([token, pending, pendingPhone]) => {
       if (pending) {
         setPendingEmail(pending);
         if (pendingPhone) setPhoneE164(pendingPhone);
+        // The number belongs to the account, not to this install. Signing in
+        // again on a fresh install leaves getPendingPhone() empty, and the
+        // verify screen hides the phone row when it has no number at all — so
+        // ask the server, which is the only place that actually knows.
+        if (token) {
+          try {
+            const me = await getMe();
+            if (me.profile.phone) setPhoneE164(me.profile.phone);
+            if (me.user.email) setUserEmail(me.user.email);
+          } catch {}
+        }
         setScreen('AccountVerification');
         setAppReady(true);
         return;
@@ -816,6 +962,107 @@ export default function App() {
   ];
 
   /**
+   * Any arrival back at the verification screen ends an edit trip.
+   *
+   * Not folded into the handlers that navigate there: Android's hardware back
+   * goes through goBack(), which knows nothing about this flag, and a stale
+   * 'email' would silently reopen the signup form in edit mode the next time
+   * the user pressed the verification screen's own back chevron.
+   */
+  useEffect(() => {
+    if (screen === 'AccountVerification') setContactEdit(null);
+    // Leaving F16 by any route ends the standalone trip — including Android's
+    // back, which this flag is not otherwise told about.
+    if (screen !== 'F16' && verifyFromHome) setVerifyFromHome(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
+  /**
+   * Seed the verification rows from the server whenever this screen is shown.
+   *
+   * Both flags used to live only in this component tree, so a reload — or any
+   * remount — put an already-confirmed address back behind a "Verify" button.
+   * The server is the only durable record, and it is reachable here because
+   * verifying the email returns a session.
+   *
+   * Silent on failure: during signup, before anything is confirmed, there is no
+   * token and /auth/me 401s. Nothing is verified at that point anyway, so the
+   * false defaults are already correct.
+   */
+  useEffect(() => {
+    if (screen !== 'AccountVerification') return;
+    const screenEmail = (pendingEmail || userEmail).trim().toLowerCase();
+    if (!screenEmail) return;
+    let cancelled = false;
+    // Skeleton only before the first answer for this address. On a refetch the
+    // rows already show real values, and swapping them back to placeholders
+    // made the email vanish and the cards reflow every time the status was
+    // re-checked — including right after pressing Continue.
+    if (loadedStatusForRef.current !== screenEmail) {
+      setVerificationStatusLoading(true);
+    }
+    const settle = () => {
+      if (cancelled) return;
+      loadedStatusForRef.current = screenEmail;
+      setVerificationStatusLoading(false);
+    };
+
+    // Ask about *this* signup by address rather than about whoever holds the
+    // token. It needs no session, so it also answers in the window after the
+    // phone is verified but before the email is — where there is no token at
+    // all — which is what made the phone row forget itself on a reload.
+    getPendingStatus(screenEmail)
+      .then(status => {
+        if (cancelled) return;
+        setServerEmailVerified(status.emailVerified);
+        // Always adopt the number, verified or not: the screen hides the whole
+        // mobile card when it has none, so seeding it only on success made an
+        // unverified phone disappear instead of offering a Verify button.
+        if (status.phone) {
+          setPhoneE164(status.phone);
+          if (status.phoneVerified) setVerifiedPhoneE164(status.phone);
+        }
+        settle();
+      })
+      .catch(() => {
+        // 400 here means the signup is already confirmed — a fully signed-in
+        // account revisiting this screen. /auth/me is the right source then.
+        if (cancelled) return;
+        seedFromSession();
+      });
+
+    function seedFromSession() {
+      getAccessToken().then(token => {
+      // No token and nothing else to ask: stop the skeleton rather than leave
+      // it spinning forever over rows that are simply unverified.
+      if (!token) { settle(); return; }
+      if (cancelled) return;
+      getMe()
+        .then(me => {
+          if (cancelled) return;
+          // The token may still belong to a PREVIOUS account: signing up again
+          // without signing out first leaves the old session in storage, and
+          // /auth/me answers for whoever the token identifies — not for the
+          // signup on screen. Seeding from that marked a brand-new address as
+          // verified. Each field is therefore only trusted when the server's
+          // value is the same one being shown here.
+          const meEmail = (me.user.email || '').trim().toLowerCase();
+          const sameAccount = !!screenEmail && meEmail === screenEmail;
+          setServerEmailVerified(!!me.user.emailVerified && sameAccount);
+          if (sameAccount && me.profile.phone) {
+            setPhoneE164(me.profile.phone);
+            if (me.user.phoneVerified) setVerifiedPhoneE164(me.profile.phone);
+          }
+          settle();
+        })
+        .catch(settle);
+      }).catch(settle);
+    }
+
+    return () => { cancelled = true; };
+  }, [screen, pendingEmail, userEmail]);
+
+  /**
    * Whether a session exists, as a ref so the back handler reads the current
    * value rather than the one captured when it was registered.
    * `userId` is set from /auth/me (restore, sign-in, verification) and cleared
@@ -872,6 +1119,10 @@ export default function App() {
         setActiveTab('home');
         return true;
       }
+      // The account already exists by the time this screen shows, so there is
+      // nothing valid to go back to — swallow the gesture rather than dropping
+      // the user into the signup form behind a live account.
+      if (screen === 'AccountVerification') return true;
       return goBack();
     });
     return () => sub.remove();
@@ -886,6 +1137,42 @@ export default function App() {
    * left the signup screens sitting underneath, so back walked from F6 all the
    * way out to the welcome screen. Now that only exits the app.
    */
+  /**
+   * Back handler for an onboarding screen, or undefined when there is nowhere
+   * valid to go.
+   *
+   * Each step hardcodes the step before it, which is right while the user walks
+   * the flow forward but wrong when they *resume* into the middle of it: the
+   * first screen of a resumed session has no history behind it, so the first
+   * step's hardcoded target sent a signed-in user with a half-built profile to
+   * "Create account as" — a signup screen for an account that already exists,
+   * and one that reads as having been logged out.
+   *
+   * Real history wins where there is any; otherwise the screen is an entry
+   * point and reports no back at all, so the caller can hide the control rather
+   * than show one that does nothing.
+   */
+  function onboardingBack(fallback: Screen): (() => void) | undefined {
+    const stack = prunePreAuth(historyRef.current);
+
+    // Jumped straight in from Home — "Continue profile", "Verify my identity" —
+    // so this screen starts its own trip. The step the flow's order puts behind
+    // it is one the user already finished, and there is no earlier screen of
+    // theirs to return to, so the control is omitted rather than pointed
+    // somewhere arbitrary. Android's back still reaches Home.
+    if (authedRef.current && stack.length > 0 && ROOT_SCREENS.includes(stack[stack.length - 1])) {
+      return undefined;
+    }
+
+    if (!authedRef.current || !PRE_AUTH_SCREENS.includes(fallback)) {
+      return () => navigate(fallback);
+    }
+    if (stack.length > 0) {
+      return () => { goBack(); };
+    }
+    return undefined;
+  }
+
   function goBack(): boolean {
     const stack = prunePreAuth(historyRef.current);
     const prev = stack[stack.length - 1];
@@ -914,12 +1201,13 @@ export default function App() {
    * wait bought nothing and cost every transition.
    */
   function navigateForward(to: Screen) {
-    directionRef.current = 'forward';
-    historyRef.current = ROOT_SCREENS.includes(to)
-      ? []
-      : [...historyRef.current, screen];
-    setScreen(to);
-
+    // Issued on the press, before the screen changes.
+    //
+    // It used to run after `setScreen`, so the write was a consequence of
+    // arriving at the next step rather than of the button being pressed — and
+    // anything that interrupted the transition could drop it. Still not
+    // awaited: the step only decides where a reinstall resumes, so making the
+    // user watch a round trip on every Continue buys nothing.
     const shouldSave =
       SCREEN_ORDER.includes(to) &&
       to !== 'F1' && to !== 'SignIn' && to !== 'Code' && to !== 'AccountVerification';
@@ -930,6 +1218,12 @@ export default function App() {
       setResumeScreen(to);
       saveOnboardingStep(stepNumber).catch(() => {});
     }
+
+    directionRef.current = 'forward';
+    historyRef.current = ROOT_SCREENS.includes(to)
+      ? []
+      : [...historyRef.current, screen];
+    setScreen(to);
   }
 
   // Maps onboarding sect string → filter sect array
@@ -995,8 +1289,18 @@ export default function App() {
                 setUserEmail(_email);
                 setPendingEmail(_email);
                 savePendingEmail(_email).catch(() => {});
-                // Reset: they are signed in now. Back must not return to the
-                // sign-in form, nor anywhere further up the signup flow.
+                // Whoever was here before must not leave their verified state
+                // behind for this account.
+                setServerEmailVerified(false);
+                setVerifiedPhoneE164('');
+                setPhoneE164('');
+                setPhone('');
+                // The number and both verification flags are seeded by the
+                // verification screen's own effect, which reads them from
+                // /auth/pending-status. Not getMe() — an unconfirmed address
+                // has no session at all, so there is no token to call it with.
+                // Reset: back must not return to the sign-in form, nor anywhere
+                // further up the signup flow.
                 navigate('AccountVerification', { reset: true });
                 return;
               }
@@ -1027,19 +1331,36 @@ export default function App() {
                     return;
                   }
 
+                  // Same gate as session restore: an unverified email OR phone
+                  // goes back to the verification screen rather than Home. The
+                  // sign-in response only reports the email, so the check has to
+                  // happen here where the server's answer for both is available.
+                  const needsEmail = me.user.email && !me.user.emailVerified;
+                  const needsPhone = me.profile.phone && !me.user.phoneVerified;
+                  if (needsEmail || needsPhone) {
+                    if (me.user.email) setUserEmail(me.user.email);
+                    if (me.profile.phone) setPhoneE164(me.profile.phone);
+                    setPendingEmail(me.user.email || '');
+                    savePendingEmail(me.user.email || '').catch(() => {});
+                    navigate('AccountVerification', { reset: true });
+                    return;
+                  }
+
                   if (me.profile.onboardingCompleted) {
                     setOnboardingComplete(true);
-                    setIntroductionAvailable(true);
-                    setHasIntroductions(true);
-                    navigate('Home');
+                    // Ask the server what this account's home state is; do not assume
+                    // "onboarding complete" means verified. Awaited so Home paints the
+                    // real state on first frame instead of an empty screen.
+                    return refreshHomeState(true).then(() => navigate('Home'));
                   } else if (me.profile.onboardingStep) {
                     const dest = destinationForSavedStep(me.profile.onboardingStep);
                     if (dest.resumeAt) setResumeScreen(dest.resumeAt);
                     if (dest.kind === 'complete') {
                       setOnboardingComplete(true);
-                      setIntroductionAvailable(true);
-                      setHasIntroductions(true);
-                      navigate('Home');
+                      // Ask the server what this account's home state is; do not assume
+                      // "onboarding complete" means verified. Awaited so Home paints the
+                      // real state on first frame instead of an empty screen.
+                      return refreshHomeState(true).then(() => navigate('Home'));
                     } else if (dest.kind === 'resume' && dest.resumeAt) {
                       navigate(dest.resumeAt);
                     } else {
@@ -1052,9 +1373,10 @@ export default function App() {
                 .catch(() => {
                   // Fallback — token saved, go to home
                   setOnboardingComplete(true);
-                  setIntroductionAvailable(true);
-                  setHasIntroductions(true);
-                  navigate('Home');
+                  // Ask the server what this account's home state is; do not assume
+                  // "onboarding complete" means verified. Awaited so Home paints the
+                  // real state on first frame instead of an empty screen.
+                  return refreshHomeState(true).then(() => navigate('Home'));
                 });
             }}
             onGoogleSignIn={() => console.log('Google sign-in')}
@@ -1066,14 +1388,41 @@ export default function App() {
       case 'Phone':
         return (
           <PhoneScreen
-            onBack={() => navigate('WhoIsFor')}
+            editing={!!contactEdit}
+            focusField={contactEdit ?? undefined}
+            // Only pre-filled when correcting a signup already in flight; a
+            // fresh account starts on an empty form.
+            initial={
+              contactEdit
+                ? {
+                    phoneE164,
+                    email: pendingEmail || userEmail,
+                    // Empty after a relaunch, in which case the user retypes it
+                    // — which is also what re-authorises the change.
+                    password: userPassword,
+                  }
+                : undefined
+            }
+            onBack={() =>
+              navigate(contactEdit ? 'AccountVerification' : 'WhoIsFor')
+            }
             onSendCode={(ph, dialCode, email, password, e164) => {
               setPhone(`${dialCode} ${ph}`);
               setPhoneE164(e164);
               setUserEmail(email);
               setUserPassword(password);
               setPendingEmail(email);
+              setEmailCodeSentAt(Date.now());
               savePendingPhone(e164);
+              // A new signup starts from nothing verified. Both of these
+              // otherwise carry over from whoever used the app last — which is
+              // what showed a brand-new address as already verified.
+              setServerEmailVerified(false);
+              setVerifiedPhoneE164('');
+              // Drop any previous session too: while it survives, /auth/me
+              // answers for that account rather than this signup, and the user
+              // is still carrying someone else's credentials.
+              clearTokens().catch(() => {});
               navigate('AccountVerification');
             }}
             onGoogleSignIn={() => console.log('Google sign-in')}
@@ -1087,6 +1436,30 @@ export default function App() {
             phone={phoneE164 || phone}
             phoneDisplay={phone}
             email={pendingEmail || userEmail}
+            phoneAlreadyVerified={
+              !!phoneE164 && verifiedPhoneE164 === phoneE164
+            }
+            emailAlreadyVerified={serverEmailVerified}
+            statusLoading={verificationStatusLoading}
+            onPhoneVerified={setVerifiedPhoneE164}
+            emailCodeSentAt={emailCodeSentAt}
+            onLogout={async () => {
+              try { await logout(); } catch { await clearTokens(); }
+              // Clear the pending-signup keys too: leaving them behind would
+              // send the restore effect straight back to this screen on the
+              // next launch, which is the opposite of signing out.
+              await clearPendingEmail();
+              setPendingEmail('');
+              setUserEmail('');
+              setUserPassword('');
+              setPhone('');
+              setPhoneE164('');
+              setVerifiedPhoneE164('');
+              setServerEmailVerified(false);
+              setUserId('');
+              applyRole('self');
+              navigate('F1', { reset: true });
+            }}
             onVerified={() => {
               setPendingEmail('');
               // Returned, not fired-and-forgotten: the screen awaits it to keep
@@ -1098,17 +1471,19 @@ export default function App() {
                   setUserName(me.profile.fullName?.split(' ')[0] ?? '');
                   if (me.profile.onboardingCompleted) {
                     setOnboardingComplete(true);
-                    setIntroductionAvailable(true);
-                    setHasIntroductions(true);
-                    navigate('Home');
+                    // Ask the server what this account's home state is; do not assume
+                    // "onboarding complete" means verified. Awaited so Home paints the
+                    // real state on first frame instead of an empty screen.
+                    return refreshHomeState(true).then(() => navigate('Home'));
                   } else if (me.profile.onboardingStep) {
                     const dest = destinationForSavedStep(me.profile.onboardingStep);
                     if (dest.resumeAt) setResumeScreen(dest.resumeAt);
                     if (dest.kind === 'complete') {
                       setOnboardingComplete(true);
-                      setIntroductionAvailable(true);
-                      setHasIntroductions(true);
-                      navigate('Home');
+                      // Ask the server what this account's home state is; do not assume
+                      // "onboarding complete" means verified. Awaited so Home paints the
+                      // real state on first frame instead of an empty screen.
+                      return refreshHomeState(true).then(() => navigate('Home'));
                     } else if (dest.kind === 'resume' && dest.resumeAt) {
                       navigate(dest.resumeAt);
                     } else {
@@ -1121,7 +1496,33 @@ export default function App() {
                 })
                 .catch(() => navigateForward('F6'));
             }}
-            onBack={() => navigate('Phone')}
+            // Edited in place rather than by reopening the signup form: the
+            // account already exists by now, so sending the user back to a form
+            // whose job is to create one is the wrong shape. Re-registering is
+            // still what moves the value — the server releases the unconfirmed
+            // signup and re-creates it against the corrected details.
+            onSaveContact={async ({ email: nextEmail, phone: nextPhone }) => {
+              // Not a re-register: that needs the password, which is empty once
+              // the signup form is gone (after a reload, or a pending signup
+              // restored from storage) — the save then failed on a password
+              // field the user could not even see.
+              await updatePendingContact({
+                currentEmail: (pendingEmail || userEmail).trim().toLowerCase(),
+                email: nextEmail,
+                phone: nextPhone,
+              });
+              await savePendingEmail(nextEmail);
+              await savePendingPhone(nextPhone);
+              setUserEmail(nextEmail);
+              setPendingEmail(nextEmail);
+              setPhone(nextPhone);
+              setPhoneE164(nextPhone);
+              // The old values are no longer the ones on the account, so any
+              // confirmation recorded against them must not carry over.
+              setVerifiedPhoneE164('');
+              setServerEmailVerified(false);
+              setEmailCodeSentAt(Date.now());
+            }}
           />
         );
 
@@ -1153,7 +1554,7 @@ export default function App() {
       case 'WaliAccountSetup':
         return (
           <WaliAccountSetupScreen
-            onBack={() => navigate('WhoIsFor')}
+            onBack={onboardingBack('WhoIsFor')}
             onContinue={(email, password) => {
               setWaliEmail(email);
               setWaliPassword(password);
@@ -1301,7 +1702,7 @@ export default function App() {
       case 'WaliRole':
         return (
           <WaliRoleExplainScreen
-            onBack={() => navigate('WaliCode')}
+            onBack={onboardingBack('WaliCode')}
             onAccept={() => {
               // Recorded in the background, as everywhere else: the step only
               // decides where a reinstall resumes, so awaiting it just froze the
@@ -1355,12 +1756,19 @@ export default function App() {
       case 'F6':
         return (
           <CountryScreen
-            onBack={() => navigate('WhoIsFor')}
+            onBack={onboardingBack('WhoIsFor')}
             onSave={() => console.log('Save')}
             onLocationDetected={coords => setLocationCoords(coords)}
             onContinue={c => {
               setCountry(c);
-              navigateForward('F7');
+              // Persisted here rather than carried in memory to F8. The endpoint
+              // takes the country on its own, so quitting after this step no
+              // longer loses the answer — and the button now has a real request
+              // to show its loader for.
+              saveThenAdvance(
+                () => updateLocation({ countryCode: c.iso2 }),
+                'F7',
+              );
             }}
             continueLoading={continueBusy}
           />
@@ -1373,14 +1781,25 @@ export default function App() {
             countryCode={country.iso2}
             countryName={country.name}
             initialCoords={locationCoords ?? undefined}
-            onBack={() => navigate('F6')}
+            onBack={onboardingBack('F6')}
             onSave={() => console.log('Save')}
             onContinue={(city, coords) => {
               setObCity(city);
-              if (coords?.latitude != null && coords?.longitude != null) {
-                updateLocation(coords.latitude, coords.longitude).catch(() => {});
-              }
-              navigateForward('F8');
+              // The city goes with the coordinates now. It used to be dropped
+              // here and only reached the server at F8, and the coordinates
+              // were sent fire-and-forget, so the button showed no loader and a
+              // failure went unmentioned.
+              saveThenAdvance(
+                () =>
+                  updateLocation({
+                    city,
+                    countryCode: country.iso2,
+                    ...(coords?.latitude != null && coords?.longitude != null
+                      ? { latitude: coords.latitude, longitude: coords.longitude }
+                      : {}),
+                  }),
+                'F8',
+              );
             }}
             continueLoading={continueBusy}
           />
@@ -1390,7 +1809,7 @@ export default function App() {
       case 'F8':
         return (
           <EssentialsScreen
-            onBack={() => navigate('F7')}
+            onBack={onboardingBack('F7')}
             onContinue={data => {
               setObSect(data.sect);
               setObMarital(data.maritalStatus);
@@ -1417,7 +1836,7 @@ export default function App() {
       case 'F10':
         return (
           <ProgressHubScreen
-            onBack={() => navigate('F8')}
+            onBack={onboardingBack('F8')}
             onSave={() => console.log('Save')}
             onContinue={() => navigateForward('F11')}
             continueLoading={continueBusy}
@@ -1428,7 +1847,7 @@ export default function App() {
       case 'F11':
         return (
           <FamilyAndHomeScreen
-            onBack={() => navigate('F10')}
+            onBack={onboardingBack('F10')}
             onSave={() => console.log('Save')}
             onContinue={data => saveThenAdvance(() => updateFamilyBackground(data), 'F12')}
             continueLoading={continueBusy}
@@ -1439,7 +1858,7 @@ export default function App() {
       case 'F12':
         return (
           <GuidedPromptScreen
-            onBack={() => navigate('F11')}
+            onBack={onboardingBack('F11')}
             onSave={() => console.log('Save')}
             onNext={text => saveThenAdvance(() => updatePrompts({ familyDescription: text }), 'F13')}
             questionIndex={1}
@@ -1470,7 +1889,7 @@ export default function App() {
       case 'F14':
         return (
           <PhotosScreen
-            onBack={() => navigate('F13')}
+            onBack={onboardingBack('F13')}
             onContinue={() => navigateForward('F16')}
             continueLoading={continueBusy}
           />
@@ -1487,7 +1906,7 @@ export default function App() {
         };
         return (
           <WaliInviteScreen
-            onBack={() => navigate('F14')}
+            onBack={onboardingBack('F14')}
             onLater={() => { advancePastWali(); navigate('F16'); }}
             onInviteWhatsApp={() => {
               advancePastWali();
@@ -1513,17 +1932,28 @@ export default function App() {
             faceFailed={faceFailed}
             cnicFailed={cnicFailed}
             faceAttemptsLeft={faceAttemptsLeft}
-            onBack={() => navigate('F15')}
-            onScanFace={() => {
-              // Simulate: first tap fails; sets H3 state
-              if (!faceDone && !faceFailed) {
-                setFaceAttempts(prev => Math.max(1, prev - 1));
+            onBack={verifyFromHome ? undefined : () => navigate('F15')}
+            onScanFace={async () => {
+              // Really submitted, not simulated. This screen used to fake a
+              // failure on the first tap and a success on retry without ever
+              // calling the API, so no Verification row was created — the table
+              // was empty for every user, and the home screen's "under review"
+              // was reporting a review that did not exist.
+              try {
+                await submitFaceVerification();
+                setFaceFailed(false);
+                setFaceDone(true);
+              } catch {
+                setFaceAttempts(prev => Math.max(0, prev - 1));
                 setFaceFailed(true);
               }
             }}
-            onAddId={() => {
-              // Simulate: first tap fails; sets H4 state
-              if (!cnicDone && !cnicFailed) {
+            onAddId={async () => {
+              try {
+                await submitCnicVerification();
+                setCnicFailed(false);
+                setCnicDone(true);
+              } catch {
                 setCnicFailed(true);
               }
             }}
@@ -1532,23 +1962,40 @@ export default function App() {
               setFaceFailed(false);
               setCnicFailed(false);
             }}
-            onRetryFace={() => {
-              // Retry succeeds (demo)
-              setFaceFailed(false);
-              setFaceDone(true);
+            onRetryFace={async () => {
+              try {
+                await submitFaceVerification();
+                setFaceFailed(false);
+                setFaceDone(true);
+              } catch {
+                setFaceAttempts(prev => Math.max(0, prev - 1));
+              }
             }}
-            onUploadCnic={() => {
-              // Upload succeeds (demo)
-              setCnicFailed(false);
-              setCnicDone(true);
+            onUploadCnic={async () => {
+              try {
+                await submitCnicVerification();
+                setCnicFailed(false);
+                setCnicDone(true);
+              } catch {
+                setCnicFailed(true);
+              }
             }}
             onContinue={() => {
+              setVerificationSubmittedAt(new Date());
+              // Opened from Home, so this is a standalone trip: go back where
+              // it started. Continuing into F17 would put an already-paid user
+              // in front of the payment screen again, and would rewrite their
+              // saved onboarding step backwards.
+              if (verifyFromHome) {
+                setVerifyFromHome(false);
+                navigate('Home');
+                return;
+              }
               // Save F17 to DB so F16 is never re-shown on restart
               // (handles both "Continue" and "Skip for now" paths).
               const n = stepNumberFor('F17');
               if (n != null) saveOnboardingStep(n).catch(() => {});
               setResumeScreen('F17');
-              setVerificationSubmittedAt(new Date());
               navigate('F17');
             }}
           />
@@ -1559,7 +2006,7 @@ export default function App() {
         return (
           <PaymentScreen
             paying={paying}
-            onBack={() => navigate('F16')}
+            onBack={onboardingBack('F16')}
             onPay={async () => {
               setPaying(true);
               try {
@@ -1914,7 +2361,9 @@ export default function App() {
             introductionIndex={introductionIndex}
             totalIntroductions={totalIntroductions ?? undefined}
             userCoords={userCoords ?? undefined}
-            profileIncomplete={!isWali && !onboardingComplete}
+            profileIncomplete={
+              !isWali && (!onboardingComplete || serverProfileIncomplete)
+            }
             resumeScreen={resumeScreen}
             onNotSuitable={() => {
               if (!currentIntroductionId) return;
@@ -2090,7 +2539,10 @@ export default function App() {
               setCnicFailed(false);
               navigate('F16');
             }}
-            onContinueOnboarding={() => navigate(resumeScreen)}
+            profileCompletion={profileCompletion}
+            onContinueOnboarding={target =>
+              navigate(target ? (target as Screen) : resumeScreen)
+            }
             onBecomeAMember={() => {
               setUnderReviewUnpaid(false);
               setProposalsReadyUnpaid(false);
@@ -2100,6 +2552,12 @@ export default function App() {
             onImproveBiodata={() => navigate('F8')}
             onReviewPreferences={() => navigate('F13')}
             verificationSubmittedAt={verificationSubmittedAt}
+            verificationPending={verificationPending}
+            verificationPartial={verificationPartial}
+            onStartVerification={() => {
+              setVerifyFromHome(true);
+              navigate('F16');
+            }}
             onOpenFilters={() => {
               setH11FromHome(true);
               navigate('H11');

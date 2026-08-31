@@ -275,6 +275,11 @@ export interface WardProposal {
   stage: ProposalStage;
   /** True when the wali sent this on the ward's behalf. See SentProposal. */
   sentByWali?: boolean;
+  /** Whether each side has a guardian at all. See SentProposal. */
+  suitorHasWali?: boolean;
+  recipientHasWali?: boolean;
+  /** The counterpart's gender. See SentProposal. */
+  gender?: string | null;
   createdAt: string;
 }
 
@@ -297,6 +302,11 @@ export interface WardReceivedProposal {
    * of the flag on WardProposal, which is about our own ward's wali.
    */
   sentByWali?: boolean;
+  /** Whether each side has a guardian at all. See SentProposal. */
+  suitorHasWali?: boolean;
+  recipientHasWali?: boolean;
+  /** The counterpart's gender. See SentProposal. */
+  gender?: string | null;
   createdAt: string;
 }
 

@@ -118,10 +118,20 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
     { ...EMPTY_SLOT },
     { ...EMPTY_SLOT },
   ]);
-  const [privacyMode, setPrivacyMode] = useState<PhotoVisibilityMode>('NOBODY');
+  /**
+   * Null until the user picks one.
+   *
+   * It used to default to NOBODY, so a chip was always highlighted and the
+   * screen looked answered before anyone had chosen — and Continue would save
+   * that default as if it were a decision. Who can see your photos is not a
+   * question to answer on the user's behalf.
+   */
+  const [privacyMode, setPrivacyMode] = useState<PhotoVisibilityMode | null>(null);
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
-  const hasRequired = slots[0].uri !== null && !slots[0].uploading;
+  const hasPhoto = slots[0].uri !== null && !slots[0].uploading;
+  // Both are required: a photo to show, and an explicit choice about who sees it.
+  const hasRequired = hasPhoto && privacyMode !== null;
 
   function setSlot(index: 0 | 1 | 2, patch: Partial<SlotState>) {
     setSlots(prev => {
@@ -239,13 +249,19 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
 
         {/* ── Navigation bar ──────────────────────────────────────── */}
         <View style={styles.navbar}>
-          <Pressable onPress={onBack}
-            style={({ pressed }) => [styles.backBtn, {
-              opacity: pressed ? 0.8 : 1,
-              transform: [{ scale: pressed ? 0.92 : 1 }],
-            }]}>
-            <BackIcon />
-          </Pressable>
+          {/* Omitted when there is nothing behind this screen: entering the
+              flow straight from Home makes this its first step. */}
+          {onBack ? (
+            <Pressable onPress={onBack}
+              style={({ pressed }) => [styles.backBtn, {
+                opacity: pressed ? 0.8 : 1,
+                transform: [{ scale: pressed ? 0.92 : 1 }],
+              }]}>
+              <BackIcon />
+            </Pressable>
+          ) : (
+            <View style={styles.backSpacer} />
+          )}
           <View style={styles.progressTrack}>
             <LinearGradient
               colors={[...GradientColors.primary]}
@@ -472,6 +488,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingTop: 12, paddingBottom: 4, flexShrink: 0,
   },
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38, height: 38, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.92)',

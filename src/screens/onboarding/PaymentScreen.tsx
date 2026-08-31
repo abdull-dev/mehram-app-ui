@@ -159,14 +159,20 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
 
         {/* ── NavBar: back + skip ─────────────────────────────────── */}
         <View style={styles.navbar}>
-          <Pressable
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
-            ]}>
-            <ChevronLeft />
-          </Pressable>
+          {/* Omitted when there is nothing behind this screen: entering the
+              flow straight from Home makes this its first step. */}
+          {onBack ? (
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.backBtn,
+                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
+              ]}>
+              <ChevronLeft />
+            </Pressable>
+          ) : (
+            <View style={styles.backSpacer} />
+          )}
 
           <View style={styles.navSpacer} />
 
@@ -276,6 +282,10 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     flexShrink: 0,
   },
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

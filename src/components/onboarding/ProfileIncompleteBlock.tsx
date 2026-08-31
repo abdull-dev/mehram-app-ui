@@ -27,6 +27,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import type {
+  ProfileCompletion,
+  ProfileSectionKey,
+} from '../../api/profile';
 
 // ─── hero gradient (calm indigo — waiting / blocked) ──────────────────────────
 const HERO_GRAD = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -48,16 +52,72 @@ const SECTIONS = [
   { label: 'Your photos',         doneFrom: 9, required: false }, // past F14
 ];
 
+/**
+ * The sections H6 lists, in order, mapped to the server's section keys.
+ *
+ * `screen` is where "Continue profile" goes for that section, so the button
+ * lands on the step that is actually missing rather than on wherever the user
+ * happened to stop. `required` mirrors the backend's CORE_SECTIONS — family and
+ * story count toward the percentage but do not block matching.
+ *
+ * The server also scores `wali`, which is deliberately left off: it is not the
+ * user's own step to finish, since it needs another person to accept the role.
+ * Listing it puts something on this card that "Continue profile" cannot clear,
+ * and it must not hold the card open once every section the user does own is
+ * done.
+ */
+const SERVER_SECTIONS: Array<{
+  key: ProfileSectionKey;
+  label: string;
+  required: boolean;
+  screen: string;
+}> = [
+  { key: 'basicInfo',   label: 'Basic identity',      required: true,  screen: 'F8'  },
+  { key: 'religious',   label: 'Faith & practice',    required: true,  screen: 'F8'  },
+  { key: 'location',    label: 'Your location',       required: true,  screen: 'F7'  },
+  { key: 'family',      label: 'Family & home',       required: false, screen: 'F11' },
+  { key: 'prompts',     label: 'Your story',          required: false, screen: 'F12' },
+  { key: 'preferences', label: 'Partner preferences', required: true,  screen: 'F13' },
+  { key: 'photos',      label: 'Your photos',         required: true,  screen: 'F14' },
+];
+
 type StepStatus = 'done' | 'next' | 'wait';
 
-/** Returns true when every section (required + optional) is complete. */
+/**
+ * Returns true when every section is complete, judged from the resume screen.
+ *
+ * A stand-in for the server's report, used only until that arrives. It reads
+ * the verification and payment steps as "every profile section done", because
+ * they sit past the last of them in `ONBOARDING_SCREENS` — so prefer
+ * `allServerSectionsDone` whenever completion data is available.
+ */
 export function allSectionsDone(resumeScreen: string): boolean {
   const idx = ONBOARDING_SCREENS.indexOf(resumeScreen);
   const ri = idx === -1 ? 0 : idx;
   return SECTIONS.every(s => ri >= s.doneFrom);
 }
 
-function computeSteps(resumeScreen: string) {
+/** Returns true when the server reports every section complete. */
+export function allServerSectionsDone(completion: ProfileCompletion): boolean {
+  return SERVER_SECTIONS.every(s => completion.sections[s.key]?.complete);
+}
+
+/** The screen the first outstanding section is edited on, if any. */
+export function firstIncompleteScreen(
+  completion: ProfileCompletion,
+): string | undefined {
+  return SERVER_SECTIONS.find(s => !completion.sections[s.key]?.complete)
+    ?.screen;
+}
+
+interface Step {
+  status: StepStatus;
+  label: string;
+  num: number;
+  required: boolean;
+}
+
+function computeSteps(resumeScreen: string): Step[] {
   const idx = ONBOARDING_SCREENS.indexOf(resumeScreen);
   const ri = idx === -1 ? 0 : idx;
   let nextAssigned = false;
@@ -70,6 +130,24 @@ function computeSteps(resumeScreen: string) {
       return { status: 'next' as StepStatus, label: s.label, num: stepNum, required: s.required };
     }
     return { status: 'wait' as StepStatus, label: s.label, num: stepNum, required: s.required };
+  });
+}
+
+/** The same list, built from what the server says is actually filled in. */
+function stepsFromCompletion(completion: ProfileCompletion): Step[] {
+  let nextAssigned = false;
+
+  return SERVER_SECTIONS.map((s, i) => {
+    const stepNum = i + 1;
+    const base = { label: s.label, num: stepNum, required: s.required };
+    if (completion.sections[s.key]?.complete) {
+      return { status: 'done' as StepStatus, ...base };
+    }
+    if (!nextAssigned) {
+      nextAssigned = true;
+      return { status: 'next' as StepStatus, ...base };
+    }
+    return { status: 'wait' as StepStatus, ...base };
   });
 }
 
@@ -90,22 +168,35 @@ function CheckMark() {
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface ProfileIncompleteBlockProps {
-  onContinue?: () => void;
+  /** Receives the screen the outstanding section is edited on, when known. */
+  onContinue?: (target?: string) => void;
   resumeScreen?: string;
   userName?: string;
+  /**
+   * The server's section report. When present it decides which steps are done
+   * and where Continue leads; `resumeScreen` is only the fallback for when the
+   * request has not landed.
+   */
+  completion?: ProfileCompletion;
 }
 
 export function ProfileIncompleteBlock({
   onContinue,
   resumeScreen = 'WhoIsFor',
   userName = '',
+  completion,
 }: ProfileIncompleteBlockProps) {
   const insets = useSafeAreaInsets();
 
-  const steps = computeSteps(resumeScreen);
+  const steps = completion
+    ? stepsFromCompletion(completion)
+    : computeSteps(resumeScreen);
   const doneCount = steps.filter(s => s.status === 'done').length;
-  const total = SECTIONS.length;
+  const total = steps.length;
   const pct = Math.round((doneCount / total) * 100);
+  const continueTarget = completion
+    ? firstIncompleteScreen(completion)
+    : undefined;
 
   // All sections complete — nothing to show; caller's onboardingComplete
   // flag may lag behind (e.g. DB write in flight), so guard here too.
@@ -206,7 +297,7 @@ export function ProfileIncompleteBlock({
         {/* ── CTA card ──────────────────────────────────────────────── */}
         <View style={styles.ctaCard}>
           <Pressable
-            onPress={onContinue}
+            onPress={() => onContinue?.(continueTarget)}
             style={({ pressed }) => ({
               opacity: pressed ? 0.88 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],

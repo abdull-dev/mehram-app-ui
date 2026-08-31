@@ -401,9 +401,15 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
 
         {/* ── Nav bar ─────────────────────────────────────────────────────── */}
         <View style={styles.nb}>
-          <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, { transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
-            <BackIcon />
-          </Pressable>
+          {/* Omitted when there is nothing behind this screen: entering the
+              flow straight from Home makes this its first step. */}
+          {onBack ? (
+            <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, { transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
+              <BackIcon />
+            </Pressable>
+          ) : (
+            <View style={styles.backSpacer} />
+          )}
           <View style={styles.prgTrack}>
             <LinearGradient colors={[...GradientColors.primary]} locations={[...GradientColors.primaryLocations]}
               start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.prgFill} />
@@ -576,7 +582,7 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
         {/* ── Footer ──────────────────────────────────────────────────────── */}
         <View style={styles.foot}>
           <GradientButton
-            label="See who matches me"
+            label="Continue"
             loading={continueLoading}
             onPress={handleContinue}
           />
@@ -651,6 +657,10 @@ const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 16, flexDirection: 'column' },
 
   nb: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 12, paddingBottom: 4 },
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38, height: 38, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center',

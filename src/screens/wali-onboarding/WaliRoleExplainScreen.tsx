@@ -80,9 +80,16 @@ export function WaliRoleExplainScreen({
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 12 }]}>
       {/* Nav bar */}
       <View style={styles.navbar}>
-        <Pressable onPress={onBack} hitSlop={8} style={styles.backBtn}>
-          <BackIcon />
-        </Pressable>
+        {/* Omitted when there is nothing behind this screen — a resumed
+            session starts here, and a control that does nothing is worse than
+            no control. */}
+        {onBack ? (
+          <Pressable onPress={onBack} hitSlop={8} style={styles.backBtn}>
+            <BackIcon />
+          </Pressable>
+        ) : (
+          <View style={styles.backSpacer} />
+        )}
         <View style={styles.progressTrack}>
           <LinearGradient
             colors={[...GRAD]}
@@ -207,6 +214,10 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 4,
   },
+  // Holds the back button's place in the row when there is nothing behind this
+  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
+  // as an empty white square where the button used to be.
+  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

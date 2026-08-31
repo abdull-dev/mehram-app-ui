@@ -36,45 +36,14 @@ import {
   View,
 } from 'react-native';
 import { registerUser } from '../../api/auth';
-import { savePendingEmail } from '../../storage/authStorage';
+import { savePendingEmail, savePendingPhone } from '../../storage/authStorage';
+import { COUNTRIES, Country, nationalPart, splitE164, toE164 } from '../../utils/phone';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Path, Rect, Circle, G } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
-
-// ─── data ─────────────────────────────────────────────────────────────────────
-interface Country {
-  flag: string;
-  name: string;
-  code: string;
-}
-
-const COUNTRIES: Country[] = [
-  { flag: '🇵🇰', name: 'Pakistan', code: '+92' },
-  { flag: '🇦🇪', name: 'United Arab Emirates', code: '+971' },
-  { flag: '🇸🇦', name: 'Saudi Arabia', code: '+966' },
-  { flag: '🇬🇧', name: 'United Kingdom', code: '+44' },
-  { flag: '🇺🇸', name: 'United States', code: '+1' },
-  { flag: '🇨🇦', name: 'Canada', code: '+1 CA' },
-  { flag: '🇦🇺', name: 'Australia', code: '+61' },
-  { flag: '🇶🇦', name: 'Qatar', code: '+974' },
-  { flag: '🇴🇲', name: 'Oman', code: '+968' },
-  { flag: '🇰🇼', name: 'Kuwait', code: '+965' },
-  { flag: '🇧🇭', name: 'Bahrain', code: '+973' },
-  { flag: '🇲🇾', name: 'Malaysia', code: '+60' },
-  { flag: '🇩🇪', name: 'Germany', code: '+49' },
-  { flag: '🇳🇴', name: 'Norway', code: '+47' },
-  { flag: '🇩🇰', name: 'Denmark', code: '+45' },
-  { flag: '🇮🇹', name: 'Italy', code: '+39' },
-  { flag: '🇪🇸', name: 'Spain', code: '+34' },
-  { flag: '🇹🇷', name: 'Turkey', code: '+90' },
-  { flag: '🇿🇦', name: 'South Africa', code: '+27' },
-  { flag: '🇳🇿', name: 'New Zealand', code: '+64' },
-  { flag: '🇮🇪', name: 'Ireland', code: '+353' },
-  { flag: '🇫🇷', name: 'France', code: '+33' },
-];
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -122,15 +91,45 @@ interface PhoneScreenProps {
   onGoogleSignIn?: () => void;
   /** DEV ONLY — skip phone verification entirely */
   onSkip?: () => void;
+  /**
+   * Values to open the form on, used by AccountVerification's "Change number"
+   * and "Change email". The password is only known while the session that
+   * signed up is still in memory; after a relaunch it is absent and the user
+   * re-enters it, which is also what re-authorises the change.
+   */
+  initial?: { phoneE164?: string; email?: string; password?: string };
+  /** Which field to open focused. */
+  focusField?: 'phone' | 'email';
+  /**
+   * Re-submitting details for a signup that has not been confirmed yet, rather
+   * than creating one. Only the copy differs — the request is the same
+   * `POST /auth/register`, which the backend reconciles onto the pending
+   * identity and answers with fresh codes.
+   */
+  editing?: boolean;
 }
 
-export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: PhoneScreenProps) {
+export function PhoneScreen({
+  onBack,
+  onSendCode,
+  onGoogleSignIn,
+  onSkip,
+  initial,
+  focusField,
+  editing = false,
+}: PhoneScreenProps) {
   const insets = useSafeAreaInsets();
-  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  // Lazy initialisers: the split runs once, so editing the field afterwards is
+  // never undone by a re-render re-deriving it from the same prop.
+  const [country, setCountry] = useState<Country>(
+    () => splitE164(initial?.phoneE164 ?? '').country,
+  );
+  const [phone, setPhone] = useState(
+    () => splitE164(initial?.phoneE164 ?? '').national,
+  );
+  const [email, setEmail] = useState(initial?.email ?? '');
+  const [password, setPassword] = useState(initial?.password ?? '');
+  const [confirmPassword, setConfirmPassword] = useState(initial?.password ?? '');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState<{
@@ -138,50 +137,13 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
   }>({});
   const [loading, setLoading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const phoneRef = useRef<TextInput>(null);
-  const emailRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
-  const confirmRef = useRef<TextInput>(null);
-
-  /**
-   * The national part of what was typed — everything the dial-code chip beside
-   * the field does not already show.
-   *
-   * People enter their number however they know it: already carrying the country
-   * code ("923114440959"), with the local trunk zero ("03114440959"), with an
-   * international prefix ("0092…"), or bare. The field used to keep all of it
-   * verbatim, so the chip and the text together read "+92 92311…", and submitting
-   * concatenated them into +92923114440959 — invalid, yet accepted at signup, so
-   * the account existed against a number no OTP could reach.
-   *
-   * A bare country code is only removed once enough digits follow to still leave
-   * a plausible subscriber number. That way a national number which happens to
-   * begin with the same digits survives, and nothing is taken away mid-keystroke
-   * before we can tell the two apart. An explicit "+" or "00" is unambiguous and
-   * is stripped straight away.
-   */
-  function nationalPart(dialCode: string, entered: string): string {
-    const cc = dialCode.replace(/\D/g, '');
-    const explicitPrefix = /^\s*(\+|00)/.test(entered);
-    let digits = entered.replace(/\D/g, '');
-
-    if (digits.startsWith('00')) digits = digits.slice(2);
-
-    if (
-      cc &&
-      digits.startsWith(cc) &&
-      (explicitPrefix || digits.length - cc.length >= 6)
-    ) {
-      digits = digits.slice(cc.length);
-    }
-
-    return digits.replace(/^0+/, '');
-  }
-
-  /** Full E.164, built from the chip's dial code and the national part. */
-  function toE164(dialCode: string, entered: string): string {
-    return `+${dialCode.replace(/\D/g, '')}${nationalPart(dialCode, entered)}`;
-  }
+  // ComponentRef, not the component type: `useRef<TextInput>` types the ref as
+  // the component itself, which has no `focus`, so every focus call and every
+  // `ref=` here was an error against React Native's current typings.
+  const phoneRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const confirmRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   function validate(): boolean {
     const e: typeof errors = {};
@@ -223,11 +185,17 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
         password,
       });
       await savePendingEmail(email.trim().toLowerCase());
+      // Stored here, awaited, alongside the email rather than fire-and-forget
+      // after navigation: the verify screen hides the phone row entirely when
+      // it has no number, so losing this write costs the user the phone step.
+      await savePendingPhone(e164);
       // Display the normalised national part, so the verification screen shows
       // the number the code was actually sent to.
       onSendCode?.(
         nationalPart(country.code, phone),
-        country.code,
+        // The chip label, not the raw `code`: Canada's is "+1 CA", which the
+        // verification screen would otherwise print inside the number.
+        dialCode,
         email.trim().toLowerCase(),
         password,
         e164,
@@ -269,6 +237,21 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
       makeRise(passwordField),
       makeRise(divider),
     ]).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Open on the field the user came here to change. Delayed one tick past mount
+   * so the entrance animation has laid the field out before the keyboard rises
+   * over it; without the delay the focus lands on an element that is still at
+   * its pre-animation offset and the scroll view jumps.
+   */
+  useEffect(() => {
+    if (!focusField) return;
+    const t = setTimeout(() => {
+      (focusField === 'email' ? emailRef : phoneRef).current?.focus();
+    }, 420);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -329,10 +312,12 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
               <Text style={styles.kickerText}>Step 1 of 5</Text>
             </View>
             <Text style={styles.heading}>
-              Create your{'\n'}account
+              {editing ? <>Change your{'\n'}details</> : <>Create your{'\n'}account</>}
             </Text>
             <Text style={styles.subtitle}>
-              Phone verified by code · Email for account recovery
+              {editing
+                ? 'Saving sends fresh codes. Any code you already received stops working.'
+                : 'Phone verified by code · Email for account recovery'}
             </Text>
           </Animated.View>
 
@@ -469,7 +454,11 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
               {errors.password ? (
                 <Text style={styles.errorText}>{errors.password}</Text>
               ) : (
-                <Text style={styles.hint}>At least 8 characters.</Text>
+                <Text style={styles.hint}>
+                  {editing
+                    ? 'Enter the password you signed up with — re-registering never rewrites a pending signup\u2019s password.'
+                    : 'At least 8 characters.'}
+                </Text>
               )}
             </View>
 
@@ -534,27 +523,33 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
           {/* ── Sign up + Divider + Google ────────────────────────────── */}
           <Animated.View style={[styles.footer, riseStyle(divider.anim)]}>
             <GradientButton
-              label="Sign up"
+              label={editing ? 'Save and send codes' : 'Continue to signup'}
               variant={canSubmit ? 'primary' : 'disabled'}
               onPress={handleSend}
               loading={loading}
             />
 
-            <View style={styles.orWrap}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.orLine} />
-            </View>
+            {/* Signing in with Google would abandon the pending signup these
+                details belong to, so it is not offered while editing one. */}
+            {!editing && (
+              <>
+                <View style={styles.orWrap}>
+                  <View style={styles.orLine} />
+                  <Text style={styles.orText}>or</Text>
+                  <View style={styles.orLine} />
+                </View>
 
-            <Pressable
-              onPress={onGoogleSignIn}
-              style={({ pressed }) => [
-                styles.googleBtn,
-                pressed && styles.googleBtnPressed,
-              ]}>
-              <GoogleIcon />
-              <Text style={styles.googleLabel}>Continue with Google</Text>
-            </Pressable>
+                <Pressable
+                  onPress={onGoogleSignIn}
+                  style={({ pressed }) => [
+                    styles.googleBtn,
+                    pressed && styles.googleBtnPressed,
+                  ]}>
+                  <GoogleIcon />
+                  <Text style={styles.googleLabel}>Continue with Google</Text>
+                </Pressable>
+              </>
+            )}
 
             {onSkip && (
               <Pressable onPress={onSkip} style={styles.skipBtn}>

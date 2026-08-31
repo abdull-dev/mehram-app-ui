@@ -88,11 +88,31 @@ function ClockIcon() {
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface UnderReviewScreenProps {
+  /**
+   * A verification is genuinely awaiting review (the server reports PENDING).
+   *
+   * False means nothing has been submitted yet — `verification.status` is null.
+   * Both cases reach this screen, and claiming a review is underway when none
+   * exists is the one thing it must not do.
+   */
+  verificationPending?: boolean;
+  /**
+   * Some verification types are submitted but not all. Distinct from "nothing
+   * submitted": the remaining step is smaller and the wording should say so.
+   */
+  verificationPartial?: boolean;
   /** Called when user taps "Got it" */
   onGoHome?: () => void;
+  /** Take the user to the verification step when nothing has been submitted. */
+  onStartVerification?: () => void;
 }
 
-export function UnderReviewScreen({ onGoHome }: UnderReviewScreenProps) {
+export function UnderReviewScreen({
+  onGoHome,
+  verificationPending = true,
+  verificationPartial = false,
+  onStartVerification,
+}: UnderReviewScreenProps) {
   const insets = useSafeAreaInsets();
 
   // Pop: 0 → 1 over 550 ms; scale interpolated as 0.68 → 1.07 → 1
@@ -146,6 +166,9 @@ export function UnderReviewScreen({ onGoHome }: UnderReviewScreenProps) {
           styles.screen,
           {
             paddingTop: Math.max(insets.top, 16),
+            // Kept tall with or without the footer: on the home screen this
+            // scrolls behind an overlaid tab bar, so the last card still needs
+            // the same clearance the button used to occupy.
             paddingBottom: Math.max(insets.bottom + 100, 120),
           },
         ]}
@@ -172,23 +195,44 @@ export function UnderReviewScreen({ onGoHome }: UnderReviewScreenProps) {
 
           {/* "Under review" — d1 */}
           <Animated.Text style={[styles.title, riseStyle(titleAnim)]}>
-            Under review
+            {verificationPending
+              ? 'Under review'
+              : verificationPartial
+                ? 'Almost there'
+                : 'One step left'}
           </Animated.Text>
 
           {/* Body paragraph — d2 */}
           <Animated.Text style={[styles.body, riseStyle(bodyAnim)]}>
-            Your payment was received. Our team is reviewing your profile — we
-            will notify you within 24 hours.
+            {verificationPending
+              ? 'Your payment was received. Our team is reviewing your profile — we will notify you within 24 hours.'
+              : verificationPartial
+                ? 'Add your CNIC or passport to finish verification, then our team will review your profile.'
+                : 'Your payment was received. Verify your identity and our team will review your profile.'}
           </Animated.Text>
 
           {/* "What happens next" info card — d3 */}
           <Animated.View style={[styles.card, riseStyle(cardAnim)]}>
             <Text style={styles.cardLabel}>What happens next</Text>
             <Text style={styles.cardBody}>
-              Once approved, you will receive your first introduction. We will
-              send you a notification right away.
+              {verificationPending
+                ? 'Once approved, you will receive your first introduction. We will send you a notification right away.'
+                : 'Once you verify, review usually takes under 24 hours. Your first introduction follows approval.'}
             </Text>
           </Animated.View>
+
+          {!verificationPending && !!onStartVerification && (
+            <Animated.View style={[styles.card, riseStyle(cardAnim)]}>
+              <GradientButton
+                label={
+                  verificationPartial
+                    ? 'Finish verification'
+                    : 'Verify my identity'
+                }
+                onPress={onStartVerification}
+              />
+            </Animated.View>
+          )}
 
         </View>
 
@@ -199,9 +243,14 @@ export function UnderReviewScreen({ onGoHome }: UnderReviewScreenProps) {
         <DailyDuaCard index={1} />
 
         {/* ── Footer ────────────────────────────────────────────────────── */}
-        <View style={styles.footer}>
-          <GradientButton label="Got it" onPress={onGoHome} />
-        </View>
+        {/* Only when there is somewhere to go. On the home screen this screen
+            *is* the destination, so the button was rendered with no handler —
+            a dead control, and a reserved strip of space below the content. */}
+        {!!onGoHome && (
+          <View style={styles.footer}>
+            <GradientButton label="Got it" onPress={onGoHome} />
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -226,6 +275,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
+    // Separates this block from the cards that follow it. Its last child only
+    // carries a top margin, so without this the "What happens next" card sat
+    // flush against "While you wait".
+    marginBottom: 20,
   },
 
   // Outer wrapper carries the shadow

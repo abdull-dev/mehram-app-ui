@@ -185,6 +185,12 @@ interface RegisterPayload {
 export interface PendingConfirmation {
   status: 'pending_confirmation';
   email: string;
+  /**
+   * The number the account was registered with. Echoed back because no local
+   * profile exists to read it from until the email is confirmed, and the
+   * verification screen needs it to show the phone row at all.
+   */
+  phone: string | null;
 }
 
 /** Register with email + password. Backend sends email OTP. */
@@ -213,6 +219,41 @@ export async function resendEmailOtp(email: string): Promise<void> {
   });
 }
 
+/**
+ * Verification state for a signup that has not been confirmed yet.
+ *
+ * The two verifications leave different evidence — confirming the email mints a
+ * session, verifying the phone does not — so between them there is no token and
+ * /auth/me cannot answer. This is the durable source for both.
+ */
+export async function getPendingStatus(email: string): Promise<{
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  phone: string | null;
+}> {
+  return apiRequest(
+    `/auth/pending-status?email=${encodeURIComponent(email)}`,
+  );
+}
+
+/**
+ * Correct the email and/or phone on a signup that has not been confirmed yet.
+ *
+ * Not a re-register: re-registering needs the password, which the client no
+ * longer holds after a reload or a restored pending signup. The server edits
+ * the pending identity in place and re-sends the code when the address moves.
+ */
+export async function updatePendingContact(payload: {
+  currentEmail: string;
+  email?: string;
+  phone?: string;
+}): Promise<PendingConfirmation> {
+  return apiRequest<PendingConfirmation>('/auth/pending-contact', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 /** Verify phone OTP inline without creating an account. */
 export async function verifyPhoneOnly(phone: string, otp: string): Promise<{ verified: true }> {
   return apiRequest<{ verified: true }>('/auth/verify-phone-only', {
@@ -226,7 +267,9 @@ export async function verifyPhoneOnly(phone: string, otp: string): Promise<{ ver
 /** Sign in with email + password. Tokens are persisted on success.
  *  Uses raw fetch (not apiRequest) to avoid the 401-refresh middleware
  *  misinterpreting wrong-credentials as "Session expired". */
-export async function login(payload: { email: string; password: string }): Promise<AuthResponse> {
+export async function login(
+  payload: { email: string; password: string },
+): Promise<AuthResponse | PendingConfirmation> {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -236,6 +279,12 @@ export async function login(payload: { email: string; password: string }): Promi
   if (!response.ok) {
     const msg = (body as any)?.message ?? (body as any)?.error ?? 'Invalid credentials. Please try again.';
     throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+  }
+  // An unconfirmed address signs in to the verification screen rather than to a
+  // session: Supabase issues no token until the email is confirmed, so there is
+  // nothing to persist here.
+  if (isPendingConfirmation(body as AuthResponse | PendingConfirmation)) {
+    return body as PendingConfirmation;
   }
   const result = body as AuthResponse;
   await saveTokens(result.session.accessToken, result.session.refreshToken);

@@ -97,16 +97,26 @@ export interface MyProfile {
   privacySettings?: PrivacySettings | null;
 }
 
-// ─── F7 — Location (lat/lng only; country + city go on PUT /profile/me) ───────
+// ─── F6/F7 — Location ─────────────────────────────────────────────────────────
 
-/** Save GPS coordinates. Country and city are not accepted on this endpoint. */
-export async function updateLocation(
-  latitude: number,
-  longitude: number,
-): Promise<void> {
+/**
+ * Save any part of the user's location.
+ *
+ * This endpoint has always accepted `countryCode` and `city`; the client simply
+ * never sent them, so the country and city steps persisted nothing and the
+ * answers lived in memory until F8's full profile PUT — and were lost if the
+ * app closed before reaching it. Every field is optional, and omitted ones
+ * leave the stored value untouched.
+ */
+export async function updateLocation(data: {
+  latitude?: number;
+  longitude?: number;
+  countryCode?: string;
+  city?: string;
+}): Promise<void> {
   return apiRequest('/profile/me/location', {
     method: 'PATCH',
-    body: JSON.stringify({ latitude, longitude }),
+    body: JSON.stringify(data),
   });
 }
 
@@ -326,4 +336,44 @@ export async function updatePhotoPrivacy(data: {
 /** Fetch own full profile (used by HomeScreen / ProgressHub). */
 export async function getMyProfile(): Promise<MyProfile> {
   return apiRequest<MyProfile>('/profile/me');
+}
+
+// ─── Section-by-section completion ────────────────────────────────────────────
+
+/** Mirrors `SectionKey` in the backend's profile-completion module. */
+export type ProfileSectionKey =
+  | 'basicInfo'
+  | 'religious'
+  | 'location'
+  | 'family'
+  | 'prompts'
+  | 'photos'
+  | 'preferences'
+  | 'wali';
+
+export interface ProfileSectionStatus {
+  complete: boolean;
+  fieldsTotal: number;
+  fieldsDone: number;
+}
+
+export interface ProfileCompletion {
+  /** Field-weighted percentage across every section. */
+  overallPercent: number;
+  sections: Record<ProfileSectionKey, ProfileSectionStatus>;
+  /** Incomplete sections that actually block matching. */
+  missingCore: ProfileSectionKey[];
+  coreComplete: boolean;
+}
+
+/**
+ * Which profile sections are actually finished.
+ *
+ * H6 used to infer this from the onboarding screen the user would resume at,
+ * which is not the same question: the verification and payment steps move that
+ * marker past every profile section, so a profile the server still considers
+ * incomplete read as fully done and H6 rendered nothing at all.
+ */
+export async function getProfileCompletion(): Promise<ProfileCompletion> {
+  return apiRequest<ProfileCompletion>('/profile/me/completion');
 }

@@ -201,14 +201,20 @@ export function GuidedPromptScreen({
         {/* ── NavBar (.nb) ────────────────────────────────────────────── */}
         <View style={styles.nb}>
           {/* Back button */}
-          <Pressable
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.back,
-              { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
-            ]}>
-            <ChevronLeft />
-          </Pressable>
+          {/* Omitted when there is nothing behind this screen: entering the
+              flow straight from Home makes this its first step. */}
+          {onBack ? (
+            <Pressable
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.back,
+                { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
+              ]}>
+              <ChevronLeft />
+            </Pressable>
+          ) : (
+            <View style={styles.back} />
+          )}
 
           {/* Progress bar track */}
           <View style={styles.prgTrack}>

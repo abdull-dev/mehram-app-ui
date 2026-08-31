@@ -13,7 +13,15 @@ export type VerificationType =
   | 'GOVERNMENT_ID'
   | 'FAMILY'
   | 'SCHOLAR_REFERENCE';
-export type VerificationStatus = 'pending' | 'approved' | 'rejected';
+/**
+ * Uppercase to match the server's enum, and `EXPIRED` is a real value it
+ * returns — the lowercase union here never matched a single response.
+ */
+export type VerificationStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'EXPIRED';
 
 export interface VerificationRecord {
   id: string;

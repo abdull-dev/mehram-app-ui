@@ -891,6 +891,8 @@ function ProposalsTab({
               stage: p.stage,
               viewer: 'suitorWali',
               origin: p.sentByWali ? 'wali' : 'self',
+              suitorHasWali: p.suitorHasWali,
+              recipientHasWali: p.recipientHasWali,
             });
             const who = [
               p.recipientName ?? null,
@@ -964,6 +966,8 @@ function ProposalsTab({
               stage: p.stage,
               viewer: 'recipientWali',
               origin: p.sentByWali ? 'wali' : 'self',
+              suitorHasWali: p.suitorHasWali,
+              recipientHasWali: p.recipientHasWali,
             });
             const who = [
               p.senderName ?? null,

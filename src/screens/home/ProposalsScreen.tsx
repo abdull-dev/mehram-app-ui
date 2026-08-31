@@ -27,7 +27,7 @@ import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/pr
 import type { ProposalDetailSelection } from './ProposalDetailScreen';
 import { useProposalsSocket } from '../../hooks/useProposalsSocket';
 import { formatHeight } from '../../utils/height';
-import { buildProposalSteps } from '../../lib/proposalSteps';
+import { buildProposalSteps, pronounsFor } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -65,6 +65,8 @@ interface ProposalCard {
   chipVariant: ChipVariant;
   chipLabel: string;
   doneSteps: number;
+  /** Approvals this proposal needs — fewer when a side has no wali. */
+  totalSteps: number;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -102,33 +104,48 @@ function fmtReceivedAt(iso: string): string {
 }
 
 // Stage → progress bar segments done (0-4) and chip
-const SENT_STAGE_MAP: Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> = {
-  HIS_WALI_PENDING:     { chipVariant: 'gold', chipLabel: 'Awaiting your wali' },
-  HER_WALI_REVIEWING:   { chipVariant: 'gold', chipLabel: 'With her wali' },
-  HER_DECISION_PENDING: { chipVariant: 'gold', chipLabel: 'She is deciding' },
-  ACCEPTED:             { chipVariant: 'mint', chipLabel: 'She accepted' },
-  DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
-  WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
+// The fallback for when the server sends no stageLabel. Gendered words follow
+// the counterpart rather than assuming the suitor is a man.
+const sentStageMap = (
+  gender?: string | null,
+): Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> => {
+  const p = pronounsFor(gender);
+  return {
+    HIS_WALI_PENDING:     { chipVariant: 'gold', chipLabel: 'Awaiting your wali' },
+    HER_WALI_REVIEWING:   { chipVariant: 'gold', chipLabel: `With ${p.possessive} wali` },
+    HER_DECISION_PENDING: { chipVariant: 'gold', chipLabel: `Awaiting ${p.possessive} answer` },
+    ACCEPTED:             { chipVariant: 'mint', chipLabel: `${p.Subject} accepted` },
+    DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
+    WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
+  };
 };
 
-const RECEIVED_STAGE_MAP: Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> = {
-  HIS_WALI_PENDING:     { chipVariant: 'ind',  chipLabel: 'With his wali' },
-  HER_WALI_REVIEWING:   { chipVariant: 'ind',  chipLabel: 'With your wali' },
-  HER_DECISION_PENDING: { chipVariant: 'rose', chipLabel: 'Needs your answer' },
-  ACCEPTED:             { chipVariant: 'mint', chipLabel: 'Matched' },
-  DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
-  WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
+const receivedStageMap = (
+  gender?: string | null,
+): Record<ProposalStage, { chipVariant: ChipVariant; chipLabel: string }> => {
+  const p = pronounsFor(gender);
+  return {
+    HIS_WALI_PENDING:     { chipVariant: 'ind',  chipLabel: `With ${p.possessive} wali` },
+    HER_WALI_REVIEWING:   { chipVariant: 'ind',  chipLabel: 'With your wali' },
+    HER_DECISION_PENDING: { chipVariant: 'rose', chipLabel: 'Needs your answer' },
+    ACCEPTED:             { chipVariant: 'mint', chipLabel: 'Matched' },
+    DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
+    WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
+  };
 };
 
 function toSentCard(p: SentProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
-  const { chipVariant, chipLabel } = SENT_STAGE_MAP[p.stage];
+  const { chipVariant, chipLabel } = sentStageMap(p.gender)[p.stage];
   // Origin matters even for a bare count: a wali-sent proposal has two
   // approvals in hand at send time, not one.
-  const { doneCount: doneSteps } = buildProposalSteps({
+  const { doneCount: doneSteps, total: totalSteps } = buildProposalSteps({
     stage: p.stage,
     viewer: 'suitor',
     origin: p.sentByWali ? 'wali' : 'self',
+    suitorHasWali: p.suitorHasWali,
+    recipientHasWali: p.recipientHasWali,
+    counterpartGender: p.gender,
   });
   return {
     name: p.fullName ?? 'Unknown',
@@ -138,16 +155,20 @@ function toSentCard(p: SentProposal): ProposalCard {
     chipVariant,
     chipLabel: p.stageLabel ?? chipLabel,
     doneSteps,
+    totalSteps,
   };
 }
 
 function toReceivedCard(p: ReceivedProposal): ProposalCard {
   const sectStr = fmtSect(p.sect, p.madhhab);
-  const { chipVariant, chipLabel } = RECEIVED_STAGE_MAP[p.stage];
-  const { doneCount: doneSteps } = buildProposalSteps({
+  const { chipVariant, chipLabel } = receivedStageMap(p.gender)[p.stage];
+  const { doneCount: doneSteps, total: totalSteps } = buildProposalSteps({
     stage: p.stage,
     viewer: 'recipient',
     origin: p.sentByWali ? 'wali' : 'self',
+    suitorHasWali: p.suitorHasWali,
+    recipientHasWali: p.recipientHasWali,
+    counterpartGender: p.gender,
   });
   return {
     name: p.fullName ?? 'Unknown',
@@ -157,6 +178,7 @@ function toReceivedCard(p: ReceivedProposal): ProposalCard {
     chipVariant,
     chipLabel,
     doneSteps,
+    totalSteps,
   };
 }
 
@@ -200,13 +222,22 @@ function Chip({ variant, label }: { variant: ChipVariant; label: string }) {
 }
 
 // ─── progress bar ─────────────────────────────────────────────────────────────
-function ProgressBar({ doneSteps }: { doneSteps: number }) {
+function ProgressBar({
+  doneSteps,
+  totalSteps,
+}: {
+  doneSteps: number;
+  totalSteps: number;
+}) {
+  // One segment per approval this proposal actually needs. Fixed at four, a
+  // proposal between two people with no wali showed three of them filled —
+  // crediting two reviews that were never going to happen.
   return (
     <View style={styles.progBar}>
-      {[0, 1, 2, 3].map(i => {
+      {Array.from({ length: totalSteps }, (_, i) => {
         const bg =
           i < doneSteps ? C.mint
-          : i === doneSteps && doneSteps < 4 ? C.rose
+          : i === doneSteps && doneSteps < totalSteps ? C.rose
           : C.progEmpty;
         return <View key={i} style={[styles.progSeg, { backgroundColor: bg }]} />;
       })}
@@ -230,7 +261,7 @@ function ProposalRow({ card, onPress }: { card: ProposalCard; onPress: () => voi
           </View>
           <Chip variant={card.chipVariant} label={card.chipLabel} />
         </View>
-        <ProgressBar doneSteps={card.doneSteps} />
+        <ProgressBar doneSteps={card.doneSteps} totalSteps={card.totalSteps} />
       </View>
     </Pressable>
   );
