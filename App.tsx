@@ -23,12 +23,12 @@ import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardR
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import {
   verifyPurchase,
-  getEntitlement,
   MEMBERSHIP_PRODUCT_ID,
   PLATFORM_PURCHASE_SOURCE,
 } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
-import { sendProposal, getProposalStats } from './src/api/proposals';
+import { sendProposal } from './src/api/proposals';
+import { getHomeState } from './src/api/home';
 import {
   updateLocation,
   updateEssentials,
@@ -498,31 +498,78 @@ export default function App() {
   // Called on launch AND every time Home comes back into view, so a payment
   // made moments ago flips the screen without restarting the app.
 
-  // H9 (paid, ID review still running) is decided by the payment flow, not by
-  // the server. A ref, so refreshHomeState() can read it without re-creating
-  // itself on every change and re-firing the effects that depend on it.
-  const underReviewPaidRef = useRef(false);
-  useEffect(() => { underReviewPaidRef.current = underReviewPaid; }, [underReviewPaid]);
-
+  /**
+   * Ask the server which home state to render.
+   *
+   * This used to be inferred from `isEntitled` plus a candidate count, with
+   * "paid, ID still under review" kept in a local ref. The ref did not survive
+   * a restart, so relaunching a paid-but-unverified account fell through to the
+   * introductions card — the app reporting a profile as verified when no
+   * verification had happened. `/matches/home-state` resolves verification,
+   * billing, completeness and matching together, which is the only place all of
+   * those are known at once.
+   */
   const refreshHomeState = useCallback(async (isInitial = false) => {
     try {
-      const { isEntitled } = await getEntitlement();
-      if (isEntitled) {
-        // Paid: nothing that prompts for payment may stay on screen.
-        setUnderReviewUnpaid(false);
-        setProposalsReadyUnpaid(false);
-        setPaymentFailed(false);
-        // Don't overwrite H9 — a paid user whose ID is still being reviewed
-        // stays there until review clears, not on the introductions card.
-        if (!underReviewPaidRef.current) setIntroductionAvailable(true);
-      } else {
-        const { candidateCount } = await getProposalStats();
-        if (candidateCount > 0) {
+      const { state, data } = await getHomeState();
+
+      // Start from a clean slate each time: leaving a previous flag set is how
+      // two states end up on screen at once.
+      setPaymentFailed(false);
+      setUnderReviewUnpaid(false);
+      setUnderReviewPaid(false);
+      setProposalsReadyUnpaid(false);
+      setIntroductionAvailable(false);
+      setHasIntroductions(true);
+      setMatchCount(data.matchCount);
+
+      switch (state) {
+        case 'PAYMENT_FAILED':
+          setPaymentFailed(true);
+          break;
+
+        // Nothing has verified this profile yet, so the introductions card must
+        // not be shown whatever the billing state says.
+        case 'VERIFICATION_NOT_STARTED':
+        case 'VERIFICATION_FAILED':
+        case 'RESUBMIT_REQUIRED':
+        case 'UNDER_REVIEW_UNPAID':
+        case 'UNDER_REVIEW_PAID':
+          if (data.isPaid) setUnderReviewPaid(true);
+          else setUnderReviewUnpaid(true);
+          break;
+
+        case 'MATCHES_FOUND_UNPAID':
           setProposalsReadyUnpaid(true);
-          setMatchCount(candidateCount);
-        } else {
-          setUnderReviewUnpaid(true);
-        }
+          break;
+
+        // Verified and searching, but nobody to show right now.
+        case 'NO_MATCHES_IN_CITY':
+        case 'CRITERIA_TOO_NARROW':
+        case 'NO_MATCHES_TODAY':
+          setIntroductionAvailable(true);
+          setHasIntroductions(false);
+          break;
+
+        case 'INTRO_AVAILABLE':
+        case 'AWAITING_WALI_APPROVAL':
+        case 'PHOTO_REQUEST_SENT':
+        case 'PHOTO_SHARED':
+        case 'PHOTO_REQUEST_DECLINED':
+        case 'INCOMING_PHOTO_REQUEST':
+        case 'SEARCH_JUST_STARTED':
+        case 'FALLBACK':
+          setIntroductionAvailable(true);
+          break;
+
+        // Account-level states the home screen has no card for. Showing the
+        // search card would be a lie, so fall back to the review screen.
+        case 'SUSPENDED':
+        case 'DELETION_PENDING':
+        case 'PROFILE_INCOMPLETE':
+        default:
+          if (!data.isPaid) setUnderReviewUnpaid(true);
+          break;
       }
     } catch {
       // On launch there is no prior state to keep, so fall back to H8 (under
