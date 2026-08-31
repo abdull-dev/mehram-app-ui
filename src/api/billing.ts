@@ -2,68 +2,99 @@
  * Billing API
  *
  * F17 PaymentScreen:
- *  - verifyPurchase()    → verify in-app purchase receipt, activates membership
+ *  - verifyPurchase()    → verify a store purchase, activates membership
  *  - getEntitlement()    → check if the user has paid access (for HomeScreen gating)
  */
 import { Platform } from 'react-native';
 import { apiRequest } from './client';
 
-export type PurchaseSource = 'ios_iap' | 'android_iap' | 'card' | 'local_wallet';
+/**
+ * Who sold the purchase. This decides how the server verifies it, so the
+ * payload below has to match: each provider proves a purchase differently.
+ */
+export type PaymentProvider = 'google_play' | 'apple_app_store' | 'stripe';
 
-/** The store source matching the platform this build runs on. */
-export const PLATFORM_PURCHASE_SOURCE: PurchaseSource =
-  Platform.OS === 'android' ? 'android_iap' : 'ios_iap';
+/**
+ * Whether a store purchase can complete on this platform at all.
+ *
+ * Only Google Play has a verifier server-side. An `apple_app_store` purchase
+ * passes validation and is then refused as unsupported, so there is nothing to
+ * gain from sending one — and StoreKit's signed transaction is not a purchase
+ * token, so it could not be sent in Play's shape anyway.
+ */
+export const STORE_PURCHASES_SUPPORTED = Platform.OS === 'android';
 
 /** Play Console / App Store product id for the one-off membership. */
 export const MEMBERSHIP_PRODUCT_ID = 'mehram_membership';
+
+/**
+ * A purchase to verify: who sold it, and the proof they issued for it.
+ *
+ * Provider and payload are one discriminated argument rather than two, because
+ * they are not independent — Google Play gives a purchase token, Apple
+ * StoreKit 2 gives a signed JWS transaction, which is not a token and does not
+ * belong in a field called one. Pairing them makes a mismatch a compile error
+ * instead of a 400 discovered at runtime.
+ */
+export type StorePurchase =
+  | { provider: 'google_play'; payload: { purchaseToken: string } }
+  | { provider: 'apple_app_store'; payload: { signedTransaction: string } }
+  | { provider: 'stripe'; payload: { sessionId: string } };
 
 export interface EntitlementResponse {
   isEntitled: boolean;
 }
 
+export interface PurchaseResponse {
+  isEntitled: boolean;
+  /** 'ONE_TIME' for the membership; a plan name for the legacy subscriptions. */
+  plan: string | null;
+  /** null for the membership — a one-time purchase does not expire. */
+  expiresAt: string | null;
+}
+
 /**
- * POST /billing/verify-purchase currently answers with the raw Subscription
- * row it wrote; the backend is switching it to `{ isEntitled, plan, expiresAt }`.
- * Both shapes are accepted here so the app keeps working across that deploy.
+ * Older builds of the server answered with the raw Subscription row, which has
+ * no `isEntitled`. Tolerated so the app works either side of that deploy.
  */
 interface VerifyPurchaseResponse {
   isEntitled?: boolean;
   plan?: string | null;
   expiresAt?: string | null;
-  status?: string;
 }
 
-export interface PurchaseResponse {
-  isEntitled: boolean;
-  plan: string | null;
-  expiresAt: string | null;
+/** The single proof value in a payload, whatever the provider calls it. */
+function proofValue(purchase: StorePurchase): string {
+  const [value] = Object.values(purchase.payload);
+  return typeof value === 'string' ? value : '';
 }
 
 /**
- * Verify a completed in-app purchase with the server.
+ * Verify a completed store purchase with the server.
  *
- * The body is exactly what VerifyPurchaseDto validates:
- *   purchaseToken  non-empty, ≤1024 chars — the Play/App Store token
- *   productId      non-empty, ≤255 chars
- *   source         optional, one of PurchaseSource
- * An empty purchaseToken is a 400, so it is rejected here rather than sent.
- *
- * The token is unique across users server-side: one that already belongs to
- * someone else is refused, so it must be the token the store actually issued
- * for this purchase, never a fixed string.
+ * The payload must carry what the store actually issued for *this* purchase —
+ * the server records it against the buyer, so a value already seen on another
+ * account is refused, and a fixed string would work exactly once.
  */
 export async function verifyPurchase(
-  purchaseToken: string,
+  purchase: StorePurchase,
   productId: string = MEMBERSHIP_PRODUCT_ID,
-  source: PurchaseSource = PLATFORM_PURCHASE_SOURCE,
 ): Promise<PurchaseResponse> {
-  if (!purchaseToken) {
-    throw new Error('verifyPurchase: purchaseToken is required');
+  // Refuse an empty proof here rather than letting the server decide. A real
+  // verifier rejects it, but a host running the stub verifier (any non-production
+  // deploy without Play credentials) accepts every token — including '' — and
+  // would grant a permanent entitlement for a purchase that never happened.
+  if (!proofValue(purchase)) {
+    throw new Error('verifyPurchase: the store issued no proof of purchase');
   }
-  const res = await apiRequest<VerifyPurchaseResponse>('/billing/verify-purchase', {
-    method: 'POST',
-    body: JSON.stringify({ purchaseToken, productId, source }),
-  });
+
+  const res = await apiRequest<VerifyPurchaseResponse>(
+    '/billing/verify-purchase',
+    {
+      method: 'POST',
+      body: JSON.stringify({ ...purchase, productId }),
+    },
+  );
 
   if (typeof res?.isEntitled === 'boolean') {
     return {
@@ -76,7 +107,7 @@ export async function verifyPurchase(
   // Older shape: the Subscription row. Its `status` is the legacy subscription
   // coupling the backend is removing, so ask the entitlement endpoint — the one
   // authority on paid access — instead of reading it. A 2xx above already means
-  // the token verified, so this only resolves *what it granted*.
+  // the purchase verified, so this only resolves *what it granted*.
   const { isEntitled } = await getEntitlement();
   return {
     isEntitled,

@@ -188,19 +188,42 @@ All profile endpoints were already correctly structured. Only DTOs changed.
 **Request body — `/billing/verify-purchase`** (matches `VerifyPurchaseDto`):
 ```json
 {
-  "purchaseToken": "<Play / App Store purchase token>",
+  "provider": "google_play",
   "productId": "mehram_membership",
-  "source": "android_iap"
+  "payload": { "purchaseToken": "<Play purchase token>" }
 }
 ```
 
-`purchaseToken` and `productId` are required and non-empty (max 1024 / 255 chars);
-`source` is optional and one of `ios_iap` | `android_iap` | `card` | `local_wallet`
-(defaults to `android_iap` server-side). The token is unique across users — one
-already recorded for another account is rejected with 400.
+`provider` is required, one of `google_play` | `apple_app_store` | `stripe`. Only
+`google_play` has a verifier today; the other two are accepted by validation and
+answered with a 400 naming them as unsupported, so the error says what is actually
+wrong.
 
-**Response:** the created/updated `Subscription` row (`status`, `plan`, `tier`,
-`expiresAt`, …), not `{ isEntitled }`. `status: "ACTIVE"` (or `"GRACE"`) means paid.
+`payload` is whatever that provider issues as proof, and is deliberately not a
+fixed shape — Play gives a purchase token, Apple StoreKit 2 gives a signed JWS
+transaction, which is not a token. Each verifier narrows its own and 400s with a
+message naming what it wanted.
+
+`productId` must be in the server's product catalogue; an unrecognised id is a 400
+rather than a silent default.
+
+A purchase is recorded against its buyer, so re-posting the same one is an
+idempotent no-op, and one already recorded for another account is rejected with 400.
+
+**Legacy shape**, still accepted for builds that predate this: a flat
+`{ purchaseToken, productId, source }` where `source` is `android_iap` or
+`ios_iap` is mapped onto `provider`/`payload`. `card` and `local_wallet` name no
+verifier and are rejected. Slated for removal — send the shape above.
+
+**Response:**
+```json
+{ "isEntitled": true, "plan": "ONE_TIME", "expiresAt": null }
+```
+
+`plan` is `"ONE_TIME"` for the membership (a one-time purchase — `expiresAt` is
+null because it never expires) or a plan name for the legacy subscription
+products. It previously answered with the raw `Subscription` row, which had no
+`isEntitled` at all.
 
 ---
 
