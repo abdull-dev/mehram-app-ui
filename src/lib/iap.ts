@@ -46,7 +46,12 @@ const SUPPORTED = Platform.OS === 'android';
  */
 const PURCHASE_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** How long to leave the restore pass alone after it fails. See below. */
+const QUERY_BACKOFF_MS = 5 * 60 * 1000;
+
 let connected = false;
+/** 0 when the last purchase query succeeded, otherwise when it failed. */
+let lastQueryFailureAt = 0;
 
 /**
  * Open the billing connection, retrying if a previous attempt failed.
@@ -65,6 +70,27 @@ async function ensureConnected(): Promise<boolean> {
     connected = false;
   }
   return connected;
+}
+
+/**
+ * Notice that Play hung up, so the next call reconnects instead of trusting a
+ * stale flag.
+ *
+ * Play's billing client disconnects on its own — the Store updating itself, the
+ * service being reclaimed while the app is backgrounded — and it does not tell
+ * us; we only find out from the error on the next call. Without this,
+ * `connected` stays true forever after the first successful connect and every
+ * subsequent billing call fails for the rest of the session, which is the exact
+ * failure `ensureConnected` exists to avoid.
+ */
+function noteConnectionState(error: unknown): void {
+  const code = codeOf(error);
+  if (
+    code === ErrorCode.ServiceDisconnected ||
+    code === ErrorCode.NotPrepared
+  ) {
+    connected = false;
+  }
 }
 
 /**
@@ -99,7 +125,8 @@ export async function getMembershipPrice(): Promise<string | null> {
     });
     const product = products?.find(p => p.id === MEMBERSHIP_PRODUCT_ID);
     return product?.displayPrice ?? null;
-  } catch {
+  } catch (error) {
+    noteConnectionState(error);
     return null;
   }
 }
@@ -128,7 +155,7 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
   // on product alone would let `buyMembership` resolve with an old purchase and
   // its stale token. Identity is the token; nothing else distinguishes them.
   const preExisting = new Set(
-    (await getUnfinishedPurchases()).map(p => p.purchaseToken),
+    (await queryPurchases()).map(p => p.purchaseToken),
   );
 
   return new Promise<Purchase>((resolve, reject) => {
@@ -187,6 +214,7 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
     });
 
     const errorSub = purchaseErrorListener((error: PurchaseError) => {
+      noteConnectionState(error);
       fail(toPurchaseError(error));
     });
 
@@ -199,6 +227,7 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
       },
       type: 'in-app',
     }).catch((error: unknown) => {
+      noteConnectionState(error);
       fail(error instanceof Error ? error : new Error(String(error)));
     });
   });
@@ -242,16 +271,46 @@ export async function finishMembershipPurchase(
  * It becomes 'purchased' on its own if the payment clears.
  */
 export async function getUnfinishedPurchases(): Promise<Purchase[]> {
-  if (!(await ensureConnected())) return [];
+  // Backs off after a failure instead of retrying on every single foreground.
+  //
+  // Two reasons. The library's own logger calls `console.error` unconditionally
+  // — there is no flag to silence it — so a Play service that keeps refusing
+  // puts a red box on screen every time the app is foregrounded, which buries
+  // real errors during development. And where billing simply cannot work (an
+  // emulator, a build installed outside Play) retrying forever achieves nothing.
+  //
+  // Backing off is safe: the window this protects is Google's three-day
+  // auto-refund of unacknowledged purchases, so retrying minutes later rather
+  // than seconds later costs nothing. A success clears the backoff immediately.
+  if (Date.now() - lastQueryFailureAt < QUERY_BACKOFF_MS) return [];
+  return queryPurchases();
+}
+
+/**
+ * The same query with no backoff, for when the user is waiting on the answer.
+ *
+ * `buyMembership` must not be governed by the backoff: it uses this to learn
+ * which tokens Play already holds, and silently substituting an empty list would
+ * drop the protection against resolving with a redelivered purchase — at the one
+ * moment correctness matters more than log noise.
+ */
+async function queryPurchases(): Promise<Purchase[]> {
+  if (!(await ensureConnected())) {
+    lastQueryFailureAt = Date.now();
+    return [];
+  }
   try {
     const purchases = await getAvailablePurchases();
+    lastQueryFailureAt = 0;
     return (purchases ?? []).filter(
       p =>
         p.productId === MEMBERSHIP_PRODUCT_ID &&
         !!p.purchaseToken &&
         p.purchaseState === 'purchased',
     );
-  } catch {
+  } catch (error) {
+    noteConnectionState(error);
+    lastQueryFailureAt = Date.now();
     return [];
   }
 }
