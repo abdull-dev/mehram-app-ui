@@ -247,9 +247,16 @@ export function buildProposalSteps({
   // proposal at HIS_WALI_PENDING — the stage that normally means "waiting on his
   // wali" — and taking that literally would show the ward being asked for an
   // approval the send already implied.
+  //
+  // Guarded on the stage: rows created before that backend change are still
+  // sitting at HIS_WALI_PENDING with the flag set, and they really are waiting
+  // on that wali — claiming his approval there would contradict the same
+  // proposal listed in his review queue.
   const reached = COMPLETED_THROUGH[stage];
   const completedThrough =
-    origin === 'wali' && reached >= 1 ? Math.max(reached, 2) : reached;
+    origin === 'wali' && reached >= 1 && stage !== 'HIS_WALI_PENDING'
+      ? Math.max(reached, 2)
+      : reached;
 
   const completed = sequence.slice(0, completedThrough);
   const completedSet = new Set<ApprovalKey>(completed);

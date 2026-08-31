@@ -628,6 +628,9 @@ function ReviewTab({
           sentAt: firstPendingSent.createdAt,
           matchId: null,
           stage: firstPendingSent.stage,
+          // Without this the detail tracker falls back to self-sent and
+          // contradicts the card the user just tapped.
+          sentByWali: firstPendingSent.sentByWali,
           status: 'pending',
           age: firstPendingSent.recipientAge,
           city: firstPendingSent.recipientCity,
@@ -647,6 +650,7 @@ function ReviewTab({
           sentAt: firstPendingReceived.createdAt,
           matchId: null,
           stage: firstPendingReceived.stage,
+          sentByWali: firstPendingReceived.sentByWali,
           status: 'pending',
           age: firstPendingReceived.senderAge,
           city: firstPendingReceived.senderCity,
@@ -883,7 +887,11 @@ function ProposalsTab({
         ) : (
           wardProposals.map(p => {
             const { variant, label } = SENT_STAGE_CONFIG[p.stage] ?? SENT_STAGE_CONFIG.HIS_WALI_PENDING;
-            const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'suitorWali' });
+            const { doneCount: doneSteps } = buildProposalSteps({
+              stage: p.stage,
+              viewer: 'suitorWali',
+              origin: p.sentByWali ? 'wali' : 'self',
+            });
             const who = [
               p.recipientName ?? null,
               p.recipientAge ? `${p.recipientAge} yrs` : null,
@@ -902,6 +910,7 @@ function ProposalsTab({
                     sentAt: p.createdAt,
                     matchId: null,
                     stage: p.stage,
+                    sentByWali: p.sentByWali,
                     status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.recipientAge,
                     city: p.recipientCity,
@@ -951,7 +960,11 @@ function ProposalsTab({
         ) : (
           wardReceivedProposals.map(p => {
             const { variant, label } = RECEIVED_STAGE_CONFIG[p.stage] ?? RECEIVED_STAGE_CONFIG.HIS_WALI_PENDING;
-            const { doneCount: doneSteps } = buildProposalSteps({ stage: p.stage, viewer: 'recipientWali' });
+            const { doneCount: doneSteps } = buildProposalSteps({
+              stage: p.stage,
+              viewer: 'recipientWali',
+              origin: p.sentByWali ? 'wali' : 'self',
+            });
             const who = [
               p.senderName ?? null,
               p.senderAge ? `${p.senderAge} yrs` : null,
@@ -970,6 +983,7 @@ function ProposalsTab({
                     sentAt: p.createdAt,
                     matchId: null,
                     stage: p.stage,
+                    sentByWali: p.sentByWali,
                     status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.senderAge,
                     city: p.senderCity,

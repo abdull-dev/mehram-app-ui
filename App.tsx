@@ -1799,8 +1799,13 @@ export default function App() {
                   recipientAge: intro?.age ?? null,
                   recipientCity: intro?.city ?? null,
                   recipientOccupation: intro?.occupation ?? null,
-                  // Optimistic placeholder; the server returns the real stage on refresh.
-                  stage: 'HIS_WALI_PENDING',
+                  // Optimistic placeholder; the server returns the real stage on
+                  // refresh. HER_WALI_REVIEWING, not HIS_WALI_PENDING: the wali
+                  // is the sender here, so his own approval is already given —
+                  // the old value put his proposal straight into his own
+                  // "needs your review" queue until the next fetch.
+                  stage: 'HER_WALI_REVIEWING',
+                  sentByWali: true,
                   createdAt: new Date().toISOString(),
                 };
                 // Wait for the API before removing from intro feed — keeps the
