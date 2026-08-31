@@ -1,5 +1,16 @@
 {
   "extends": "@react-native/typescript-config",
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods"]
+  "exclude": ["**/node_modules", "**/Pods"],
+  "compilerOptions": {
+    "paths": {
+      // react-native-iap's exports map serves its raw TypeScript source under
+      // the "react-native" condition, which Metro wants but which makes tsc
+      // compile the library itself — and it references `process` and `global`,
+      // which an app without @types/node does not have. Point type resolution
+      // at the published declarations instead. Metro and Jest use their own
+      // resolvers and are unaffected, so the runtime still gets the source.
+      "react-native-iap": ["./node_modules/react-native-iap/lib/typescript/src/index.d.ts"]
+    }
+  }
 }

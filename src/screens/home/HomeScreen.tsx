@@ -69,6 +69,8 @@ interface HomeScreenProps {
   underReviewPaid?: boolean;
   /** Verified, proposals available, payment not yet made — shows H12 */
   proposalsReadyUnpaid?: boolean;
+  /** Google Play's localised membership price, threaded to the paywall blocks. */
+  priceLabel?: string | null;
   /** Number of candidate profiles for H12 */
   matchCount?: number;
   /** Paid member with introductions ready today — shows H16 */
@@ -167,6 +169,7 @@ export function HomeScreen({
   underReviewUnpaid = false,
   underReviewPaid = false,
   proposalsReadyUnpaid = false,
+  priceLabel,
   matchCount = 14,
   introductionAvailable = false,
   hasIntroductions = true,
@@ -345,6 +348,7 @@ export function HomeScreen({
           onImproveBiodata={onImproveBiodata}
           onReviewPreferences={onReviewPreferences}
           submittedAt={verificationSubmittedAt}
+          priceLabel={priceLabel}
         />
         {filterOverlay}
         {settingsOverlay}
@@ -365,6 +369,7 @@ export function HomeScreen({
           userName={userName}
           matchCount={matchCount}
           onBecomeAMember={onBecomeAMember}
+          priceLabel={priceLabel}
         />
         {filterOverlay}
         {settingsOverlay}
