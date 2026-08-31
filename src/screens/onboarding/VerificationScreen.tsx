@@ -24,7 +24,7 @@
  * faceDone / cnicDone are controlled by the parent — this screen is pure UI.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -251,6 +251,7 @@ export function VerificationScreen({
   onDismissFailed,
 }: VerificationScreenProps) {
   const insets = useSafeAreaInsets();
+  const [submitting, setSubmitting] = useState(false);
 
   // Staggered entrance animations: d1 → d2 → d3 → d4
   const question = useFadeRise(70);
@@ -318,11 +319,17 @@ export function VerificationScreen({
 
   // Primary CTA: "Scan my face" until face is done, then "Continue"
   const primaryLabel = faceDone ? 'Continue' : 'Scan my face';
+  // The submit was awaited with no loading state, so the button sat inert for
+  // the length of the request and the press read as ignored.
   const primaryAction = faceDone ? onContinue : async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await submitFaceVerification();
     } catch {
       // non-blocking — let parent handle the failed state
+    } finally {
+      setSubmitting(false);
     }
     onScanFace?.();
   };
@@ -437,7 +444,7 @@ export function VerificationScreen({
 
         {/* ── Footer (.foot) ───────────────────────────────────────── */}
         <View style={styles.footer}>
-          <GradientButton label={primaryLabel} onPress={primaryAction} />
+          <GradientButton label={primaryLabel} onPress={primaryAction} loading={submitting} />
 
           <Pressable
             onPress={secondaryAction}

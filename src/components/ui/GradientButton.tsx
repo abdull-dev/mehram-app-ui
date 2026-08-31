@@ -79,7 +79,15 @@ export function GradientButton({
           { opacity: pressed ? 0.88 : 1, transform: [{ scale: pressed ? 0.984 : 1 }] },
           style,
         ]}>
-        <Text style={styles.outlineLabel}>{label}</Text>
+        {/* The outline variant accepted `loading` but only ever disabled itself,
+            so a press on it looked like nothing had happened while its request
+            ran — and on screens with two buttons the spinner appeared on the
+            primary one instead. */}
+        {loading ? (
+          <ActivityIndicator color={Colors.vioInk} />
+        ) : (
+          <Text style={styles.outlineLabel}>{label}</Text>
+        )}
       </Pressable>
     );
   }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only overlay. Replaces the main config for debuggable builds, and is not
+  packaged into a release APK at all, so the release restriction to the hosted
+  API host is untouched.
+
+  Development traffic is all cleartext and not confined to one host: Metro on
+  10.0.2.2 (emulator) or the machine's LAN address (device), the debugger's
+  WebSocket on the same origin, and the local API on port 3000. The main config
+  named only the hosted API, which silently blocked the debugger connection —
+  "CLEARTEXT communication to 10.0.2.2 not permitted by network security policy"
+  — leaving "Connect to the bundler to debug JavaScript" greyed out.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

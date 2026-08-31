@@ -92,14 +92,11 @@ export function PaymentFailedBlock({ onRetry, onChangeMethod, userName = '' }: P
           end={{ x: 0.6, y: 1 }}
           style={styles.heroCard}>
 
-          {/* Rose oval pill + label */}
+          {/* Rose status dot + label */}
           <View style={styles.heroChip}>
-            <LinearGradient
-              colors={['#F97DAE', '#E6396E']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.rosePill}
-            />
+            <View style={styles.roseDotHalo}>
+              <View style={styles.roseDot} />
+            </View>
             <Text style={styles.heroChipLabel}>Payment Failed</Text>
           </View>
 
@@ -188,14 +185,27 @@ const styles = StyleSheet.create({
   heroChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 5,
     marginBottom: 14,
   },
 
-  rosePill: {
-    width: 10,
-    height: 20,
-    borderRadius: 5,
+  // Rose "needs action" dot: a 9px circle inside its own soft halo — the RN
+  // equivalent of the design's `box-shadow: 0 0 0 5px rgba(255,122,156,.22)`
+  // (9 + 5 + 5 = 19). Android ignores shadow spread, so the ring is a real View.
+  roseDotHalo: {
+    width: 19,
+    height: 19,
+    borderRadius: 9.5,
+    backgroundColor: 'rgba(255,122,156,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  roseDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#FF7A9C',
   },
 
   heroChipLabel: {

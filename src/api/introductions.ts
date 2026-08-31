@@ -100,8 +100,18 @@ export interface IntroductionFilters {
  * Today's curated introduction profiles (slim, for the home card).
  * Discover uses stored partner preferences on the server — not client query filters.
  */
+/**
+ * The most `/matches/discover` will return.
+ *
+ * Mirrors the server's `DiscoverQueryDto` (`@Max(30)`) and `MAX_DISCOVER_LIMIT`.
+ * Asking for more is not clamped — the request is rejected outright with a 400,
+ * so a larger number returns nothing at all rather than fewer results.
+ */
+export const MAX_DISCOVER_LIMIT = 30;
+
 export async function getIntroductions(limit = 10): Promise<Introduction[]> {
-  return apiRequest<Introduction[]>(`/matches/discover?limit=${limit}`);
+  const capped = Math.min(Math.max(limit, 1), MAX_DISCOVER_LIMIT);
+  return apiRequest<Introduction[]>(`/matches/discover?limit=${capped}`);
 }
 
 /**

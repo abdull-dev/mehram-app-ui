@@ -247,6 +247,26 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
   const [dobYear, setDobYear]             = useState(0);   // index into YEARS
   const [dobSet, setDobSet]               = useState(false); // true once user confirms
   const [dobPickerOpen, setDobPickerOpen] = useState(false);
+
+  /**
+   * Sheet transition, run here rather than by the Modal.
+   *
+   * `animationType="slide"` moves the *whole* modal, dimmed backdrop included,
+   * so the overlay appeared to slide up from the bottom with the sheet instead
+   * of settling over the screen. Driving it manually lets the backdrop fade
+   * while only the sheet travels, which is how a bottom sheet is expected to
+   * behave.
+   */
+  const sheetAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(sheetAnim, {
+      toValue: dobPickerOpen ? 1 : 0,
+      duration: dobPickerOpen ? 260 : 200,
+      easing: dobPickerOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [dobPickerOpen, sheetAnim]);
   const [maritalStatus, setMaritalStatus] = useState('');
   const [sect, setSect]                   = useState('');
   const [occupation, setOccupation]       = useState('');
@@ -564,9 +584,21 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
       </View>
 
       {/* ── Date picker modal ───────────────────────────────────────────────── */}
-      <Modal visible={dobPickerOpen} animationType="slide" transparent onRequestClose={() => setDobPickerOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setDobPickerOpen(false)}>
-          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+      <Modal visible={dobPickerOpen} animationType="none" transparent onRequestClose={() => setDobPickerOpen(false)}>
+        <Animated.View style={[styles.backdropFill, { opacity: sheetAnim }]}>
+          <Pressable style={styles.backdrop} onPress={() => setDobPickerOpen(false)}>
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    translateY: sheetAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [SHEET_TRAVEL, 0],
+                    }),
+                  },
+                ],
+              }}>
+              <Pressable style={styles.pickerSheet} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.pickerTitle}>Date of birth</Text>
 
@@ -601,12 +633,17 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
               }}
               style={styles.pickerDoneBtn}
             />
+              </Pressable>
+            </Animated.View>
           </Pressable>
-        </Pressable>
+        </Animated.View>
       </Modal>
     </View>
   );
 }
+
+/** How far the sheet travels in — comfortably taller than its content. */
+const SHEET_TRAVEL = 420;
 
 // ─── styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
@@ -676,7 +713,10 @@ const styles = StyleSheet.create({
   foot: { paddingTop: 12 },
 
   // ── Date picker modal ──────────────────────────────────────────────────────
-  backdrop: { flex: 1, backgroundColor: 'rgba(27,22,48,0.45)', justifyContent: 'flex-end' },
+  // The tint lives on the outer view so it can fade on its own; the inner
+  // Pressable only handles tap-to-dismiss and the bottom alignment.
+  backdropFill: { flex: 1, backgroundColor: 'rgba(27,22,48,0.45)' },
+  backdrop: { flex: 1, justifyContent: 'flex-end' },
   pickerSheet: {
     backgroundColor: Colors.page, borderTopLeftRadius: 28, borderTopRightRadius: 28,
     paddingTop: 12, paddingHorizontal: 20, paddingBottom: 32,

@@ -143,6 +143,46 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
 
+  /**
+   * The national part of what was typed — everything the dial-code chip beside
+   * the field does not already show.
+   *
+   * People enter their number however they know it: already carrying the country
+   * code ("923114440959"), with the local trunk zero ("03114440959"), with an
+   * international prefix ("0092…"), or bare. The field used to keep all of it
+   * verbatim, so the chip and the text together read "+92 92311…", and submitting
+   * concatenated them into +92923114440959 — invalid, yet accepted at signup, so
+   * the account existed against a number no OTP could reach.
+   *
+   * A bare country code is only removed once enough digits follow to still leave
+   * a plausible subscriber number. That way a national number which happens to
+   * begin with the same digits survives, and nothing is taken away mid-keystroke
+   * before we can tell the two apart. An explicit "+" or "00" is unambiguous and
+   * is stripped straight away.
+   */
+  function nationalPart(dialCode: string, entered: string): string {
+    const cc = dialCode.replace(/\D/g, '');
+    const explicitPrefix = /^\s*(\+|00)/.test(entered);
+    let digits = entered.replace(/\D/g, '');
+
+    if (digits.startsWith('00')) digits = digits.slice(2);
+
+    if (
+      cc &&
+      digits.startsWith(cc) &&
+      (explicitPrefix || digits.length - cc.length >= 6)
+    ) {
+      digits = digits.slice(cc.length);
+    }
+
+    return digits.replace(/^0+/, '');
+  }
+
+  /** Full E.164, built from the chip's dial code and the national part. */
+  function toE164(dialCode: string, entered: string): string {
+    return `+${dialCode.replace(/\D/g, '')}${nationalPart(dialCode, entered)}`;
+  }
+
   function validate(): boolean {
     const e: typeof errors = {};
     const digits = phone.replace(/\D/g, '');
@@ -175,8 +215,7 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
     setLoading(true);
     try {
       const dialCode = country.code.replace(/[^+\d]/g, '');
-      const digits = phone.replace(/\D/g, '');
-      const e164 = `${dialCode}${digits}`;
+      const e164 = toE164(dialCode, phone);
       await registerUser({
         fullName: email.split('@')[0],
         email: email.trim().toLowerCase(),
@@ -184,7 +223,15 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
         password,
       });
       await savePendingEmail(email.trim().toLowerCase());
-      onSendCode?.(phone, country.code, email.trim().toLowerCase(), password, e164);
+      // Display the normalised national part, so the verification screen shows
+      // the number the code was actually sent to.
+      onSendCode?.(
+        nationalPart(country.code, phone),
+        country.code,
+        email.trim().toLowerCase(),
+        password,
+        e164,
+      );
     } catch (err: any) {
       const msg: string = err?.message ?? 'Could not create account. Please try again.';
       const lower = msg.toLowerCase();
@@ -303,7 +350,10 @@ export function PhoneScreen({ onBack, onSendCode, onGoogleSignIn, onSkip }: Phon
                 ref={phoneRef}
                 style={styles.textInput}
                 value={phone}
-                onChangeText={v => { setPhone(v); if (errors.phone) setErrors(e => ({ ...e, phone: undefined })); }}
+                onChangeText={v => {
+                  setPhone(nationalPart(country.code, v));
+                  if (errors.phone) setErrors(e => ({ ...e, phone: undefined }));
+                }}
                 keyboardType="phone-pad"
                 placeholder="Phone number"
                 placeholderTextColor={Colors.ink3}

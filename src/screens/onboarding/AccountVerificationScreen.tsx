@@ -17,6 +17,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Keyboard,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -102,7 +103,12 @@ interface Props {
   /** Human-friendly display, e.g. "+92 3114440959" — shown in the row */
   phoneDisplay: string;
   email: string;
-  onVerified: () => void;
+  /**
+   * Continue. May return a promise — the button shows a spinner until it
+   * settles, since the parent does a round-trip (GET /auth/me) before it knows
+   * which screen comes next.
+   */
+  onVerified: () => void | Promise<void>;
   onBack?: () => void;
 }
 
@@ -138,6 +144,55 @@ export function AccountVerificationScreen({
   const [emailVerifying, setEmailVerifying] = useState(false);
   const [emailSecs,     setEmailSecs]       = useState(0);
   const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+
+  /** What the mobile row shows; empty when the account has no number. */
+  const phoneNumber = (phoneDisplay || phone || '').trim();
+
+  /**
+   * Both contacts must be confirmed before moving on — the screen exists to
+   * prove ownership of each, and it used to let a user past on the email alone
+   * with the phone still unverified.
+   *
+   * The phone is only required when there is one on record; an account with no
+   * number has nothing to confirm, and demanding it would strand them here.
+   */
+  const canContinue = emailVerified && (!phoneNumber || phoneVerified);
+
+  // Continue is not instant: the parent fetches the profile to decide where to
+  // resume. Without this the button sat inert for the length of that request
+  // and the tap read as ignored.
+  const [continuing, setContinuing] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  async function handleContinue() {
+    if (!canContinue || continuing) return;
+    setContinuing(true);
+    try {
+      await onVerified();
+    } finally {
+      // The parent navigates away on success, so this only matters when it
+      // fails and the screen stays up — the button must not stay stuck.
+      if (alive.current) setContinuing(false);
+    }
+  }
+
+  /**
+   * Release focus when the keyboard is dismissed from outside the field.
+   *
+   * Tapping away hides the keyboard but leaves the input focused as far as
+   * React Native is concerned. Tapping the boxes again is then not a focus
+   * change, so nothing asks for the keyboard and it never comes back — the
+   * field looks dead until you leave the screen. Blurring on dismiss keeps the
+   * two in step, so the next tap is a real focus and the keyboard opens.
+   */
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (phoneRef.current?.isFocused()) phoneRef.current.blur();
+      if (emailRef.current?.isFocused()) emailRef.current.blur();
+    });
+    return () => sub.remove();
+  }, []);
 
   // ── resend countdown timers ────────────────────────────────────────────────
   useEffect(() => {
@@ -340,6 +395,9 @@ export function AccountVerificationScreen({
             autoComplete="one-time-code"
             maxLength={CODE_LEN}
             caretHidden
+            // Re-assert focus on every press, not only when focus actually
+            // changes, so a tap always reaches the keyboard.
+            onPressIn={() => inputRef.current?.focus()}
             editable={!verifying}
           />
         </View>
@@ -357,13 +415,15 @@ export function AccountVerificationScreen({
   }
 
   // ── phone row ──────────────────────────────────────────────────────────────
+  // Prefer the formatted display value, fall back to the E.164 the API calls
+  // use — on a restored session only the latter is populated.
 
   function renderPhoneRow() {
     if (phoneVerified) {
       return (
         <View style={s.row}>
           <PhoneIcon />
-          <Text style={s.rowValueVerified}>{phoneDisplay || phone}</Text>
+          <Text style={s.rowValueVerified}>{phoneNumber}</Text>
           <View style={s.verifiedBadge}>
             <CheckIcon />
             <Text style={s.verifiedLabel}>Verified</Text>
@@ -376,7 +436,7 @@ export function AccountVerificationScreen({
       <>
         <View style={s.row}>
           <PhoneIcon />
-          <Text style={s.rowValue}>{phoneDisplay || phone}</Text>
+          <Text style={s.rowValue}>{phoneNumber}</Text>
           {!phoneExpanded && (
             <Pressable
               onPress={handlePhoneTapVerify}
@@ -506,12 +566,17 @@ export function AccountVerificationScreen({
             </Text>
           </Animated.View>
 
-          {/* Phone card */}
-          <Animated.View style={[s.card, riseStyle(aPhone)]}>
-            <Text style={s.cardLabel}>Mobile number</Text>
+          {/* Phone card — omitted when the account has no number on record.
+              An empty row beside a "Verify" button reads as a bug, and there is
+              nothing for that button to send a code to. Progress does not depend
+              on it: Continue is gated on the email only. */}
+          {!!phoneNumber && (
+            <Animated.View style={[s.card, riseStyle(aPhone)]}>
+              <Text style={s.cardLabel}>Mobile number</Text>
 
-            {renderPhoneRow()}
-          </Animated.View>
+              {renderPhoneRow()}
+            </Animated.View>
+          )}
 
           {/* Email card */}
           <Animated.View style={[s.card, riseStyle(aEmail)]}>
@@ -524,8 +589,9 @@ export function AccountVerificationScreen({
         <View style={s.footer}>
           <GradientButton
             label="Continue"
-            variant={emailVerified ? 'primary' : 'disabled'}
-            onPress={emailVerified ? onVerified : undefined}
+            variant={canContinue ? 'primary' : 'disabled'}
+            loading={continuing}
+            onPress={canContinue ? handleContinue : undefined}
           />
         </View>
       </View>

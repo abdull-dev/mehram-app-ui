@@ -185,14 +185,22 @@ All profile endpoints were already correctly structured. Only DTOs changed.
 | `POST` | `/billing/verify-purchase` | Verify IAP receipt; activates membership |
 | `GET` | `/billing/entitlement` | Check if current user has paid access |
 
-**Request body — `/billing/verify-purchase`:**
+**Request body — `/billing/verify-purchase`** (matches `VerifyPurchaseDto`):
 ```json
 {
-  "receipt": "<App Store / Play Store receipt string>",
-  "platform": "ios",
-  "productId": "mehram_membership"
+  "purchaseToken": "<Play / App Store purchase token>",
+  "productId": "mehram_membership",
+  "source": "android_iap"
 }
 ```
+
+`purchaseToken` and `productId` are required and non-empty (max 1024 / 255 chars);
+`source` is optional and one of `ios_iap` | `android_iap` | `card` | `local_wallet`
+(defaults to `android_iap` server-side). The token is unique across users — one
+already recorded for another account is rejected with 400.
+
+**Response:** the created/updated `Subscription` row (`status`, `plan`, `tier`,
+`expiresAt`, …), not `{ isEntitled }`. `status: "ACTIVE"` (or `"GRACE"`) means paid.
 
 ---
 

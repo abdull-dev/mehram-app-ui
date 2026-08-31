@@ -74,12 +74,6 @@ export const PHOTO_PRIVACY_OPTIONS: Array<{
     title: 'Anyone I have accepted a proposal from',
     subtitle: 'Shared automatically once a proposal is mutual.',
   },
-  {
-    mode: 'OPEN',
-    chipLabel: 'Anyone who matches me',
-    title: 'Everyone who matches my criteria',
-    subtitle: 'Shown on your card straight away. Fewer steps, less privacy.',
-  },
 ];
 
 export interface MyProfile {

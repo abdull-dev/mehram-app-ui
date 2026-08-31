@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  AppState,
+  BackHandler,
   Dimensions,
   Easing,
-  Platform,
   StyleSheet,
   View,
 } from 'react-native';
@@ -20,8 +21,13 @@ import {
 import { resolvePhotoUrl } from './src/api/config';
 import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship } from './src/api/wali';
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
-import { verifyPurchase, getEntitlement } from './src/api/billing';
-import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
+import {
+  verifyPurchase,
+  getEntitlement,
+  MEMBERSHIP_PRODUCT_ID,
+  PLATFORM_PURCHASE_SOURCE,
+} from './src/api/billing';
+import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal, getProposalStats } from './src/api/proposals';
 import {
   updateLocation,
@@ -328,7 +334,36 @@ export default function App() {
   // Screen to resume when the user taps "Continue profile" on H6.
   const [resumeScreen, setResumeScreen] = useState<Screen>('F6');
   // True while the onboarding step is being saved to the DB — shows spinner on Continue button.
-  const [stepSaving, setStepSaving] = useState(false);
+  /**
+   * True while a Continue button's own save is in flight.
+   *
+   * This used to be `stepSaving`, which tracked `saveOnboardingStep` — a
+   * different request from the one the screen was waiting on. The screens that
+   * await their own write (essentials, family background, prompts, preferences)
+   * therefore showed no loader at all during the wait that actually blocked
+   * them, which is what made pressing Continue feel like nothing had happened.
+   */
+  const [continueBusy, setContinueBusy] = useState(false);
+
+  /**
+   * Runs a Continue button's save with the button in its loading state, then
+   * advances. Guards re-entry so a double tap cannot fire the request twice.
+   */
+  async function saveThenAdvance(
+    save: () => Promise<unknown>,
+    to: Screen,
+  ): Promise<void> {
+    if (continueBusy) return;
+    setContinueBusy(true);
+    try {
+      await save();
+      navigateForward(to);
+    } catch (err) {
+      Alert.alert('Could not save', saveFailedMessage(err));
+    } finally {
+      setContinueBusy(false);
+    }
+  }
   const [country, setCountry]   = useState({
     iso2: 'AE',
     name: 'United Arab Emirates',
@@ -399,11 +434,15 @@ export default function App() {
   const [introductionsLoading, setIntroductionsLoading] = useState(false);
 
   // Load (or reload) today's next introduction and update card state.
-  // On the very first call fetches up to 50 to record the total count for
-  // the "X of Y" label; subsequent calls fetch 1 at a time.
+  // The first call fetches a batch to record the total for the "X of Y" label;
+  // subsequent calls fetch 1 at a time.
+  //
+  // The batch is MAX_DISCOVER_LIMIT, not an arbitrary 50: the server rejects
+  // anything above 30 outright, so asking for more returned a 400 and no
+  // introductions at all rather than simply fewer.
   const loadNextIntroduction = useCallback((): Promise<void> => {
     setIntroductionsLoading(true);
-    const limit = isFirstIntroLoad.current ? 50 : 1;
+    const limit = isFirstIntroLoad.current ? MAX_DISCOVER_LIMIT : 1;
     return getIntroductions(limit)
       .then(list => {
         if (isFirstIntroLoad.current) {
@@ -449,6 +488,64 @@ export default function App() {
       })
       .finally(() => setIntroductionsLoading(false));
   }, []);
+
+  // ── Home paid/unpaid state ──────────────────────────────────────────────────
+  // Which HomeScreen block applies:
+  //   isEntitled = true  → H16: paid, show today's introductions
+  //   isEntitled = false, candidateCount > 0 → H12: candidates waiting, prompt to pay
+  //   isEntitled = false, candidateCount = 0 → H8: profile under review, no pool yet
+  //
+  // Called on launch AND every time Home comes back into view, so a payment
+  // made moments ago flips the screen without restarting the app.
+
+  // H9 (paid, ID review still running) is decided by the payment flow, not by
+  // the server. A ref, so refreshHomeState() can read it without re-creating
+  // itself on every change and re-firing the effects that depend on it.
+  const underReviewPaidRef = useRef(false);
+  useEffect(() => { underReviewPaidRef.current = underReviewPaid; }, [underReviewPaid]);
+
+  const refreshHomeState = useCallback(async (isInitial = false) => {
+    try {
+      const { isEntitled } = await getEntitlement();
+      if (isEntitled) {
+        // Paid: nothing that prompts for payment may stay on screen.
+        setUnderReviewUnpaid(false);
+        setProposalsReadyUnpaid(false);
+        setPaymentFailed(false);
+        // Don't overwrite H9 — a paid user whose ID is still being reviewed
+        // stays there until review clears, not on the introductions card.
+        if (!underReviewPaidRef.current) setIntroductionAvailable(true);
+      } else {
+        const { candidateCount } = await getProposalStats();
+        if (candidateCount > 0) {
+          setProposalsReadyUnpaid(true);
+          setMatchCount(candidateCount);
+        } else {
+          setUnderReviewUnpaid(true);
+        }
+      }
+    } catch {
+      // On launch there is no prior state to keep, so fall back to H8 (under
+      // review). On a refresh, a network blip must not demote a paid user —
+      // leave whatever is on screen alone.
+      if (isInitial) setUnderReviewUnpaid(true);
+    }
+  }, []);
+
+  // Re-check entitlement each time Home is shown (returning from F17/F18, or
+  // from any other screen) and when the app returns to the foreground.
+  useEffect(() => {
+    if (screen !== 'Home' || isWali || !userId) return;
+    refreshHomeState();
+  }, [screen, isWali, userId, refreshHomeState]);
+
+  useEffect(() => {
+    if (isWali || !userId) return;
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') refreshHomeState();
+    });
+    return () => sub.remove();
+  }, [isWali, userId, refreshHomeState]);
 
   // Trigger initial load when the user reaches H16 (paid + active).
   useEffect(() => {
@@ -559,33 +656,6 @@ export default function App() {
       }
       if (!token) { setAppReady(true); return; }
 
-      // Determine which HomeScreen state to show based on entitlement + pool size.
-      // Called whenever a fully-onboarded user opens the app.
-      //   isEntitled = true  → H16: paid, show today's introductions
-      //   isEntitled = false, candidateCount > 0 → H12: candidates waiting, prompt to pay
-      //   isEntitled = false, candidateCount = 0 → H8: profile under review, no pool yet
-      async function resolveHomeState() {
-        try {
-          // __DEV__ is true in Metro/debug builds, false in production releases.
-          // Keeps dev always on H16 without touching the payment flow.
-          const { isEntitled } = __DEV__ ? { isEntitled: true } : await getEntitlement();
-          if (isEntitled) {
-            setIntroductionAvailable(true); // loadNextIntroduction() fires via useEffect
-          } else {
-            const { candidateCount } = await getProposalStats();
-            if (candidateCount > 0) {
-              setProposalsReadyUnpaid(true);
-              setMatchCount(candidateCount);
-            } else {
-              setUnderReviewUnpaid(true);
-            }
-          }
-        } catch {
-          // Network failure — safest fallback: show H8 (under review).
-          setUnderReviewUnpaid(true);
-        }
-      }
-
       getMe()
         .then(async me => {
           setUserId(me.user.id);
@@ -642,14 +712,14 @@ export default function App() {
 
           if (me.profile.onboardingCompleted) {
             setOnboardingComplete(true);
-            await resolveHomeState();
+            await refreshHomeState(true);
             setScreen('Home');
           } else if (me.profile.onboardingStep) {
             const dest = destinationForSavedStep(me.profile.onboardingStep);
             if (dest.resumeAt) setResumeScreen(dest.resumeAt);
             if (dest.kind === 'complete') {
               setOnboardingComplete(true);
-              await resolveHomeState();
+              await refreshHomeState(true);
               setScreen('Home');
             } else if (dest.kind === 'resume' && dest.resumeAt) {
               setScreen(dest.resumeAt);
@@ -674,30 +744,145 @@ export default function App() {
   // Track navigation direction for slide animation
   const directionRef = useRef<'forward' | 'back'>('forward');
 
-  function navigate(to: Screen) {
+  /**
+   * Screens a back press should never return past.
+   *
+   * Reaching either means the journey that led here is over — signing out lands
+   * on F1, finishing onboarding lands on Home — so the stack is cleared and a
+   * further back press exits, which is what Android users expect at a root.
+   */
+  const ROOT_SCREENS: Screen[] = ['F1', 'Home'];
+
+  /**
+   * Screens that only exist before there is an account: the welcome page, both
+   * sign-in steps, and every signup/verification step for a seeker or a wali.
+   *
+   * Once signed in they are unreachable by back. The session is already
+   * created, so the forms there would either fail or create a second account,
+   * and a signed-in user seeing "Sign in" again reads as being logged out.
+   * Leaving the app is the only way past them — signing out is the supported
+   * route back, and it navigates to F1 explicitly.
+   */
+  const PRE_AUTH_SCREENS: Screen[] = [
+    'F1', 'SignInRole', 'SignIn', 'WhoIsFor', 'Phone', 'AccountVerification', 'Code',
+    'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliEmailVerify',
+  ];
+
+  /**
+   * Whether a session exists, as a ref so the back handler reads the current
+   * value rather than the one captured when it was registered.
+   * `userId` is set from /auth/me (restore, sign-in, verification) and cleared
+   * on sign-out.
+   */
+  const authedRef = useRef(false);
+  useEffect(() => { authedRef.current = !!userId; }, [userId]);
+
+  /** Drops trailing entries the user can no longer return to. */
+  function prunePreAuth(stack: Screen[]): Screen[] {
+    if (!authedRef.current) return stack;
+    return stack.filter(sc => !PRE_AUTH_SCREENS.includes(sc));
+  }
+
+  /**
+   * Screens visited, oldest first, so the hardware back button has somewhere to
+   * return to.
+   *
+   * The app drives navigation from a single `screen` state rather than a
+   * navigator, so nothing was consuming Android's back press and it fell
+   * through to the OS — which closed the app from wherever you were. Opening
+   * Filters and pressing back quit outright.
+   */
+  const historyRef = useRef<Screen[]>([]);
+
+  /**
+   * `reset` clears the back stack, making `to` a root.
+   *
+   * Used where returning would take the user somewhere they can no longer act —
+   * after signing in, back must not lead to the sign-in form they have already
+   * passed through.
+   */
+  function navigate(to: Screen, opts?: { reset?: boolean }) {
+    if (to === screen) return;
     directionRef.current = navDirection(screen, to);
+    historyRef.current =
+      opts?.reset || ROOT_SCREENS.includes(to)
+        ? []
+        : prunePreAuth([...historyRef.current, screen]);
     setScreen(to);
   }
 
-  // Used for forward onboarding navigation — saves the step to DB before transitioning.
-  async function navigateForward(to: Screen) {
+  /**
+   * Android hardware and gesture back.
+   *
+   * Returning true consumes the press; returning false hands it to the OS,
+   * which closes the app. Only a root screen with an empty stack should do
+   * that. On Home the tab bar is the top level, so back returns to the Home tab
+   * before it will consider exiting — the same shape as a bottom-tab navigator.
+   */
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen === 'Home' && activeTab !== 'home') {
+        setActiveTab('home');
+        return true;
+      }
+      return goBack();
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, activeTab]);
+
+  /**
+   * Pops one entry. False when there is nowhere left to go, which hands the
+   * press to Android and closes the app.
+   *
+   * Signed in, the stack is pruned first: a session created mid-onboarding
+   * left the signup screens sitting underneath, so back walked from F6 all the
+   * way out to the welcome screen. Now that only exits the app.
+   */
+  function goBack(): boolean {
+    const stack = prunePreAuth(historyRef.current);
+    const prev = stack[stack.length - 1];
+    if (prev === undefined) {
+      historyRef.current = [];
+      return false;
+    }
+    historyRef.current = stack.slice(0, -1);
+    directionRef.current = 'back';
+    setScreen(prev);
+    return true;
+  }
+
+  /**
+   * Forward onboarding navigation.
+   *
+   * The screen changes first and the step is recorded in the background. It used
+   * to be the other way round — `await saveOnboardingStep(...)` and only then
+   * `setScreen` — which held the user on the old screen watching a spinner for a
+   * whole network round trip on every Continue. Against a hosted API that is the
+   * difference between an app that responds instantly and one that feels stuck.
+   *
+   * Nothing here depends on the write landing: the step only decides where a
+   * reinstall resumes, and a failed save simply leaves the previous value, which
+   * is why the old code already swallowed the error and navigated anyway. So the
+   * wait bought nothing and cost every transition.
+   */
+  function navigateForward(to: Screen) {
     directionRef.current = 'forward';
+    historyRef.current = ROOT_SCREENS.includes(to)
+      ? []
+      : [...historyRef.current, screen];
+    setScreen(to);
+
     const shouldSave =
       SCREEN_ORDER.includes(to) &&
       to !== 'F1' && to !== 'SignIn' && to !== 'Code' && to !== 'AccountVerification';
     const stepNumber = stepNumberFor(to);
     if (shouldSave && stepNumber != null) {
-      setStepSaving(true);
-      try {
-        await saveOnboardingStep(stepNumber);
-        setResumeScreen(to);
-      } catch {
-        // non-blocking — continue navigation regardless
-      } finally {
-        setStepSaving(false);
-      }
+      // Optimistic: resume should point at where the user actually is, even if
+      // the write is still in flight or fails.
+      setResumeScreen(to);
+      saveOnboardingStep(stepNumber).catch(() => {});
     }
-    setScreen(to);
   }
 
   // Maps onboarding sect string → filter sect array
@@ -763,7 +948,9 @@ export default function App() {
                 setUserEmail(_email);
                 setPendingEmail(_email);
                 savePendingEmail(_email).catch(() => {});
-                navigate('AccountVerification');
+                // Reset: they are signed in now. Back must not return to the
+                // sign-in form, nor anywhere further up the signup flow.
+                navigate('AccountVerification', { reset: true });
                 return;
               }
               // login() already saved tokens; check onboarding status
@@ -855,8 +1042,10 @@ export default function App() {
             email={pendingEmail || userEmail}
             onVerified={() => {
               setPendingEmail('');
+              // Returned, not fired-and-forgotten: the screen awaits it to keep
+              // the Continue button spinning until this resolves and navigates.
               // After verification, determine where to resume based on the user's state.
-              getMe()
+              return getMe()
                 .then(me => {
                   setUserId(me.user.id);
                   setUserName(me.profile.fullName?.split(' ')[0] ?? '');
@@ -1066,7 +1255,13 @@ export default function App() {
         return (
           <WaliRoleExplainScreen
             onBack={() => navigate('WaliCode')}
-            onAccept={async () => { await saveOnboardingStep(ONBOARDING_STEP.WaliDetails); navigate('WaliDetails'); }}
+            onAccept={() => {
+              // Recorded in the background, as everywhere else: the step only
+              // decides where a reinstall resumes, so awaiting it just froze the
+              // button for a round trip.
+              saveOnboardingStep(ONBOARDING_STEP.WaliDetails).catch(() => {});
+              navigate('WaliDetails');
+            }}
             onDecline={() => navigate('WhoIsFor')}
           />
         );
@@ -1120,7 +1315,7 @@ export default function App() {
               setCountry(c);
               navigateForward('F7');
             }}
-            continueLoading={stepSaving}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1140,7 +1335,7 @@ export default function App() {
               }
               navigateForward('F8');
             }}
-            continueLoading={stepSaving}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1149,11 +1344,11 @@ export default function App() {
         return (
           <EssentialsScreen
             onBack={() => navigate('F7')}
-            onContinue={async data => {
+            onContinue={data => {
               setObSect(data.sect);
               setObMarital(data.maritalStatus);
               setUserName(data.name.split(' ')[0]);
-              try {
+              saveThenAdvance(async () => {
                 await updateEssentials({
                   gender: toGender(data.gender as 'man' | 'woman'),
                   dateOfBirth: parseDob(data.dob),
@@ -1165,12 +1360,9 @@ export default function App() {
                   heightCm: data.heightCm,
                 });
                 await updateSect(toSect(data.sect));
-                await navigateForward('F10');
-              } catch (err) {
-                Alert.alert('Could not save', saveFailedMessage(err));
-              }
+              }, 'F10');
             }}
-            continueLoading={stepSaving || undefined}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1181,7 +1373,7 @@ export default function App() {
             onBack={() => navigate('F8')}
             onSave={() => console.log('Save')}
             onContinue={() => navigateForward('F11')}
-            continueLoading={stepSaving}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1191,15 +1383,8 @@ export default function App() {
           <FamilyAndHomeScreen
             onBack={() => navigate('F10')}
             onSave={() => console.log('Save')}
-            onContinue={async data => {
-              try {
-                await updateFamilyBackground(data);
-                await navigateForward('F12');
-              } catch (err) {
-                Alert.alert('Could not save', saveFailedMessage(err));
-              }
-            }}
-            continueLoading={stepSaving || undefined}
+            onContinue={data => saveThenAdvance(() => updateFamilyBackground(data), 'F12')}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1209,18 +1394,11 @@ export default function App() {
           <GuidedPromptScreen
             onBack={() => navigate('F11')}
             onSave={() => console.log('Save')}
-            onNext={async text => {
-              try {
-                await updatePrompts({ familyDescription: text });
-                await navigateForward('F13');
-              } catch (err) {
-                Alert.alert('Could not save', saveFailedMessage(err));
-              }
-            }}
+            onNext={text => saveThenAdvance(() => updatePrompts({ familyDescription: text }), 'F13')}
             questionIndex={1}
             totalQuestions={3}
             progress={0.72}
-            continueLoading={stepSaving || undefined}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1228,18 +1406,16 @@ export default function App() {
       case 'F13':
         return (
           <PreferencesScreen
-            onContinue={async ({ narrow, ageMin, ageMax }) => {
+            onContinue={({ narrow, ageMin, ageMax }) => {
               setObAgeMin(ageMin);
               setObAgeMax(ageMax);
-              try {
-                await updatePreferences(ageMin, ageMax);
-                await navigateForward(narrow ? 'H11' : 'F14');
-              } catch (err) {
-                Alert.alert('Could not save', saveFailedMessage(err));
-              }
+              saveThenAdvance(
+                () => updatePreferences(ageMin, ageMax),
+                narrow ? 'H11' : 'F14',
+              );
             }}
             onSave={() => console.log('Save')}
-            continueLoading={stepSaving}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1249,7 +1425,7 @@ export default function App() {
           <PhotosScreen
             onBack={() => navigate('F13')}
             onContinue={() => navigateForward('F16')}
-            continueLoading={stepSaving}
+            continueLoading={continueBusy}
           />
         );
 
@@ -1340,12 +1516,20 @@ export default function App() {
             onPay={async () => {
               setPaying(true);
               try {
-                // TODO: replace the empty purchaseToken with the real IAP receipt
-                // from react-native-iap or RevenueCat before going to production.
+                // The store token. There is no Play Billing bridge in JS yet
+                // (no react-native-iap / RevenueCat in package.json), so a real
+                // receipt does not exist to send. Posting '' is a guaranteed 400
+                // — purchaseToken is @IsNotEmpty server-side — so dev builds send
+                // a unique sandbox token the StubBillingVerifier accepts, and
+                // release builds fail the payment instead of sending a fake one.
+                // Replace this with the token from the IAP purchase result.
+                const purchaseToken = __DEV__
+                  ? `sandbox-${userId || 'anon'}-${Date.now()}`
+                  : '';
                 const result = await verifyPurchase(
-                  '',
-                  'mehram_membership',
-                  Platform.OS === 'android' ? 'android_iap' : 'ios_iap',
+                  purchaseToken,
+                  MEMBERSHIP_PRODUCT_ID,
+                  PLATFORM_PURCHASE_SOURCE,
                 );
                 if (result.isEntitled) {
                   setPaymentFailed(false);
@@ -1978,6 +2162,7 @@ export default function App() {
               onSignOut={async () => {
                 try { await logout(); } catch { await clearTokens(); }
                 applyRole('self');
+                setUserId('');
                 setDependentName('');
                 setDependentProfile(null);
                 setDependentPhotos([]);
@@ -2016,6 +2201,7 @@ export default function App() {
             onSignOut={async () => {
               try { await logout(); } catch { await clearTokens(); }
               applyRole('self');
+              setUserId('');
               navigate('F1');
             }}
             onDeleteAccount={() => navigate('DeleteAccount')}
