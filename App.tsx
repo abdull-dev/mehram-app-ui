@@ -30,7 +30,7 @@ import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import {
   verifyPurchase,
   MEMBERSHIP_PRODUCT_ID,
-  PLATFORM_PURCHASE_SOURCE,
+  STORE_PURCHASES_SUPPORTED,
 } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal } from './src/api/proposals';
@@ -2010,20 +2010,37 @@ export default function App() {
             onPay={async () => {
               setPaying(true);
               try {
+                // Google Play is the only store with a verifier server-side, so
+                // iOS cannot complete a purchase yet — fail here rather than
+                // making a round trip for a "not supported yet" 400.
+                if (!STORE_PURCHASES_SUPPORTED) {
+                  setPaymentFailed(true);
+                  navigate('Home');
+                  return;
+                }
+
                 // The store token. There is no Play Billing bridge in JS yet
                 // (no react-native-iap / RevenueCat in package.json), so a real
-                // receipt does not exist to send. Posting '' is a guaranteed 400
-                // — purchaseToken is @IsNotEmpty server-side — so dev builds send
-                // a unique sandbox token the StubBillingVerifier accepts, and
-                // release builds fail the payment instead of sending a fake one.
-                // Replace this with the token from the IAP purchase result.
+                // receipt does not exist to send. Dev builds send a unique
+                // sandbox token the StubBillingVerifier accepts; release builds
+                // send nothing, and verifyPurchase refuses to post an empty
+                // proof, so the payment fails rather than a fake purchase being
+                // recorded against the account.
+                //
+                // Replace with the token from the IAP purchase result. Also set
+                // obfuscatedAccountId to the app user id when launching the
+                // billing flow, and still call finishTransaction afterwards —
+                // the server acknowledges the purchase with Google, but only
+                // finishTransaction clears it from Play's local queue, and a
+                // purchase left in it is redelivered on every launch. That
+                // second acknowledgement errors harmlessly; catch it rather than
+                // treating it as a failed purchase.
                 const purchaseToken = __DEV__
                   ? `sandbox-${userId || 'anon'}-${Date.now()}`
                   : '';
                 const result = await verifyPurchase(
-                  purchaseToken,
+                  { provider: 'google_play', payload: { purchaseToken } },
                   MEMBERSHIP_PRODUCT_ID,
-                  PLATFORM_PURCHASE_SOURCE,
                 );
                 if (result.isEntitled) {
                   setPaymentFailed(false);
