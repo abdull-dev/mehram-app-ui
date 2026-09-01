@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ replaced the old windowBackground splash with a system-drawn one.
+  Left unconfigured it falls back to the launcher icon and applies its own mask,
+  which cropped artwork that was never sized for it — the cut-off icon on
+  launch. These attributes give it a background and an icon drawn for the
+  288dp canvas whose inner 192dp is actually visible.
+-->
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <!-- No icon background: the mark sits directly on the splash ground,
+             matching how the app's own screens present it. -->
+    </style>
+</resources>

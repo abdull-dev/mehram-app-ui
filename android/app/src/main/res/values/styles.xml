@@ -4,6 +4,9 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!-- Branded launch window instead of white. The React root view
+             draws over this as soon as it mounts. -->
+        <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 
 </resources>
