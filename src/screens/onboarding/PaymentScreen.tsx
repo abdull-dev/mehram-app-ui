@@ -121,9 +121,17 @@ interface PaymentScreenProps {
   onWhatDoIGet?: () => void;
   /** Show loading spinner on the "Become a member" button while payment is processing */
   paying?: boolean;
+  /** Why the last attempt did not complete. Backing out of the store sheet is not an error. */
+  error?: string;
+  /**
+   * Google Play's own localised price, e.g. "Rs 4,500.00". Falls back to the
+   * static PKR figure when the store cannot be reached, so the card is never
+   * blank — but the store's price is the one the user is actually charged.
+   */
+  priceLabel?: string | null;
 }
 
-export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhatDoIGet, paying = false }: PaymentScreenProps) {
+export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhatDoIGet, paying = false, error, priceLabel }: PaymentScreenProps) {
   const insets = useSafeAreaInsets();
 
   // Staggered entrance: d1, d2, d3, d4
@@ -225,7 +233,9 @@ export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhat
               style={GRADIENT_FILL}
               pointerEvents="none"
             />
-              <Text style={styles.priceAmount}>PKR 4,500</Text>
+              {/* Real store price from billing; the literal is the fallback
+                  while the product query is still in flight. */}
+              <Text style={styles.priceAmount}>{priceLabel ?? 'PKR 4,500'}</Text>
               <Text style={styles.priceLabel}>One payment. No renewal, ever.</Text>
             </View>
           </Animated.View>
@@ -262,6 +272,7 @@ export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhat
 
         {/* ── Footer ──────────────────────────────────────────────── */}
         <View style={styles.footer}>
+          {!!error && <Text style={styles.errorText}>{error}</Text>}
           <GradientButton label="Become a member" onPress={onPay} loading={paying} />
 
           {/* .btn-t — text link */}
@@ -445,6 +456,13 @@ const styles = StyleSheet.create({
   footer: {
     paddingTop: 12,
     flexShrink: 0,
+  },
+  // Matches EditProfileScreen's inline error convention.
+  errorText: {
+    fontSize: 12.5,
+    color: Colors.rose,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   // .btn-t
   textBtn: {

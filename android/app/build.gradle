@@ -123,7 +123,12 @@ dependencies {
     // Play Billing Library 8+ is required to upload a BILLING-enabled AAB
     // (Play treats a bare BILLING permission as the deprecated AIDL API).
     // This also unlocks one-time product creation in Play Console.
-    implementation("com.android.billingclient:billing:8.0.0")
+    //
+    // No longer declared here: react-native-iap brings Play Billing itself, and
+    // pinning 8.0.0 alongside it did nothing except mislead — Gradle resolved the
+    // conflict up to the library's 9.1.0 anyway, so this file named a version the
+    // build never used. The library owns it now; check with
+    //   ./gradlew :app:dependencies --configuration debugRuntimeClasspath | grep billingclient
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

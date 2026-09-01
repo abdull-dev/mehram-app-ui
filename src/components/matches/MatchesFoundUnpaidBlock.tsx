@@ -86,12 +86,15 @@ interface MatchesFoundUnpaidBlockProps {
   /** Primary CTA — navigate to payment screen */
   onBecomeAMember?: () => void;
   userName?: string;
+  /** Google Play's localised price; falls back to the static figure. */
+  priceLabel?: string | null;
 }
 
 export function MatchesFoundUnpaidBlock({
   matchCount = 14,
   onBecomeAMember,
   userName = '',
+  priceLabel,
 }: MatchesFoundUnpaidBlockProps) {
   const insets = useSafeAreaInsets();
 
@@ -175,7 +178,7 @@ export function MatchesFoundUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>PKR 4,500</Text>
+            <Text style={styles.payPrice}>{priceLabel ?? 'PKR 4,500'}</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 

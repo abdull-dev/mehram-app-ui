@@ -117,6 +117,22 @@ export async function verifyPurchase(
 }
 
 /**
+ * Re-post a purchase Google is still holding because it was never finished —
+ * an app killed mid-flow, a verify call that failed, or a reinstall.
+ *
+ * There is no separate endpoint: the server's replay branch is already
+ * idempotent, so the same user re-sending the same purchase gets the current
+ * entitlement back rather than an error, and no second Payment row is written.
+ * The distinct name exists so call sites read as what they are — a silent
+ * background repair, not something the user asked for.
+ */
+export async function restorePurchase(
+  purchaseToken: string,
+): Promise<PurchaseResponse> {
+  return verifyPurchase({ provider: 'google_play', payload: { purchaseToken } });
+}
+
+/**
  * Check whether the current user is entitled (has paid access).
  * Used by HomeScreen to decide which state block to show.
  */

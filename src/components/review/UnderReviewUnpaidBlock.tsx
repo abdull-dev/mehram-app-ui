@@ -264,6 +264,8 @@ interface UnderReviewUnpaidBlockProps {
   userName?: string;
   /** When the user submitted their verification — drives the "Xh ago" stat */
   submittedAt?: Date;
+  /** Google Play's localised price; falls back to the static figure. */
+  priceLabel?: string | null;
 }
 
 export function UnderReviewUnpaidBlock({
@@ -272,6 +274,7 @@ export function UnderReviewUnpaidBlock({
   onReviewPreferences,
   userName = '',
   submittedAt,
+  priceLabel,
 }: UnderReviewUnpaidBlockProps) {
   const submittedLabel = submittedAt ? formatTimeAgo(submittedAt) : '—';
   const insets = useSafeAreaInsets();
@@ -357,7 +360,7 @@ export function UnderReviewUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>PKR 4,500</Text>
+            <Text style={styles.payPrice}>{priceLabel ?? 'PKR 4,500'}</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 

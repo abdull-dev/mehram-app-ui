@@ -30,9 +30,21 @@ import { getWaliMe, removeWard, getWardIntroductions, getWardDiscovery, getWardP
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import {
   verifyPurchase,
+  restorePurchase,
   MEMBERSHIP_PRODUCT_ID,
   STORE_PURCHASES_SUPPORTED,
 } from './src/api/billing';
+import { ApiError } from './src/api/client';
+import {
+  buyMembership,
+  finishMembershipPurchase,
+  getMembershipPrice,
+  getUnfinishedPurchases,
+  initIap,
+  isAlreadyOwned,
+  isUserCancelled,
+  type StorePurchaseRecord,
+} from './src/lib/iap';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
 import { sendProposal, acceptProposal, declineReceivedProposal } from './src/api/proposals';
 import { getHomeState, hasSubmittedAllVerifications } from './src/api/home';
@@ -329,6 +341,17 @@ export default function App() {
   const [faceAttemptsLeft, setFaceAttempts] = useState(2);
   const [paymentFailed, setPaymentFailed]   = useState(false);
   const [paying, setPaying]                 = useState(false);
+  // Shown on the paywall itself. Cancelling Play's sheet clears it rather than
+  // setting it — backing out is not an error and must leave the screen as it was.
+  const [payError, setPayError]             = useState<string | undefined>();
+  // Refs, not state: the foreground restore pass reads these from inside an
+  // AppState callback that closes over its first render, so a state value would
+  // always be the stale one. Nothing renders from them.
+  const payInFlight                         = useRef(false);
+  const recoverInFlight                     = useRef(false);
+  // Google's own localised price, e.g. "Rs 4,500.00". Null until fetched, and
+  // stays null if Play is unreachable, so the paywall falls back to its static text.
+  const [storePrice, setStorePrice]         = useState<string | null>(null);
   const [appReady, setAppReady]             = useState(false);
   // True when verification submitted but payment skipped → H8 shows on Home.
   const [underReviewUnpaid, setUnderReviewUnpaid] = useState(false);
@@ -1019,6 +1042,94 @@ export default function App() {
     });
     return () => sub.remove();
   }, [isWali, userId, refreshHomeState]);
+
+  /**
+   * Open the billing connection and recover any purchase Google is still
+   * holding, on launch and on every foreground.
+   *
+   * This is the safety net for a purchase that completed at Play but never
+   * reached the server — the app was killed, or the verify call failed. Google
+   * auto-refunds a purchase nobody acknowledges after three days, so without
+   * this a user is charged, gets nothing, and is quietly refunded later. It is
+   * also what restores a membership after a reinstall.
+   *
+   * Entirely silent: the user did not ask for this, so a failure here shows
+   * nothing. `refreshHomeState` above is what makes a recovered entitlement
+   * appear.
+   */
+  useEffect(() => {
+    if (isWali || !userId || !STORE_PURCHASES_SUPPORTED) return;
+
+    let cancelled = false;
+
+    const recover = async () => {
+      // Play's purchase sheet is a separate activity, so finishing a purchase
+      // sends this app background → active and fires the listener below — while
+      // the F17 handler is still mid-flight with the very same token. Both would
+      // then POST it at once, and the server's replay check reads before it
+      // writes, so concurrency is exactly what it cannot catch. The buy flow
+      // owns the purchase it is making; this pass only cleans up after it.
+      if (payInFlight.current || recoverInFlight.current) return;
+
+      recoverInFlight.current = true;
+      try {
+        for (const purchase of await getUnfinishedPurchases()) {
+          if (cancelled || payInFlight.current) return;
+          try {
+            const result = await restorePurchase(purchase.purchaseToken ?? '');
+            if (result.isEntitled) {
+              await finishMembershipPurchase(purchase);
+              refreshHomeState();
+            }
+          } catch {
+            // Leave it queued — Play will offer it again next foreground.
+          }
+        }
+      } finally {
+        recoverInFlight.current = false;
+      }
+    };
+
+    // Re-read on every foreground too: a null first answer (Play mid-update at
+    // launch) would otherwise leave a non-PK user staring at the PKR fallback
+    // for the whole session.
+    const refreshPrice = () => {
+      getMembershipPrice().then(price => {
+        if (!cancelled && price) setStorePrice(price);
+      });
+    };
+
+    initIap().then(() => {
+      if (cancelled) return;
+      refreshPrice();
+      recover();
+    });
+
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') return;
+      refreshPrice();
+      recover();
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [isWali, userId, refreshHomeState]);
+
+  /**
+   * Drop the paywall error whenever the paywall is not on screen.
+   *
+   * Keyed on `screen` rather than cleared at each of the several call sites that
+   * navigate to F17 — H5 retry, H5 change-method, H8/H12 become-a-member — so a
+   * route added later cannot reintroduce a stale error greeting the user under
+   * the button before they have touched anything.
+   */
+  useEffect(() => {
+    if (screen !== 'F17' && payError) setPayError(undefined);
+  }, [screen, payError]);
+
+  // Reload introductions and stats when active filters change (manual filters or saved preferences).
+  // Resets the feed so results reflect the new criteria from the start.
 
   /**
    * Load the feed and its stats — on reaching H16, and again whenever the
@@ -1878,6 +1989,58 @@ export default function App() {
     setScreen(to);
   }
 
+  /**
+   * Verify a Play purchase with the server and, if it grants the membership,
+   * finish it with Play and move the user on.
+   *
+   * Shared by the buy flow and the "you already own this" recovery below, so
+   * both land in exactly the same place — the two used to be one inline block
+   * and a dead end respectively.
+   */
+  async function activateMembership(
+    purchase: StorePurchaseRecord,
+  ): Promise<boolean> {
+    const result = await verifyPurchase(
+      {
+        provider: 'google_play',
+        payload: { purchaseToken: purchase.purchaseToken ?? '' },
+      },
+      MEMBERSHIP_PRODUCT_ID,
+    );
+
+    if (!result.isEntitled) {
+      setPaymentFailed(true);
+      navigate('Home');
+      return false;
+    }
+
+    // Only after the grant is recorded. The server acknowledges with Google
+    // independently; this clears the purchase from Play's local queue so it is
+    // not redelivered on every launch.
+    await finishMembershipPurchase(purchase);
+    setPaymentFailed(false);
+    setUnderReviewPaid(true);
+    const n = stepNumberFor('F18');
+    if (n != null) saveOnboardingStep(n).catch(() => {});
+    navigate('F18');
+    return true;
+  }
+
+  /**
+   * Redeem a purchase Play is holding but never had confirmed — the state behind
+   * its "already owned" refusal. Returns whether one was successfully activated.
+   */
+  async function redeemUnfinishedPurchase(): Promise<boolean> {
+    for (const purchase of await getUnfinishedPurchases()) {
+      try {
+        if (await activateMembership(purchase)) return true;
+      } catch {
+        // Try the next one; the caller reports failure if none work.
+      }
+    }
+    return false;
+  }
+
   // Maps onboarding sect string → filter sect array
   function sectToFilter(s: string): string[] {
     if (!s) return ['Any'];
@@ -2678,10 +2841,17 @@ export default function App() {
         return (
           <PaymentScreen
             paying={paying}
+            error={payError}
+            priceLabel={storePrice}
             {...onboardingExit()}
             onBack={onboardingBack('F16')}
             onPay={async () => {
               setPaying(true);
+              setPayError(undefined);
+              // Keeps the foreground restore pass off this purchase. Play's
+              // sheet backgrounds the app, which fires that listener while this
+              // handler still holds the token.
+              payInFlight.current = true;
               try {
                 // Google Play is the only store with a verifier server-side, so
                 // iOS cannot complete a purchase yet — fail here rather than
@@ -2692,52 +2862,45 @@ export default function App() {
                   return;
                 }
 
-                // The store token. There is no Play Billing bridge in JS yet
-                // (no react-native-iap / RevenueCat in package.json), so a real
-                // receipt does not exist to send. Dev builds send a unique
-                // sandbox token the StubBillingVerifier accepts; release builds
-                // send nothing, and verifyPurchase refuses to post an empty
-                // proof, so the payment fails rather than a fake purchase being
-                // recorded against the account.
-                //
-                // Replace with the token from the IAP purchase result. Also set
-                // obfuscatedAccountId to the app user id when launching the
-                // billing flow, and still call finishTransaction afterwards —
-                // the server acknowledges the purchase with Google, but only
-                // finishTransaction clears it from Play's local queue, and a
-                // purchase left in it is redelivered on every launch. That
-                // second acknowledgement errors harmlessly; catch it rather than
-                // treating it as a failed purchase.
-                const purchaseToken = __DEV__
-                  ? `sandbox-${userId || 'anon'}-${Date.now()}`
-                  : '';
-                const result = await verifyPurchase(
-                  { provider: 'google_play', payload: { purchaseToken } },
-                  MEMBERSHIP_PRODUCT_ID,
-                );
-                if (result.isEntitled) {
-                  setPaymentFailed(false);
-                  // `underReviewPaid` is not set here. It is one of the flags
-                  // `refreshHomeState` owns, and guessing it made Home show
-                  // "One step left — verify my identity" for a moment until the
-                  // server's real answer (WALI_REQUIRED, say) replaced it.
-                  //
-                  // Marking the home state unloaded instead means Home waits for
-                  // that answer rather than rendering a guess, and the refresh
-                  // below has the whole of F18 to land in.
-                  setHomeStateLoaded(false);
-                  refreshHomeState().catch(() => {});
-                  const n = stepNumberFor('F18');
-                  if (n != null) saveOnboardingStep(n).catch(() => {});
-                  navigate('F18');
-                } else {
-                  setPaymentFailed(true);
-                  navigate('Home');
+                // Play's own purchase sheet. The token it returns is the only
+                // thing the server will accept — it calls Google to check it,
+                // so there is nothing to fake here and nothing to gain by it.
+                const purchase = await buyMembership(userId);
+                await activateMembership(purchase);
+              } catch (err) {
+                // Backing out of Play's sheet is not a failure. Leave the
+                // paywall exactly as it was — no error, no navigation.
+                if (isUserCancelled(err)) return;
+
+                // Play refuses a second purchase of something this account owns.
+                // It means the user has already paid and the purchase was never
+                // finished, so the answer is to redeem it — telling them to buy
+                // again would offer the one button that cannot work.
+                if (isAlreadyOwned(err)) {
+                  const restored = await redeemUnfinishedPurchase();
+                  if (restored) return;
+                  setPayError(
+                    'You have already paid for this. Reopen the app in a moment ' +
+                      'and your membership will be restored.',
+                  );
+                  return;
                 }
-              } catch {
-                setPaymentFailed(true);
-                navigate('Home');
+
+                // The purchase may well have succeeded and only the verify call
+                // failed, in which case Google is still holding the token and
+                // the restore pass on next foreground recovers it. So say the
+                // membership did not activate, never that the payment failed.
+                //
+                // Only ApiError carries a message the server meant for a user.
+                // Anything else is a library string or one of our own developer
+                // guards, which must not be shown.
+                setPayError(
+                  err instanceof ApiError
+                    ? err.message
+                    : 'Could not complete the purchase. Please try again.',
+                );
               } finally {
+                payInFlight.current = false;
                 setPaying(false);
               }
             }}
@@ -3125,6 +3288,7 @@ export default function App() {
             underReviewUnpaid={underReviewUnpaid}
             underReviewPaid={underReviewPaid}
             proposalsReadyUnpaid={proposalsReadyUnpaid}
+            priceLabel={storePrice}
             matchCount={matchCount}
             introductionAvailable={introductionAvailable}
             hasIntroductions={hasIntroductions}
