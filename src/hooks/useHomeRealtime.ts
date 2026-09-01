@@ -1,5 +1,5 @@
 /**
- * useHomeSocket
+ * useHomeRealtime
  *
  * Subscribes to the Supabase Realtime notifications channel and calls
  * `onStale` whenever the server broadcasts 'stats:stale' — which happens
@@ -12,7 +12,7 @@
 import { useEffect, useRef } from 'react';
 import { subscribeToNotification } from '../lib/notificationChannel';
 
-export function useHomeSocket(userId: string, onStale: () => void): void {
+export function useHomeRealtime(userId: string, onStale: () => void): void {
   const onStaleRef = useRef(onStale);
   useEffect(() => { onStaleRef.current = onStale; }, [onStale]);
 

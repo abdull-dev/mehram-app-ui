@@ -1,5 +1,5 @@
 /**
- * useChatListSocket
+ * useChatListRealtime
  *
  * Subscribes to the Supabase Realtime notifications channel and calls
  * `onStale` whenever the server broadcasts 'chats:stale' — which happens
@@ -11,7 +11,7 @@
 import { useEffect, useRef } from 'react';
 import { subscribeToNotification } from '../lib/notificationChannel';
 
-export function useChatListSocket(userId: string, onStale: () => void): void {
+export function useChatListRealtime(userId: string, onStale: () => void): void {
   const onStaleRef = useRef(onStale);
   useEffect(() => { onStaleRef.current = onStale; }, [onStale]);
 

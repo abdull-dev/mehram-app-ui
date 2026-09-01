@@ -1,5 +1,5 @@
 /**
- * useChatSocket
+ * useChatRealtime
  *
  * Manages real-time chat for a single conversation using Supabase Realtime.
  *
@@ -46,7 +46,7 @@ export interface Typer {
   displayName: string;
 }
 
-export interface UseChatSocket {
+export interface UseChatRealtime {
   messages: AnyMessage[];
   participants: ParticipantPresence[];
   typers: Typer[];
@@ -76,11 +76,11 @@ interface PresencePayload {
 // Persists messages across component mounts so reopening a chat is instant.
 const messageCache = new Map<string, AnyMessage[]>();
 
-export function useChatSocket(
+export function useChatRealtime(
   conversationId: string | null,
   myUserId: string | null,
   myDisplayName?: string,
-): UseChatSocket {
+): UseChatRealtime {
   // Seed from cache immediately — no blank flash when reopening.
   // Strip any optimistic entries that were never confirmed (e.g. navigated away before echo).
   const [messages, setMessages] = useState<AnyMessage[]>(() => {
