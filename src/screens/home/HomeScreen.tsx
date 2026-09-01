@@ -13,12 +13,12 @@
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Easing,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,14 +35,35 @@ import {
 } from '../../components/onboarding/ProfileIncompleteBlock';
 import type { ProfileCompletion } from '../../api/profile';
 import { UnderReviewScreen } from '../onboarding/UnderReviewScreen';
+import { WaliRequiredBlock } from '../../components/review/WaliRequiredBlock';
 import { ProposalsScreen } from './ProposalsScreen';
 import { ProposalDetailScreen, type ProposalDetailSelection } from './ProposalDetailScreen';
 import { FamilyScreen, type WaliState } from './FamilyScreen';
+import { Bone } from '../../components/ui/Skeleton';
 import { BottomNav, NavTab } from '../../components/ui/BottomNav';
 import { Colors } from '../../theme/colors';
 import { Coords } from '../../utils/location';
 
 // ─── filter icon (sliders) ────────────────────────────────────────────────────
+/**
+ * Right-edge offsets for the two floating top-bar buttons.
+ *
+ * The menu sits on the outside — it is the screen's own control, while the
+ * filter acts on the content below it. Named once because the skeletons that
+ * stand in for these buttons have to line up with them exactly.
+ */
+const CHROME_RIGHT = { menu: 16, filter: 62, bell: 108 } as const;
+
+function BellIcon() {
+  return (
+    <Svg width={19} height={19} viewBox="0 0 24 24" fill="none"
+      stroke={Colors.vioInk} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <Path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </Svg>
+  );
+}
+
 function FilterIcon() {
   return (
     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -80,8 +101,22 @@ interface HomeScreenProps {
   underReviewUnpaid?: boolean;
   /** Verification pending AND payment made — shows H9 */
   underReviewPaid?: boolean;
+  /** Verified and paid, but no wali — not discoverable and cannot propose. */
+  waliRequired?: boolean;
+  onAddWali?: () => void;
   /** The server's section-by-section profile completion, when loaded. */
   profileCompletion?: ProfileCompletion;
+  /**
+   * Whether the home-state fetch has answered at least once.
+   *
+   * The five server-derived states below are only meaningful after it has. Until
+   * then they sit at their defaults, which read as a real answer: a user who had
+   * just verified and paid was shown the review card's "One step left / Verify
+   * my identity" copy, because `verificationPending` had not been told otherwise
+   * yet and `underReviewPaid` was set optimistically by the payment screen.
+   * Defaults to true so callers that pass real flags directly are unaffected.
+   */
+  homeStateLoaded?: boolean;
   /** Server reports a verification actually awaiting review, not merely absent. */
   verificationPending?: boolean;
   /** Some verification types submitted, but not all. */
@@ -117,8 +152,23 @@ interface HomeScreenProps {
   onViewProposalProfile?: (userId: string, type: 'sent' | 'received', matchId: string | null) => void;
   /** Proposals: called after a proposal is successfully withdrawn — refresh home feed */
   onProposalWithdrawn?: () => void;
+  /**
+   * Accept or decline a proposal that has reached the user, by its sender.
+   *
+   * Without these the received-proposal screen rendered both buttons with no
+   * handler behind them, so tapping Accept fired no request.
+   */
+  onAcceptProposal?: (fromUserId: string) => void | Promise<void>;
+  onDeclineProposal?: (fromUserId: string) => void | Promise<void>;
+  /** Open the conversation for an accepted proposal. */
+  onOpenProposalChat?: (matchId: string | null) => void;
   /** H16: "Send proposal" tapped */
-  onSendProposal?: () => void;
+  /**
+   * Forwarded to IntroductionAvailableBlock, which has a note field — so the
+   * note has to travel through this type. Declared as taking none, it was
+   * being dropped between the block and App's handler.
+   */
+  onSendProposal?: (note?: string) => void | Promise<void>;
   /** H16: "Request photo" tapped (from ProfileDetailScreen) */
   onRequestPhoto?: () => void;
   /** H16 empty state: "Change city" tapped */
@@ -141,7 +191,6 @@ interface HomeScreenProps {
   /** H8 / H12: go to payment screen */
   onBecomeAMember?: () => void;
   /** H8: confirm wali */
-  onConfirmWali?: () => void;
   /** H8: improve biodata */
   onImproveBiodata?: () => void;
   /** H8: review preferences */
@@ -158,8 +207,24 @@ interface HomeScreenProps {
   activeTab?: NavTab;
   /** Bottom nav tab tapped */
   onTabChange?: (tab: NavTab) => void;
+  /** Signed-in user's id — drives the Proposals realtime subscription. */
+  userId?: string;
+  /** Proposals header → photo requests queue. */
+  onPhotoRequests?: () => void;
+  /** Bell icon tapped → opens the notification feed. */
+  onOpenNotifications?: () => void;
+  /** Unread notifications, badged on the bell. */
+  notificationsBadge?: number;
+  /** Photo requests waiting on this user — shown on that header link. */
+  photoRequestsBadge?: number;
   /** Badge count on Proposals tab */
   proposalsBadge?: number;
+  /**
+   * Badge count on the Chats tab: how many conversations have messages the
+   * user has not read. Counts conversations, not messages — the question is
+   * "who is waiting on me", not "how much is unread".
+   */
+  chatsBadge?: number;
   /** Increment to trigger a silent refresh of the Proposals tab */
   proposalsRefreshKey?: number;
   /** Called when the received proposals count changes — used to drive the badge */
@@ -167,12 +232,9 @@ interface HomeScreenProps {
   /** Settings (burger) icon tapped — opens SettingsScreen */
   onOpenSettings?: () => void;
   /** Wali state for the Family tab */
-  waliState?: WaliState;
   /** Family tab — wali action callbacks */
   onAskWaliAgain?: () => void;
   onChooseAnotherWali?: () => void;
-  onRemindWali?: () => void;
-  onChangeWali?: () => void;
   onReviewProposal?: () => void;
   onSwitchToProfile?: () => void;
 }
@@ -187,12 +249,16 @@ export function HomeScreen({
   resumeScreen = 'WhoIsFor',
   underReviewUnpaid = false,
   underReviewPaid = false,
+  waliRequired = false,
+  homeStateLoaded = true,
+  onAddWali,
   profileCompletion,
   verificationPending = true,
   verificationPartial = false,
   onStartVerification,
   proposalsReadyUnpaid = false,
-  matchCount = 14,
+  // 0, not a sample figure: an unpassed count must not read as a real one.
+  matchCount = 0,
   introductionAvailable = false,
   hasIntroductions = true,
   introductionCity = 'your city',
@@ -206,6 +272,9 @@ export function HomeScreen({
   onViewProfile,
   onViewProposalProfile,
   onProposalWithdrawn,
+  onAcceptProposal,
+  onDeclineProposal,
+  onOpenProposalChat,
   onSendProposal,
   onRequestPhoto,
   onChangeCity,
@@ -216,7 +285,6 @@ export function HomeScreen({
   onUploadCnic,
   onContinueOnboarding,
   onBecomeAMember,
-  onConfirmWali,
   onImproveBiodata,
   onReviewPreferences,
   verificationSubmittedAt,
@@ -225,15 +293,18 @@ export function HomeScreen({
   introductionsLoading = false,
   activeTab = 'home',
   onTabChange,
+  userId,
+  onPhotoRequests,
+  photoRequestsBadge,
+  onOpenNotifications,
+  notificationsBadge = 0,
   proposalsBadge,
+  chatsBadge,
   proposalsRefreshKey,
   onProposalsBadgeChange,
   onOpenSettings,
-  waliState = 'unresponsive',
   onAskWaliAgain,
   onChooseAnotherWali,
-  onRemindWali,
-  onChangeWali,
   onReviewProposal,
   onSwitchToProfile,
 }: HomeScreenProps) {
@@ -291,29 +362,75 @@ export function HomeScreen({
     <BottomNav
       activeTab={activeTab}
       onTabChange={onTabChange}
-      proposalsBadge={proposalsBadge}
+      badges={{ proposals: proposalsBadge, chats: chatsBadge }}
     />
   );
+
+  /**
+   * The page is still resolving what it is.
+   *
+   * These two buttons are absolutely-positioned overlays, so they sit outside
+   * whichever block draws the skeleton and stayed fully live over it — two real
+   * controls on a page of placeholders, tappable before the state that decides
+   * whether they should exist had arrived.
+   */
+  const chromeLoading = !homeStateLoaded || introductionsLoading;
 
   // Absolutely-positioned filter button — overlaid on every home state except
   // H3/H4 (verification failures, where the user needs to act on verification).
   const filterOverlay = onOpenFilters ? (
-    <Pressable
-      onPress={onOpenFilters}
-      hitSlop={8}
-      style={[styles.filterBtn, { top: insets.top + 8 }]}>
-      <FilterIcon />
-    </Pressable>
+    chromeLoading ? (
+      <Bone w={38} h={38} radius={14} style={[styles.chromeBone, { right: CHROME_RIGHT.filter, top: insets.top + 8 }]} />
+    ) : (
+      <Pressable
+        onPress={onOpenFilters}
+        hitSlop={8}
+        style={[styles.filterBtn, { top: insets.top + 8 }]}>
+        <FilterIcon />
+      </Pressable>
+    )
+  ) : null;
+
+  // Notification bell — outermost of the three, since it is about the account
+  // rather than the page under it.
+  const bellOverlay = onOpenNotifications ? (
+    chromeLoading ? (
+      <Bone w={38} h={38} radius={14} style={[styles.chromeBone, { right: CHROME_RIGHT.bell, top: insets.top + 8 }]} />
+    ) : (
+      <Pressable
+        onPress={onOpenNotifications}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={
+          notificationsBadge > 0
+            ? `Notifications, ${notificationsBadge} unread`
+            : 'Notifications'
+        }
+        style={[styles.bellBtn, { top: insets.top + 8 }]}>
+        <BellIcon />
+        {notificationsBadge > 0 && (
+          <View style={styles.bellBadge}>
+            <Text style={styles.bellBadgeText}>
+              {notificationsBadge > 9 ? '9+' : notificationsBadge}
+            </Text>
+          </View>
+        )}
+      </Pressable>
+    )
   ) : null;
 
   // Absolutely-positioned settings (burger) button — top-right of home
   const settingsOverlay = onOpenSettings ? (
-    <Pressable
-      onPress={onOpenSettings}
-      hitSlop={8}
-      style={[styles.settingsBtn, { top: insets.top + 8 }]}>
-      <MenuIcon />
-    </Pressable>
+    chromeLoading ? (
+      <Bone w={38} h={38} radius={14} style={[styles.chromeBone, { right: CHROME_RIGHT.menu, top: insets.top + 8 }]} />
+    ) : (
+      <Pressable
+        onPress={onOpenSettings}
+        hitSlop={8}
+        style={[styles.settingsBtn, { top: insets.top + 8 }]}>
+        <MenuIcon />
+      </Pressable>
+    )
   ) : null;
 
   // ── Build page content (single return so the tab animation wrapper is consistent)
@@ -332,14 +449,16 @@ export function HomeScreen({
   if (profileIncomplete && !nothingOutstanding) {
     pageContent = (
       <>
+        {/* No filter or menu here. There is no feed to narrow until the
+            biodata is done, and the card's one job is to send the user into
+            it — two floating controls over the top of that are the only things
+            competing with it. */}
         <ProfileIncompleteBlock
           userName={userName}
           resumeScreen={resumeScreen}
           completion={profileCompletion}
           onContinue={onContinueOnboarding}
         />
-        {filterOverlay}
-        {settingsOverlay}
       </>
     );
   } else if (paymentFailed) {
@@ -351,6 +470,7 @@ export function HomeScreen({
           onChangeMethod={onChangePaymentMethod}
         />
         {filterOverlay}
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
@@ -371,22 +491,31 @@ export function HomeScreen({
         onAction={onUploadCnic}
       />
     );
-  } else if (underReviewUnpaid) {
+  } else if (homeStateLoaded && waliRequired) {
+    pageContent = (
+      <>
+        <WaliRequiredBlock userName={userName} onAddWali={onAddWali} />
+        {filterOverlay}
+        {bellOverlay}
+        {settingsOverlay}
+      </>
+    );
+  } else if (homeStateLoaded && underReviewUnpaid) {
     pageContent = (
       <>
         <UnderReviewUnpaidBlock
           userName={userName}
           onBecomeAMember={onBecomeAMember}
-          onConfirmWali={onConfirmWali}
           onImproveBiodata={onImproveBiodata}
           onReviewPreferences={onReviewPreferences}
           submittedAt={verificationSubmittedAt}
         />
         {filterOverlay}
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
-  } else if (underReviewPaid) {
+  } else if (homeStateLoaded && underReviewPaid) {
     pageContent = (
       <>
         <UnderReviewScreen
@@ -396,10 +525,11 @@ export function HomeScreen({
           onStartVerification={onStartVerification}
         />
         {filterOverlay}
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
-  } else if (proposalsReadyUnpaid) {
+  } else if (homeStateLoaded && proposalsReadyUnpaid) {
     pageContent = (
       <>
         <MatchesFoundUnpaidBlock
@@ -408,10 +538,11 @@ export function HomeScreen({
           onBecomeAMember={onBecomeAMember}
         />
         {filterOverlay}
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
-  } else if (introductionAvailable) {
+  } else if (homeStateLoaded && introductionAvailable) {
     pageContent = (
       <>
         <IntroductionAvailableBlock
@@ -434,18 +565,27 @@ export function HomeScreen({
           onOpenFilters={onOpenFilters}
         />
         {filterOverlay}
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
   } else {
-    // Every server state maps to one of the branches above, so this is the gap
-    // before the first home-state response lands. A spinner rather than the
-    // bare burger button on an empty page.
+    // Either the first home-state response has not landed yet, or it has and
+    // every state maps to one of the branches above. A spinner rather than the
+    // bare burger button on an empty page — and, for the states the server owns,
+    // rather than a guess made from their defaults.
     pageContent = (
       <>
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={Colors.vioInk} />
+        {/* The shape every branch above resolves to: a greeting, a hero card,
+            then a content card. A spinner said "waiting" without saying what
+            for, and the page then jumped as the real layout replaced it. */}
+        <View style={styles.fallbackSkeleton}>
+          <Bone w={132} h={13} radius={6} />
+          <Bone w={182} h={26} radius={9} style={{ marginTop: 8 }} />
+          <Bone w={'100%'} h={196} radius={20} style={{ marginTop: 22 }} />
+          <Bone w={'100%'} h={228} radius={22} style={{ marginTop: 14 }} />
         </View>
+        {bellOverlay}
         {settingsOverlay}
       </>
     );
@@ -458,25 +598,29 @@ export function HomeScreen({
         {pageContent}
       </Animated.View>
 
-      {/* Proposals tab — always mounted so state + socket survive tab switches */}
+      {/* Proposals tab — always mounted so state + subscription survive tab switches */}
       <View style={[StyleSheet.absoluteFill, { display: activeTab === 'proposals' ? 'flex' : 'none' }]}>
         <ProposalsScreen
           onSeeIntroduction={onViewProfile}
           onSelectProposal={openDetail}
           refreshKey={proposalsRefreshKey}
+          userId={userId}
+          onPhotoRequests={onPhotoRequests}
+          photoRequestsBadge={photoRequestsBadge}
           onReceivedCountChange={onProposalsBadgeChange}
         />
       </View>
 
       {/* Family tab — always mounted so wali data is not re-fetched on every tab switch */}
       <View style={[StyleSheet.absoluteFill, { display: activeTab === 'family' ? 'flex' : 'none' }]}>
+        {/* `waliState`, `onRemindWali` and `onChangeWali` used to be passed
+            here but are not FamilyScreenProps — the screen resolves its own
+            state and never received them. Dropped rather than left as a silent
+            no-op that reads like wiring. */}
         <FamilyScreen
-          waliState={waliState}
           onBack={() => onTabChange?.('home')}
           onAskWaliAgain={onAskWaliAgain}
           onChooseAnotherWali={onChooseAnotherWali}
-          onRemindWali={onRemindWali}
-          onChangeWali={onChangeWali}
           onReviewProposal={onReviewProposal}
           onSwitchToProfile={() => { onTabChange?.('home'); onSwitchToProfile?.(); }}
         />
@@ -497,6 +641,9 @@ export function HomeScreen({
             onBack={closeDetail}
             onWithdrawSuccess={onProposalWithdrawn}
             onViewProfile={onViewProposalProfile}
+            onAccept={async fromUserId => { await onAcceptProposal?.(fromUserId); closeDetail(); }}
+            onDecline={async fromUserId => { await onDeclineProposal?.(fromUserId); closeDetail(); }}
+            onOpenChat={matchId => { closeDetail(); onOpenProposalChat?.(matchId); }}
           />
         </Animated.View>
       )}
@@ -518,9 +665,54 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Colors.page,
   },
+  // Same footprint and corner radius as the two real buttons, so nothing
+  // shifts when the page resolves.
+  // Stands in for the whole page while the home state resolves.
+  fallbackSkeleton: { paddingHorizontal: 20, paddingTop: 70 },
+
+  chromeBone: {
+    position: 'absolute',
+    zIndex: 10,
+  },
+
+  // Same 38x38 chrome as the other two; only the offset and contents differ.
+  bellBtn: {
+    position: 'absolute',
+    right: CHROME_RIGHT.bell,
+    zIndex: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#3C287A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  // Overhangs the corner, so it reads as attached to the bell rather than
+  // crowding the glyph.
+  bellBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: '#E6396E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#F6F5FA',
+  },
+  bellBadgeText: { fontSize: 9.5, fontWeight: '800', color: '#fff' },
+
   filterBtn: {
     position: 'absolute',
-    right: 16,
+    right: CHROME_RIGHT.filter,
     zIndex: 10,
     width: 38,
     height: 38,
@@ -536,7 +728,7 @@ const styles = StyleSheet.create({
   },
   settingsBtn: {
     position: 'absolute',
-    right: 62,
+    right: CHROME_RIGHT.menu,
     zIndex: 10,
     width: 38,
     height: 38,

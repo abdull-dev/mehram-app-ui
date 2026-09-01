@@ -148,8 +148,11 @@ function ListItem({ icon, bg, title, subtitle, first, onPress }: ListItemProps) 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface MembershipScreenProps {
   onBack?: () => void;
+  /** Omitted while no receipt endpoint exists — the row hides itself. */
   onEmailReceipt?: () => void;
-  onRequestRefund?: () => void;
+  onRequestRefund?: () => void | Promise<void>;
+  /** Outcome of a refund request, shown next to the button that caused it. */
+  refundNotice?: string | null;
   onReadRefundPolicy?: () => void;
 }
 
@@ -158,6 +161,7 @@ export function MembershipScreen({
   onBack,
   onEmailReceipt,
   onRequestRefund,
+  refundNotice,
   onReadRefundPolicy,
 }: MembershipScreenProps) {
   const insets = useSafeAreaInsets();
@@ -190,13 +194,15 @@ export function MembershipScreen({
             <DataRow label="Status"       value="Active for life" />
             <DataRow label="Next charge"  value="None, ever"      />
           </View>
-          <View style={styles.acts}>
+          {/* Hidden without a handler: there is no receipt endpoint, and a
+              button that cannot do its job is worse than an absent one. */}
+          {!!onEmailReceipt && <View style={styles.acts}>
             <Pressable
               onPress={onEmailReceipt}
               style={({ pressed }) => [styles.btn, styles.btnO, pressed && { opacity: 0.8 }]}>
               <Text style={[styles.btnText, { color: C.indInk }]}>Email me a receipt</Text>
             </Pressable>
-          </View>
+          </View>}
         </View>
 
         <Banner
@@ -226,6 +232,11 @@ export function MembershipScreen({
           />
         </View>
 
+        {/* The outcome, next to the button that caused it. The request is
+            recorded for review — it does not refund anything by itself, so the
+            copy must not imply money has moved. */}
+        {!!refundNotice && <Text style={styles.refundNotice}>{refundNotice}</Text>}
+
       </ScrollView>
     </View>
   );
@@ -233,6 +244,13 @@ export function MembershipScreen({
 
 // ─── styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  refundNotice: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: C.indInk,
+    paddingHorizontal: 4,
+    marginTop: 10,
+  },
   root: {
     flex: 1,
     backgroundColor: C.page,

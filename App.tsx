@@ -6,6 +6,7 @@ import {
   BackHandler,
   Dimensions,
   Easing,
+  Image,
   StyleSheet,
   View,
 } from 'react-native';
@@ -25,7 +26,7 @@ import {
   submitCnicVerification,
 } from './src/api/verification';
 import { resolvePhotoUrl } from './src/api/config';
-import { getWaliMe, removeWard, getWardIntroductions, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship } from './src/api/wali';
+import { getWaliMe, removeWard, getWardIntroductions, getWardDiscovery, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship, approveProposal, declineProposal } from './src/api/wali';
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
 import {
   verifyPurchase,
@@ -33,7 +34,7 @@ import {
   STORE_PURCHASES_SUPPORTED,
 } from './src/api/billing';
 import { getIntroductions, getIntroduction, getHomeStats, skipIntroduction, MAX_DISCOVER_LIMIT, type Introduction, type FullIntroduction, type IntroductionFilters } from './src/api/introductions';
-import { sendProposal } from './src/api/proposals';
+import { sendProposal, acceptProposal, declineReceivedProposal } from './src/api/proposals';
 import { getHomeState, hasSubmittedAllVerifications } from './src/api/home';
 import {
   updateLocation,
@@ -41,6 +42,7 @@ import {
   updateSect,
   updateFamilyBackground,
   updatePreferences,
+  getMyProfile,
   updatePrompts,
   updatePhotoPrivacy,
   toGender,
@@ -54,11 +56,49 @@ import { ONBOARDING_STEP, resumeFromOnboardingStep, screenForStep, stepNumberFor
 import { type IntroductionProfile } from './src/components/introduction/IntroductionAvailableBlock';
 import { getAccessToken, getPendingEmail, getPendingPhone, savePendingEmail, savePendingPhone, clearPendingEmail, clearTokens } from './src/storage/authStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useHomeSocket } from './src/hooks/useHomeSocket';
+import { useHomeRealtime } from './src/hooks/useHomeRealtime';
+
+/**
+ * Orders a chat list newest-first, treating "no messages yet" as oldest.
+ *
+ * Both sort sites did this inline with `new Date(x.lastMessageAt)`, which only
+ * compiled because the field was typed as a plain string — the value could
+ * always be absent, and the fallback that hid it stamped empty chats with the
+ * current clock so they jumped to the top on every refresh.
+ */
+function byNewestMessage(
+  a: { lastMessageAt: string | null },
+  b: { lastMessageAt: string | null },
+): number {
+  const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+  const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+  return tb - ta;
+}
+
+/**
+ * Sign out and drop every module-level screen cache.
+ *
+ * Those caches outlive the component tree, so without this a second account
+ * signing in on the same device saw the previous user's proposals and their
+ * name and email in Settings until the first fetch returned.
+ *
+ * One helper rather than the same two lines at four call sites — the caches
+ * were already being missed at all four.
+ */
+async function signOutAndClearCaches(): Promise<void> {
+  try {
+    await logout();
+  } catch {
+    await clearTokens();
+  }
+  resetProposalsCache();
+  resetSettingsCache();
+}
 
 const WALI_LOCAL_PROPOSALS_KEY = '@mehram_wali_local_proposals';
-import { useProposalsSocket } from './src/hooks/useProposalsSocket';
-import { useChatListSocket } from './src/hooks/useChatListSocket';
+import { useProposalsRealtime } from './src/hooks/useProposalsRealtime';
+import { useChatListRealtime } from './src/hooks/useChatListRealtime';
+import { useNotificationsRealtime } from './src/hooks/useNotificationsRealtime';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WelcomeScreen } from './src/screens/onboarding/WelcomeScreen';
 import { PhoneScreen } from './src/screens/onboarding/PhoneScreen';
@@ -81,27 +121,39 @@ import { ReturningScreen } from './src/screens/onboarding/ReturningScreen';
 import { HomeScreen } from './src/screens/home/HomeScreen';
 import { allSectionsDone } from './src/components/onboarding/ProfileIncompleteBlock';
 import { NarrowCriteriaScreen } from './src/screens/onboarding/NarrowCriteriaScreen';
-import { AdjustFiltersScreen, FilterValues } from './src/screens/home/AdjustFiltersScreen';
+import { AdjustFiltersScreen, FilterValues, BASE_DEFAULTS } from './src/screens/home/AdjustFiltersScreen';
 import { captureCurrentLocation, Coords } from './src/utils/location';
+import { firstNameFrom, isPlaceholderName } from './src/utils/displayName';
 import { ProfileDetailScreen, type ProposalContext } from './src/screens/profile/ProfileDetailScreen';
 import { AccountVerificationScreen } from './src/screens/onboarding/AccountVerificationScreen';
 import { SignInScreen } from './src/screens/onboarding/SignInScreen';
+import { ForgotPasswordScreen } from './src/screens/onboarding/ForgotPasswordScreen';
 import { SignInRoleScreen } from './src/screens/onboarding/SignInRoleScreen';
-import { SettingsScreen } from './src/screens/home/SettingsScreen';
+import { SettingsScreen, resetSettingsCache } from './src/screens/home/SettingsScreen';
+import { PhotoRequestsScreen } from './src/screens/home/PhotoRequestsScreen';
+import { NotificationFeedScreen } from './src/screens/home/NotificationFeedScreen';
+import { requestPhoto, getIncomingPhotoRequests } from './src/api/photoRequests';
+import { getUnreadNotificationCount } from './src/api/notifications';
+import { requestRefund } from './src/api/billing';
+import { signInWithGoogle as googleSignIn } from './src/lib/googleAuth';
+import { resetProposalsCache } from './src/screens/home/ProposalsScreen';
 import { FamilyScreen } from './src/screens/home/FamilyScreen';
 import { PrivacyScreen } from './src/screens/home/PrivacyScreen';
 import { YourPhotosScreen } from './src/screens/home/YourPhotosScreen';
 import { MembershipScreen } from './src/screens/home/MembershipScreen';
-import { DeleteAccountScreen } from './src/screens/home/DeleteAccountScreen';
 import { EditProfileScreen } from './src/screens/profile/EditProfileScreen';
 import { NotificationsScreen } from './src/screens/home/NotificationsScreen';
 import { LanguageScreen } from './src/screens/home/LanguageScreen';
 import { BlockedPeopleScreen } from './src/screens/home/BlockedPeopleScreen';
 import { ContactSupportScreen } from './src/screens/home/ContactSupportScreen';
 import { LegalScreen } from './src/screens/home/LegalScreen';
-import { FoundMyMatchScreen } from './src/screens/home/FoundMyMatchScreen';
-import { DownloadDataScreen } from './src/screens/home/DownloadDataScreen';
 import { PartnerPreferencesScreen } from './src/screens/home/PartnerPreferencesScreen';
+import type { PreferenceValues } from './src/components/preferences/PreferenceFields';
+import {
+  preferencesFromApi,
+  preferencesToApi,
+  withPreferenceDefaults,
+} from './src/components/preferences/PreferenceFields';
 import { WaliAccountSetupScreen } from './src/screens/wali-onboarding/WaliAccountSetupScreen';
 import { WaliWelcomeScreen }      from './src/screens/wali-onboarding/WaliWelcomeScreen';
 import { WaliCodeEntryScreen }    from './src/screens/wali-onboarding/WaliCodeEntryScreen';
@@ -117,22 +169,22 @@ import { ChatThreadScreen } from './src/screens/chats/ChatThreadScreen';
 
 // ─── screen order (used to determine slide direction) ────────────────────────
 type Screen =
-  | 'F1' | 'SignInRole' | 'SignIn' | 'WhoIsFor' | 'Phone' | 'AccountVerification' | 'Code'
+  | 'F1' | 'SignInRole' | 'SignIn' | 'ForgotPassword' | 'WhoIsFor' | 'Phone' | 'AccountVerification' | 'Code'
   | 'F6' | 'F7' | 'F8' | 'F10'
   | 'F11' | 'F12' | 'F13' | 'F14' | 'F15' | 'F16' | 'F17' | 'F18'
   | 'F21' | 'F22' | 'H11' | 'Filters' | 'Home' | 'ProfileDetail'
-  | 'Settings' | 'Privacy' | 'YourPhotos' | 'Membership' | 'DeleteAccount' | 'EditProfile'
+  | 'Settings' | 'Privacy' | 'YourPhotos' | 'Membership' | 'EditProfile'
   | 'Notifications' | 'Language' | 'BlockedPeople' | 'ContactSupport'
   | 'PrivacyPolicy' | 'TermsOfService' | 'RefundPolicy'
-  | 'FoundMyMatch' | 'DownloadData' | 'PartnerPreferences' | 'YourWali'
+  | 'PartnerPreferences' | 'YourWali'
   // Wali onboarding
   | 'WaliAccountSetup' | 'WaliWelcome' | 'WaliCode' | 'WaliEmailVerify' | 'WaliRole' | 'WaliDetails' | 'WaliComplete'
   // Chat
-  | 'Chats' | 'ChatThread';
+  | 'Chats' | 'ChatThread' | 'PhotoRequests' | 'NotificationFeed';
 
 const SCREEN_ORDER: Screen[] = [
   // Onboarding
-  'F1', 'SignInRole', 'SignIn', 'WhoIsFor',
+  'F1', 'SignInRole', 'SignIn', 'ForgotPassword', 'WhoIsFor',
   // Wali onboarding branch (sits between WhoIsFor and Phone)
   'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliEmailVerify', 'WaliRole', 'WaliDetails', 'WaliComplete',
   'Phone', 'AccountVerification', 'Code',
@@ -146,7 +198,20 @@ const SCREEN_ORDER: Screen[] = [
   'Membership', 'EditProfile', 'Notifications', 'Language',
   'BlockedPeople', 'ContactSupport',
   'PrivacyPolicy', 'TermsOfService', 'RefundPolicy',
-  'FoundMyMatch', 'DownloadData', 'DeleteAccount',
+  /**
+   * Screens reachable from Home, deeper than it.
+   *
+   * These were absent, and `navDirection` treats an unknown screen as
+   * 'forward' — so leaving a chat or a profile slid in from the right as if
+   * the user were going deeper, while actually returning.
+   *
+   * Ordered by depth: the feed screens sit beside Home, a thread and a profile
+   * open on top of the list that leads to them.
+   */
+  'Filters', 'H11', 'F21', 'F22',
+  'Chats', 'ChatThread',
+  'PhotoRequests', 'NotificationFeed',
+  'ProfileDetail',
 ];
 
 function navDirection(from: Screen, to: Screen): 'forward' | 'back' {
@@ -267,13 +332,41 @@ export default function App() {
   const [appReady, setAppReady]             = useState(false);
   // True when verification submitted but payment skipped → H8 shows on Home.
   const [underReviewUnpaid, setUnderReviewUnpaid] = useState(false);
+  /**
+   * Which card Home shows, as resolved by `refreshHomeState` — the sole writer
+   * of these three.
+   *
+   * The payment screen used to set them optimistically, which is how Home came
+   * to show "One step left — verify my identity" for a moment after a completed
+   * payment, before the server's real answer replaced it. Anything that changes
+   * what the answer *will be* now marks `homeStateLoaded` false and refetches
+   * instead of predicting it.
+   */
   // True when verified and paid but still under review → H9 shows on Home.
   const [underReviewPaid, setUnderReviewPaid] = useState(false);
+  /**
+   * Whether `refreshHomeState` has answered at least once for this user.
+   *
+   * Home's review / proposals / introduction states are all decided by that
+   * response, but two of the flags are also set optimistically — the payment
+   * screen flips `underReviewPaid` before anything is fetched. That put Home in
+   * the review branch while `verificationPending` still held its `false`
+   * default, so a user who had just finished verification and paid was told
+   * "One step left — verify my identity" until the first fetch landed and
+   * replaced it. Home now waits for the answer instead of guessing.
+   */
+  const [homeStateLoaded, setHomeStateLoaded] = useState(false);
   // True when verified, review passed, candidates available, but not yet paid → H12 shows on Home.
   const [proposalsReadyUnpaid, setProposalsReadyUnpaid] = useState(false);
   // True once the user is a paid member and introductions are ready → H16 shows on Home.
-  // Toggle hasIntroductions to false to preview the "no profiles in your city" empty state.
   const [introductionAvailable, setIntroductionAvailable] = useState(false);
+  /**
+   * Whether the feed actually has a card, as answered by `loadNextIntroduction`.
+   *
+   * Written there and nowhere else. `refreshHomeState` used to set it too, from a
+   * count that ignores the session's filters, so a card could appear and then
+   * vanish on the next refresh — see the note at that call site.
+   */
   const [hasIntroductions, setHasIntroductions] = useState(false);
   // Candidate count shown on H12 — populated from GET /matches/count.
   const [matchCount, setMatchCount] = useState(0);
@@ -293,7 +386,45 @@ export default function App() {
   // matchId for the active proposal profile (used to navigate to chat).
   const [profileMatchId, setProfileMatchId] = useState<string | null>(null);
   // Proposals tab badge + refresh
+  /** Prefills the recovery screen from whichever field the user had typed. */
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryPhone, setRecoveryPhone] = useState('');
+
   const [proposalsBadge, setProposalsBadge] = useState(0);
+  /**
+   * Photo requests waiting on this user, from the home state.
+   *
+   * Kept apart from `proposalsBadge` rather than folded into it: that value is
+   * owned by ProposalsScreen, and two writers for one number is how the home
+   * flags went wrong earlier. They are summed once, at the render site.
+   */
+  const [photoRequestsBadge, setPhotoRequestsBadge] = useState(0);
+  /** The same, for a guardian: requests their ward's mode makes theirs to answer. */
+  const [waliPhotoRequestsBadge, setWaliPhotoRequestsBadge] = useState(0);
+  /** Unread notifications, badged on the bell in the home top bar. */
+  const [notificationsBadge, setNotificationsBadge] = useState(0);
+  /** Result of a refund request, shown on the membership screen. */
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
+  /**
+   * Why a Google attempt failed, shown on the screen that started it.
+   *
+   * Most likely cause early on is the provider not yet being enabled in the
+   * Supabase dashboard — which the error text says, rather than the button
+   * appearing to do nothing.
+   */
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  /**
+   * Its own fetch rather than part of the home state.
+   *
+   * The count changes on things home state knows nothing about — a message, a
+   * profile view — and the notifications module already serves it directly.
+   */
+  const refreshNotificationCount = useCallback(() => {
+    getUnreadNotificationCount()
+      .then(setNotificationsBadge)
+      .catch(() => {});
+  }, []);
   const [proposalsRefreshKey, setProposalsRefreshKey] = useState(0);
   const [viewingDependent, setViewingDependent] = useState(false);
   // Chat
@@ -328,6 +459,14 @@ export default function App() {
   // Email-confirmation step (W3). `waliCodeSent` gates the screen's second
   // phase, so a failed send leaves the wali on the address step.
   const [waliCodeSent, setWaliCodeSent]       = useState(false);
+  /**
+   * When the wali's resend cooldown should count from, in epoch ms.
+   *
+   * Separate from `waliCodeSent` because that only ever goes false→true once: a
+   * resend left it unchanged, so the screen had nothing to restart its cooldown
+   * from and the link stayed tappable straight into the server's rate limit.
+   */
+  const [waliResendFrom, setWaliResendFrom]   = useState<number | undefined>();
   const [waliEmailSending, setWaliEmailSending]   = useState(false);
   const [waliEmailVerifying, setWaliEmailVerifying] = useState(false);
   const [waliEmailError, setWaliEmailError]   = useState<string | undefined>();
@@ -346,8 +485,25 @@ export default function App() {
   const [localWardProposals, setLocalWardProposals] = useState<WardProposal[]>([]);
   const [wardReceivedProposals, setWardReceivedProposals] = useState<WardReceivedProposal[]>([]);
   const [dependentMembershipId, setDependentMembershipId] = useState('');
-  // City name shown on H16 empty-state — populated from profile city.
-  const [introductionCity] = useState('');
+  /**
+   * Filters the wali has applied to their ward's introduction feed.
+   *
+   * Session-only, exactly like the seeker's `appliedFilters`: they narrow what
+   * this guardian is shown and are never saved to the ward's stored preference.
+   */
+  const [wardFilters, setWardFilters] = useState<Partial<FilterValues> | undefined>(undefined);
+  /** Read inside `loadWaliProfile`, which is not a hook and cannot close over state. */
+  const wardFiltersRef = useRef<Partial<FilterValues> | undefined>(undefined);
+  wardFiltersRef.current = wardFilters;
+  /**
+   * City name shown on the H16 empty state.
+   *
+   * Was a `useState('')` with no setter, so it never held anything and the copy
+   * rendered "No profiles in  yet" — an empty string is not `undefined`, so the
+   * component's own "your city" fallback never applied either. Filled from the
+   * profile alongside the stored preferences.
+   */
+  const [introductionCity, setIntroductionCity] = useState('');
   // True once the user has completed F18 (DoneScreen) and gone home.
   // False = user authenticated but hasn't finished onboarding → H6 shows.
   const [onboardingComplete, setOnboardingComplete] = useState(false);
@@ -362,10 +518,22 @@ export default function App() {
    * and "rejected" — those share a card today but must not share its wording.
    */
   const [verificationPending, setVerificationPending] = useState(false);
+  /**
+   * The verification actually came back APPROVED.
+   *
+   * Distinct from `verificationPending`, which is also true for a submitted-but
+   * -unreviewed profile: the settings screen's tick means "verified", so it
+   * needs the narrower fact.
+   */
+  const [verificationApproved, setVerificationApproved] = useState(false);
+  /** Whether the membership has been paid for, from the home state. */
+  const [isPaidMember, setIsPaidMember] = useState(false);
   /** Some verification types submitted, but not the full required set. */
   const [verificationPartial, setVerificationPartial] = useState(false);
   /** The server reports the profile itself is under 100% complete. */
   const [serverProfileIncomplete, setServerProfileIncomplete] = useState(false);
+  /** Verified and paid, but no wali linked — not discoverable, cannot propose. */
+  const [waliRequired, setWaliRequired] = useState(false);
   /**
    * Which profile sections the server considers finished.
    *
@@ -447,6 +615,16 @@ export default function App() {
   // True until the first successful introduction fetch — used to fetch with a
   // higher limit once so we know the total count for the day.
   const isFirstIntroLoad = useRef(true);
+  /**
+   * Which introduction load is the current one.
+   *
+   * Two effects used to call `loadNextIntroduction` — one on reaching H16, one
+   * on a filter change — so two requests could be in flight at once, racing on
+   * the mutable `isFirstIntroLoad` ref. Whichever response happened to win that
+   * check wrote `totalIntroductions`, which is how a card appeared above "1 of
+   * 0": one request set the total from an empty list, the other set the card.
+   */
+  const introLoadSeq = useRef(0);
 
   // Persist localWardProposals to AsyncStorage so they survive app restarts.
   // Once the backend returns these from GET /wali/ward-proposals, they are
@@ -471,16 +649,42 @@ export default function App() {
    * For fire-and-forget call sites, wrap with .catch(() => {}).
    */
   async function loadWaliProfile() {
-    const [me, intros, proposals, receivedProposals, convItems] = await Promise.all([
-      getWaliMe(),
-      getWardIntroductions().catch(() => []),
+    // `me` first: the ward's discovery feed is keyed on their user id, which is
+    // only known once this resolves.
+    const me = await getWaliMe();
+    const wardId = me.ward?.userId;
+    const filters = wardFiltersRef.current;
+    const [intros, proposals, receivedProposals, convItems, photoReqs] = await Promise.all([
+      // With no filter applied, the existing matches endpoint. With one, the
+      // ward's discovery pool — the only feed the server can narrow.
+      wardId && filters
+        ? getWardDiscovery(wardId, MAX_DISCOVER_LIMIT, filters).catch(() => [])
+        : getWardIntroductions().catch(() => []),
       getWardProposals().catch(() => []),
       getWardReceivedProposals().catch(() => []),
       listConversations().catch(() => []),
+      // A guardian answers their ward's photo requests under two of the three
+      // privacy modes, so their badge has to count them too. The server marks
+      // each row with whether *this* reader may act.
+      getIncomingPhotoRequests().catch(() => []),
     ]);
+    setWaliPhotoRequestsBadge(photoReqs.filter(r => r.canAnswer).length);
+
     if (me.fullName) setUserName(me.fullName.split(' ')[0]);
     if (me.ward) {
-      if (me.ward.fullName) setDependentName(me.ward.fullName);
+      // The filter screen opens on the ward's own criteria. Seeded only while
+      // the guardian has not applied a filter of their own this session —
+      // overwriting that would silently undo what they just chose.
+      if (!wardFiltersRef.current && me.ward.partnerPreference) {
+        setWardFilters(
+          withPreferenceDefaults(preferencesFromApi(me.ward.partnerPreference)),
+        );
+      }
+      // A ward who has not set a real name yet has the registration
+      // placeholder derived from their email; that is not a name to show.
+      if (me.ward.fullName && !isPlaceholderName(me.ward.fullName, me.ward.email)) {
+        setDependentName(me.ward.fullName);
+      }
       setDependentPhotos(
         (me.ward.photos ?? []).map(p => ({ ...p, url: resolvePhotoUrl(p.url) ?? p.url })),
       );
@@ -508,12 +712,23 @@ export default function App() {
   // introductions at all rather than simply fewer.
   const loadNextIntroduction = useCallback((): Promise<void> => {
     setIntroductionsLoading(true);
-    const limit = isFirstIntroLoad.current ? MAX_DISCOVER_LIMIT : 1;
-    return getIntroductions(limit)
+    // Both decided here rather than read back after the await: a ref read in the
+    // continuation belongs to whichever load started most recently, not to this
+    // one.
+    const isBatch = isFirstIntroLoad.current;
+    isFirstIntroLoad.current = false;
+    const seq = ++introLoadSeq.current;
+    const limit = isBatch ? MAX_DISCOVER_LIMIT : 1;
+    // The active filters go with the request. Without them "Apply filters"
+    // reloaded the feed and the server returned the identical pool, because it
+    // was still filtering by the stored preference alone.
+    return getIntroductions(limit, sessionFiltersRef.current)
       .then(list => {
-        if (isFirstIntroLoad.current) {
+        // A newer load has started, so this answer is already stale — writing
+        // it would mix two different queries' results into one card.
+        if (seq !== introLoadSeq.current) return;
+        if (isBatch) {
           setTotalIntroductions(list.length);
-          isFirstIntroLoad.current = false;
         }
         if (list.length === 0) {
           setHasIntroductions(false);
@@ -535,7 +750,7 @@ export default function App() {
           longitude: intro.longitude,
           occupation: intro.occupation,
           educationLevel: intro.educationLevel,
-          blurPhotos: intro.blurPhotos,
+          photosWithheld: intro.photosWithheld,
           hideDistance: intro.hideDistance,
           distanceKm: intro.distanceKm,
           heightCm: intro.heightCm,
@@ -544,7 +759,7 @@ export default function App() {
           bio: intro.bio,
           sect: intro.sect,
           madhhab: intro.madhhab,
-          religiosity: intro.religiosity,
+          religiosity: intro.religiosityLevel,
           idVerified: intro.idVerified,
           waliRegistered: intro.waliRegistered,
         });
@@ -552,7 +767,11 @@ export default function App() {
       .catch(() => {
         // Network failure — keep whatever state was already set.
       })
-      .finally(() => setIntroductionsLoading(false));
+      .finally(() => {
+        // Only the current load owns the spinner; a stale one finishing must not
+        // clear it while the newer request is still running.
+        if (seq === introLoadSeq.current) setIntroductionsLoading(false);
+      });
   }, []);
 
   // ── Home paid/unpaid state ──────────────────────────────────────────────────
@@ -583,14 +802,19 @@ export default function App() {
     try {
       const { state, data } = await getHomeState();
 
+      // Refreshed on the same signal as everything else here, so the badge
+      // tracks answered requests without its own fetch or subscription.
+      setPhotoRequestsBadge(data.incomingPhotoRequests ?? 0);
+      refreshNotificationCount();
+
       const flags = {
         paymentFailed: false,
         underReviewUnpaid: false,
         underReviewPaid: false,
         proposalsReadyUnpaid: false,
         introductionAvailable: false,
-        hasIntroductions: true,
         profileIncomplete: false,
+        waliRequired: false,
       };
 
       switch (state) {
@@ -619,11 +843,11 @@ export default function App() {
           break;
 
         // Verified and searching, but nobody to show right now.
+        // The block renders; the feed request decides whether it has a card.
         case 'NO_MATCHES_IN_CITY':
         case 'CRITERIA_TOO_NARROW':
         case 'NO_MATCHES_TODAY':
           flags.introductionAvailable = true;
-          flags.hasIntroductions = false;
           break;
 
         case 'INTRO_AVAILABLE':
@@ -643,6 +867,13 @@ export default function App() {
         // a card still asking them to verify.
         case 'PROFILE_INCOMPLETE':
           flags.profileIncomplete = true;
+          break;
+
+        // Verified and paid, but nobody is guarding: discovery excludes them
+        // and the server refuses their proposals, so showing a live search
+        // would describe one they are not part of.
+        case 'WALI_REQUIRED':
+          flags.waliRequired = true;
           break;
 
         // Account-level states the home screen has no card for. Showing the
@@ -685,14 +916,28 @@ export default function App() {
           ? new Date(data.verification.submittedAt)
           : undefined,
       );
+      setVerificationApproved(data.verification.status === 'APPROVED');
+      setIsPaidMember(data.isPaid);
       setMatchCount(data.matchCount);
       setPaymentFailed(flags.paymentFailed);
       setUnderReviewUnpaid(flags.underReviewUnpaid);
       setUnderReviewPaid(flags.underReviewPaid);
       setProposalsReadyUnpaid(flags.proposalsReadyUnpaid);
       setIntroductionAvailable(flags.introductionAvailable);
-      setHasIntroductions(flags.hasIntroductions);
+      // Deliberately does NOT write `hasIntroductions`.
+      //
+      // Whether there is a card to show is answered by the feed request, which
+      // is the only query that carries the session's filters. `/matches/home-state`
+      // counts against the *stored* preference, so with a filter applied that
+      // widens it the two disagree — the server says NO_MATCHES_IN_CITY while the
+      // filtered feed has results. Both used to write this flag, so a card would
+      // appear and then vanish the moment a refresh landed: on every Home focus,
+      // every return to the foreground, and every Realtime event.
+      //
+      // `introductionAvailable` above stays server-owned; it decides which block
+      // renders, which is a different question from whether the block has a card.
       setServerProfileIncomplete(flags.profileIncomplete);
+      setWaliRequired(flags.waliRequired);
 
       // Only H6 needs the section breakdown, so it is fetched only when the
       // server says the profile is short. A failure here leaves the card on
@@ -706,13 +951,59 @@ export default function App() {
       } else {
         setProfileCompletion(undefined);
       }
+      setHomeStateLoaded(true);
     } catch {
       // On launch there is no prior state to keep, so fall back to H8 (under
       // review) rather than an empty screen. On a refresh, a network blip must
       // not demote a paid user — leave whatever is on screen alone.
       if (isInitial) setUnderReviewUnpaid(true);
+      // A spinner with nothing behind it is worse than the fallback card, so the
+      // gate lifts even when the request failed.
+      setHomeStateLoaded(true);
+    }
+    // `refreshNotificationCount` is itself memoised with no deps, so this
+    // stays stable; listed rather than suppressed so it cannot go stale if
+    // that ever changes.
+  }, [refreshNotificationCount]);
+
+  // Nothing is known about a newly signed-in user's home state, and the flags
+  // still hold the previous session's answers. Without this reset a sign-out and
+  // sign-in would show the old user's card for a moment.
+  useEffect(() => {
+    setHomeStateLoaded(false);
+  }, [userId]);
+
+  /**
+   * Seed the filter defaults from the *stored* preference.
+   *
+   * `preferenceFilters` used to be written only by an in-session save, so after
+   * a relaunch the filter screens fell back to hard-coded defaults while the
+   * server kept filtering the feed by what was actually saved. Reading it here
+   * means every screen that shows "your preferences" is showing the server's
+   * copy.
+   */
+  const loadStoredPreferences = useCallback(async (): Promise<void> => {
+    try {
+      const profile = await getMyProfile();
+      // Before the early return below: the city is on the profile, not the
+      // preference, so an account with no preference row still has one.
+      if (profile.city) setIntroductionCity(profile.city);
+      if (!profile.partnerPreference) return;
+      const stored = withPreferenceDefaults(
+        preferencesFromApi(profile.partnerPreference),
+      );
+      setPreferenceFilters(stored);
+      setObAgeMin(stored.ageMin);
+      setObAgeMax(stored.ageMax);
+    } catch {
+      /* defaults stand */
     }
   }, []);
+
+  useEffect(() => {
+    if (isWali || !userId) return;
+    loadStoredPreferences();
+  }, [isWali, userId, loadStoredPreferences]);
 
   // Re-check entitlement each time Home is shown (returning from F17/F18, or
   // from any other screen) and when the app returns to the foreground.
@@ -729,39 +1020,35 @@ export default function App() {
     return () => sub.remove();
   }, [isWali, userId, refreshHomeState]);
 
-  // Trigger initial load when the user reaches H16 (paid + active).
-  useEffect(() => {
-    if (!introductionAvailable) return;
-    loadNextIntroduction();
-    getHomeStats()
-      .then(stats => {
-        setMatchCriteria(stats.matchCriteria);
-        setReviewedThisWeek(stats.reviewedThisWeek);
-      })
-      .catch(() => { /* keep default zeros on network failure */ });
-  }, [introductionAvailable, loadNextIntroduction]);
-
-  // Reload introductions and stats when active filters change (manual filters or saved preferences).
-  // Resets the feed so results reflect the new criteria from the start.
+  /**
+   * Load the feed and its stats — on reaching H16, and again whenever the
+   * criteria change.
+   *
+   * One effect, not two. There used to be a separate initial-load effect keyed
+   * on `introductionAvailable` alongside this one, so arriving at H16 fired two
+   * identical request pairs, and a third followed as soon as the stored
+   * preferences resolved. Beyond the wasted round trips they raced each other
+   * for the "X of Y" total.
+   */
   useEffect(() => {
     if (!introductionAvailable) return;
     isFirstIntroLoad.current = true;
     setIntroductionIndex(1);
     setTotalIntroductions(null);
     loadNextIntroduction();
-    getHomeStats()
+    getHomeStats(sessionFiltersRef.current)
       .then(stats => {
         setMatchCriteria(stats.matchCriteria);
         setReviewedThisWeek(stats.reviewedThisWeek);
       })
-      .catch(() => {});
+      .catch(() => { /* keep default zeros on network failure */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedFilters, preferenceFilters]);
+  }, [introductionAvailable, appliedFilters, preferenceFilters]);
 
   // Re-fetch stats whenever the server signals a change via Supabase Realtime.
-  useHomeSocket(userId, () => {
+  useHomeRealtime(userId, () => {
     if (!introductionAvailable) return;
-    getHomeStats()
+    getHomeStats(sessionFiltersRef.current)
       .then(stats => {
         setMatchCriteria(stats.matchCriteria);
         setReviewedThisWeek(stats.reviewedThisWeek);
@@ -769,51 +1056,331 @@ export default function App() {
       .catch(() => {});
   });
 
+  // The bell badge, live: the server broadcasts the moment a notification row
+  // is created, so it never sits stale behind a manual refresh.
+  useNotificationsRealtime(userId, refreshNotificationCount);
+
   // Wali: re-fetch ward proposals whenever any proposal changes (sent, withdrawn, stage change).
-  useProposalsSocket(userId, () => {
+  useProposalsRealtime(userId, () => {
     if (!isWali) return;
     loadWaliProfile().catch(() => {});
   });
 
   // ── shared chat list mapper (newest message on top) ─────────────────────────
+  /**
+   * Open a counterpart's profile.
+   *
+   * Extracted from the Proposals prop so the chat thread can reuse it: the
+   * fetch-and-map is fifty lines, and a second copy would drift.
+   */
+  // Not memoised: `navigate` is a plain function redeclared each render, so an
+  // empty dep list would pin this to the first one ever created.
+  /** The counterpart in the open thread, when the list knows who that is. */
+  const activeChatPartner = (() => {
+    const chat = chats.find(c => c.id === activeChatId);
+    return chat?.partnerUserId
+      ? { userId: chat.partnerUserId, matchId: chat.matchId ?? null }
+      : null;
+  })();
+
+  /**
+   * Take the user to whatever a notification is about.
+   *
+   * Every type carries the ids it needs in `data` (see notifications.listener)
+   * — a matchId, a counterpart, a proposal — so this resolves a destination
+   * from the type rather than dumping everyone on Home.
+   *
+   * A wali and a seeker get different destinations from the same notification:
+   * a guardian's "proposal needs your approval" belongs in their review queue,
+   * not a seeker's proposals tab.
+   */
+  const openNotification = (n: {
+    type: string;
+    data?: Record<string, unknown> | null;
+  }) => {
+    const data = n.data ?? {};
+    const matchId = typeof data.matchId === 'string' ? data.matchId : null;
+
+    /** Open the thread for a match, if the chat list knows it yet. */
+    const openThreadFor = (mid: string | null): boolean => {
+      if (!mid) return false;
+      const chat = chats.find(c => c.matchId === mid);
+      if (!chat) return false;
+      setActiveChatId(chat.id);
+      navigate('ChatThread');
+      return true;
+    };
+
+    switch (n.type) {
+      // Both sides can now talk, so the conversation is the useful place.
+      // Falls back to the chat list when the thread is not in state yet —
+      // better than a dead tap while the list is still loading.
+      case 'MATCH_CREATED':
+      case 'MESSAGE_RECEIVED':
+        if (openThreadFor(matchId)) return;
+        if (isWali) { setActiveTab('chats'); navigate('Home'); return; }
+        navigate('Chats');
+        return;
+
+      // Something is waiting on a decision.
+      case 'INTEREST_RECEIVED':
+      case 'WALI_APPROVAL_NEEDED':
+      case 'WALI_APPROVAL_GRANTED':
+        setActiveTab('proposals');
+        navigate('Home');
+        return;
+
+      case 'INVITE_ACCEPTED':
+        setActiveTab('family');
+        navigate('Home');
+        return;
+
+      case 'VERIFICATION_APPROVED':
+      case 'VERIFICATION_REJECTED':
+        navigate('Home');
+        return;
+
+      // Payment and membership announcements land on the membership screen;
+      // anything else system-level has no better destination than Home.
+      case 'SYSTEM':
+        navigate(data.paymentId ? 'Membership' : 'Home');
+        return;
+
+      // A profile view and the weekly nudge are both "come and look" — the
+      // feed is Home's job, so that is where they go.
+      default:
+        navigate('Home');
+    }
+  };
+
+  /**
+   * Tokens are stored — work out which screen the user belongs on.
+   *
+   * Shared by password sign-in and Google sign-in: both arrive here with a
+   * session and nothing else decided. Duplicating it is how the two routes
+   * would drift on onboarding resume, which is the fiddliest part.
+   */
+  function enterAppWithSession(loginRole?: string): Promise<void> {
+    return getMe()
+      .then(me => {
+        setUserId(me.user.id);
+        setUserName(firstNameFrom(me.profile.fullName, me.user.email));
+
+        // Wali users have a separate flow — route to the right step.
+        // Check role from /auth/me or from the login response directly.
+        const isWaliUser = me.user.role?.toLowerCase() === 'wali' || loginRole?.toLowerCase() === 'wali';
+        applyRole(isWaliUser ? 'wali' : 'self');
+        if (isWaliUser) {
+          if (me.user.email) setUserEmail(me.user.email);
+          setWaliLoading(true);
+          loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
+          const step = screenForStep(me.profile.onboardingStep) as Screen | undefined;
+          // The registration placeholder is not a name he gave, so treat it
+    // as missing and send him through WaliDetails to state one.
+    const waliNameMissing =
+    !me.profile.fullName ||
+    isPlaceholderName(me.profile.fullName, me.user.email);
+          if (me.profile.onboardingCompleted || (step === 'WaliComplete' && !waliNameMissing)) {
+            setOnboardingComplete(true);
+            navigate('Home');
+          } else if (step === 'WaliDetails' || (step === 'WaliComplete' && waliNameMissing)) {
+            navigate('WaliDetails');
+          } else {
+            navigate('WaliRole');
+          }
+          return;
+        }
+
+        // Same gate as session restore: an unverified email OR phone
+        // goes back to the verification screen rather than Home. The
+        // sign-in response only reports the email, so the check has to
+        // happen here where the server's answer for both is available.
+        const needsEmail = me.user.email && !me.user.emailVerified;
+        const needsPhone = me.profile.phone && !me.user.phoneVerified;
+        if (needsEmail || needsPhone) {
+          if (me.user.email) setUserEmail(me.user.email);
+          if (me.profile.phone) setPhoneE164(me.profile.phone);
+          setPendingEmail(me.user.email || '');
+          savePendingEmail(me.user.email || '').catch(() => {});
+          navigate('AccountVerification', { reset: true });
+          return;
+        }
+
+        if (me.profile.onboardingCompleted) {
+          setOnboardingComplete(true);
+          // Ask the server what this account's home state is; do not assume
+          // "onboarding complete" means verified. Awaited so Home paints the
+          // real state on first frame instead of an empty screen.
+          return refreshHomeState(true).then(() => navigate('Home'));
+        } else if (me.profile.onboardingStep) {
+          const dest = destinationForSavedStep(me.profile.onboardingStep);
+          if (dest.resumeAt) setResumeScreen(dest.resumeAt);
+          if (dest.kind === 'complete') {
+            setOnboardingComplete(true);
+            // Ask the server what this account's home state is; do not assume
+            // "onboarding complete" means verified. Awaited so Home paints the
+            // real state on first frame instead of an empty screen.
+            return refreshHomeState(true).then(() => navigate('Home'));
+          } else if (dest.kind === 'resume' && dest.resumeAt) {
+            navigate(dest.resumeAt);
+          } else {
+            navigate('Home');
+          }
+        } else {
+          navigate('Home');
+        }
+      })
+      .catch(() => {
+        // Fallback — token saved, go to home
+        setOnboardingComplete(true);
+        // Ask the server what this account's home state is; do not assume
+        // "onboarding complete" means verified. Awaited so Home paints the
+        // real state on first frame instead of an empty screen.
+        return refreshHomeState(true).then(() => navigate('Home'));
+      });
+  }
+
+  const openCounterpartProfile = (
+    userId: string,
+    type: 'sent' | 'received',
+    matchId: string | null,
+  ) => {
+            setViewingDependent(false);
+            setDetailProfile(undefined);
+            setDetailLoading(true);
+            setProfileMatchId(matchId);
+            // Determine context: if matchId is set → matched, else use type
+            const ctx: ProposalContext = matchId
+              ? (type === 'sent' ? 'sent_matched' : 'received_matched')
+              : (type === 'sent' ? 'sent_pending' : 'received_pending');
+            setProfileProposalContext(ctx);
+            navigate('ProfileDetail');
+            getIntroduction(userId)
+              .then((intro: FullIntroduction) => {
+                setDetailProfile({
+                  userId: intro.userId,
+                  displayName: intro.fullName,
+                  age: intro.age,
+                  city: intro.city,
+                  latitude: intro.latitude,
+                  longitude: intro.longitude,
+                  occupation: intro.occupation,
+                  educationLevel: intro.educationLevel,
+                  fieldOfStudy: intro.fieldOfStudy,
+                  employmentStatus: intro.employmentStatus,
+                  languagesSpoken: intro.languagesSpoken,
+                  bio: intro.bio,
+                  photoUrl: intro.photoUrl,
+                  photoUrls: intro.photoUrls,
+                  photosWithheld: intro.photosWithheld,
+                  photoRequestStatus: intro.photoRequestStatus ?? null,
+                  photoRequestWaitingOn: intro.photoRequestWaitingOn ?? null,
+                  hideDistance: intro.hideDistance,
+                  distanceKm: intro.distanceKm,
+                  gender: intro.gender,
+                  heightCm: intro.heightCm,
+                  maritalStatus: intro.maritalStatus,
+                  hasChildren: intro.hasChildren,
+                  willingToRelocate: intro.willingToRelocate,
+                  sect: intro.sect,
+                  madhhab: intro.madhhab,
+                  religiosity: intro.religiosityLevel,
+                  prayerFrequency: intro.prayerFrequency,
+                  wearsHijab: intro.wearsHijab,
+                  keepsBeard: intro.keepsBeard,
+                  halalStrict: intro.halalStrict,
+                  quranMemorization: intro.quranMemorization,
+                  familyType: intro.familyType,
+                  housingStatus: intro.housingStatus,
+                  livingArrangement: intro.livingArrangement,
+                  fatherOccupation: intro.fatherOccupation,
+                  motherOccupation: intro.motherOccupation,
+                  siblingsSummary: intro.siblingsSummary,
+                  hasVehicle: intro.hasVehicle,
+                  idVerified: intro.idVerified,
+                  waliRegistered: intro.waliRegistered,
+                  countryCode: intro.countryCode,
+                });
+              })
+              .finally(() => setDetailLoading(false));
+  };
+
   const mapChatItems = useCallback((items: ChatListItem[]) => {
     const mapped = items.map(c => ({
       id: c.id,
       matchId: c.matchId,
+      partnerUserId: c.partnerUserId,
       name: c.partnerName,
       age: c.partnerAge,
-      lastMessage: c.lastMessage ?? '',
-      lastMessageAt: c.lastMessageAt ?? new Date().toISOString(),
+      // Passed through as null rather than coalesced. The old fallbacks made
+      // an empty conversation look like one that had just been active: a blank
+      // preview line, a "Just now" stamp, and — because the fallback was the
+      // current clock — a sort key that jumped to the top on every refresh.
+      lastMessage: c.lastMessage ?? null,
+      lastMessageAt: c.lastMessageAt ?? null,
       lastMessageSenderId: c.lastMessageSenderId,
       myUserId: userId,
       participantCount: c.participantCount,
       unreadCount: c.unreadCount,
     }));
-    // Sort by latest message descending
-    mapped.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+    // Newest conversation first; one with no messages sorts last, matching how
+    // the server already orders the same list — the two used to disagree, and
+    // this one silently won.
+    mapped.sort(byNewestMessage);
     return mapped;
   }, [userId]);
 
   // Real-time refresh — fires when any conversation in the backend gets a new message.
   // This is the ONLY mechanism that updates the chat list after initial load.
-  useChatListSocket(userId, () => {
+  useChatListRealtime(userId, () => {
     listConversations()
       .then(items => setChats(mapChatItems(items)))
       .catch(() => {});
   });
 
-  // Initial load — only fetch when the list is empty (first time Chats screen is opened).
-  // After that, useChatListSocket keeps it up to date in real-time.
-  // We do NOT refetch every time screen === 'Chats' to avoid the reload flash when
-  // coming back from a chat thread.
+  // Messages that land while the app is backgrounded miss the realtime
+  // broadcast above, so the unread badge would come back stale. Re-sync the
+  // list on every foreground.
   useEffect(() => {
-    if (screen !== 'Chats' || chats.length > 0) return;
+    if (!userId) return;
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') return;
+      listConversations()
+        .then(items => setChats(mapChatItems(items)))
+        .catch(() => {});
+    });
+    return () => sub.remove();
+  }, [userId, mapChatItems]);
+
+  // Opening a thread marks it seen on the server, but the server answers with
+  // `chat:seen` on the thread channel — not `chats:stale` on the list one — so
+  // nothing clears the count here. Without this the nav badge keeps counting a
+  // conversation the user is currently reading.
+  useEffect(() => {
+    if (screen !== 'ChatThread' || !activeChatId) return;
+    setChats(prev =>
+      prev.some(c => c.id === activeChatId && (c.unreadCount ?? 0) > 0)
+        ? prev.map(c => (c.id === activeChatId ? { ...c, unreadCount: 0 } : c))
+        : prev,
+    );
+  }, [screen, activeChatId]);
+
+  // Initial load — as soon as the session resolves, not when the Chats screen
+  // is first opened. The Chats tab badge lives in the bottom nav on every
+  // screen, so gating the only fetch on `screen === 'Chats'` meant an unread
+  // conversation showed no badge until the user opened the very screen the
+  // badge exists to point them at.
+  // After this, useChatListRealtime keeps it up to date in real-time.
+  // Keyed on `userId` so it runs once per session, not on every screen change —
+  // that's what avoided the reload flash when coming back from a chat thread.
+  useEffect(() => {
+    if (!userId || isWali) return;
     setChatsLoading(true);
     listConversations()
       .then(items => setChats(mapChatItems(items)))
       .catch(() => {})
       .finally(() => setChatsLoading(false));
-  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, isWali]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wali: load conversations when the conversations tab is opened.
   // Uses the same chats state as the seeker flow so ChatThread can resolve titles.
@@ -852,7 +1419,7 @@ export default function App() {
       getMe()
         .then(async me => {
           setUserId(me.user.id);
-          setUserName(me.profile.fullName?.split(' ')[0] ?? '');
+          setUserName(firstNameFrom(me.profile.fullName, me.user.email));
 
           // Restore role — wali users have a separate flow.
           // Check the DB role OR the onboarding step (wali steps are never user steps).
@@ -875,7 +1442,11 @@ export default function App() {
             setWaliLoading(true);
             loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
             const step = savedStep as Screen | undefined;
-            const waliNameMissing = !me.profile.fullName;
+            // The registration placeholder is not a name he gave, so treat it
+            // as missing and send him through WaliDetails to state one.
+            const waliNameMissing =
+              !me.profile.fullName ||
+              isPlaceholderName(me.profile.fullName, me.user.email);
             if (me.profile.onboardingCompleted || (step === 'WaliComplete' && !waliNameMissing)) {
               // Fully done — go straight to Home.
               setOnboardingComplete(true);
@@ -957,7 +1528,7 @@ export default function App() {
    * route back, and it navigates to F1 explicitly.
    */
   const PRE_AUTH_SCREENS: Screen[] = [
-    'F1', 'SignInRole', 'SignIn', 'WhoIsFor', 'Phone', 'AccountVerification', 'Code',
+    'F1', 'SignInRole', 'SignIn', 'ForgotPassword', 'WhoIsFor', 'Phone', 'AccountVerification', 'Code',
     'WaliAccountSetup', 'WaliWelcome', 'WaliCode', 'WaliEmailVerify',
   ];
 
@@ -1033,9 +1604,23 @@ export default function App() {
 
     function seedFromSession() {
       getAccessToken().then(token => {
-      // No token and nothing else to ask: stop the skeleton rather than leave
-      // it spinning forever over rows that are simply unverified.
-      if (!token) { settle(); return; }
+      // No pending signup *and* no session. `pending-status` answers 400 for a
+      // confirmed account on purpose — it must not become a way to probe real
+      // addresses — so landing here means this email is already registered and
+      // confirmed, and this screen can never finish: "Verify" asks Supabase to
+      // resend a signup confirmation for an address it considers confirmed,
+      // which it refuses, and the endpoint's deliberate 204 makes that look
+      // like success. Send them to sign in instead of leaving them tapping a
+      // button that can only ever say "New code sent".
+      if (!token) {
+        settle();
+        Alert.alert(
+          'You already have an account',
+          'This email is verified. Sign in to continue.',
+          [{ text: 'Sign in', onPress: () => navigate('SignIn', { reset: true }) }],
+        );
+        return;
+      }
       if (cancelled) return;
       getMe()
         .then(me => {
@@ -1060,6 +1645,10 @@ export default function App() {
     }
 
     return () => { cancelled = true; };
+  // `navigate` is a plain function declaration, so it is a new value every
+  // render — listing it would re-run this status fetch on each one. The three
+  // deps below are what actually decide which signup is being asked about.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, pendingEmail, userEmail]);
 
   /**
@@ -1152,6 +1741,57 @@ export default function App() {
    * point and reports no back at all, so the caller can hide the control rather
    * than show one that does nothing.
    */
+  /**
+   * True when this onboarding screen was entered from Home rather than walked to
+   * during signup — "Continue profile" and friends.
+   *
+   * The same test `onboardingBack` uses to decide there is nowhere to go back
+   * to, named separately because the two questions have different answers
+   * elsewhere: an entry point still needs a way *out*, just not a Back.
+   */
+  function enteredFromHome(): boolean {
+    const stack = prunePreAuth(historyRef.current);
+    // Anywhere in the stack, not just the top. Checking only the most recent
+    // entry answered "did I arrive here *from* Home", which is true of the first
+    // screen of the trip and false of every one after it — so advancing a step
+    // swapped the ✕ back to "Log out" mid-way through finishing a profile.
+    //
+    // The question is whether this whole trip started at Home, and Home stays in
+    // the stack for as long as it did. A fresh signup never has it: the flow
+    // begins at F1, which `prunePreAuth` drops once there is an account.
+    return authedRef.current && stack.some(sc => ROOT_SCREENS.includes(sc));
+  }
+
+  /**
+   * The exit control an onboarding screen should offer, as props to spread.
+   *
+   * Two shapes, because the screen has two entry points:
+   *   • opened from Home to finish a section — an ✕ back to Home;
+   *   • walking the signup — the account exists but nothing is finished, so the
+   *     only way out is to abandon it.
+   *
+   * Returned as one object so every step gets the same rule from one place
+   * rather than each site re-deriving it.
+   */
+  function onboardingExit(): {
+    onClose?: () => void;
+    onLogout?: () => void;
+  } {
+    if (enteredFromHome()) return { onClose: () => navigate('Home') };
+    return {
+      onLogout: async () => {
+        await signOutAndClearCaches();
+        await clearPendingEmail();
+        setPendingEmail('');
+        setUserEmail('');
+        setUserPassword('');
+        setUserId('');
+        applyRole('self');
+        navigate('F1', { reset: true });
+      },
+    };
+  }
+
   function onboardingBack(fallback: Screen): (() => void) | undefined {
     const stack = prunePreAuth(historyRef.current);
 
@@ -1171,6 +1811,18 @@ export default function App() {
       return () => { goBack(); };
     }
     return undefined;
+  }
+
+  /**
+   * Go back to wherever the user actually came from.
+   *
+   * For a screen with one entry point a hardcoded destination is equivalent,
+   * but `ProfileDetail` has four and `ChatThread` has four — a fixed target is
+   * right for one caller and wrong for the rest. `historyRef` already records
+   * the real answer; the fallback only covers a cold start with an empty stack.
+   */
+  function goBackOr(fallback: Screen): void {
+    if (!goBack()) navigate(fallback);
   }
 
   function goBack(): boolean {
@@ -1249,13 +1901,25 @@ export default function App() {
     minReligiosity: 'Any',
     educationLevels: ['Any'],
     maritalStatuses: obMarital ? [obMarital] : ['Any'],
-    acceptsChildren: false,
+    // No `acceptsChildren`: that is a PartnerPreference field, not a
+    // FilterValues one, and was being discarded here rather than applied.
   };
 
   // Always reflects the active filter priority chain: manual > preferences > onboarding.
   // Written every render (ref write = no re-render) so loadNextIntroduction never stales.
   const activeFiltersRef = useRef<IntroductionFilters>(onboardingFilters);
   activeFiltersRef.current = appliedFilters ?? preferenceFilters ?? onboardingFilters;
+  /**
+   * The session overrides sent with the feed and the stats — nothing more.
+   *
+   * Only what the user actually applied on the filters screen. The stored
+   * preference is already on the server, so sending it back can only make the
+   * two disagree, and the defaults sitting behind it are not choices: `cities`
+   * has no server column and falls back to a hard-coded 'Lahore', which as an
+   * override silently filtered the feed by a city nobody picked.
+   */
+  const sessionFiltersRef = useRef<IntroductionFilters | undefined>(undefined);
+  sessionFiltersRef.current = appliedFilters;
 
   function renderScreen(): React.ReactNode {
     switch (screen) {
@@ -1282,6 +1946,8 @@ export default function App() {
         return (
           <SignInScreen
             onBack={() => navigate('SignInRole')}
+            // Carried over when a signup turned out to be an existing account.
+            initialEmail={pendingEmail || userEmail || undefined}
             isWali={selectedRole === 'wali'}
             onSignIn={(_email, _password, emailVerified, _loginRole) => {
               // If email is not verified, redirect to AccountVerification immediately.
@@ -1304,82 +1970,35 @@ export default function App() {
                 navigate('AccountVerification', { reset: true });
                 return;
               }
-              // login() already saved tokens; check onboarding status
-              getMe()
-                .then(me => {
-                  setUserId(me.user.id);
-                  setUserName(me.profile.fullName?.split(' ')[0] ?? '');
-
-                  // Wali users have a separate flow — route to the right step.
-                  // Check role from /auth/me or from the login response directly.
-                  const isWaliUser = me.user.role?.toLowerCase() === 'wali' || _loginRole?.toLowerCase() === 'wali';
-                  applyRole(isWaliUser ? 'wali' : 'self');
-                  if (isWaliUser) {
-                    if (me.user.email) setUserEmail(me.user.email);
-                    setWaliLoading(true);
-                    loadWaliProfile().catch(() => {}).finally(() => setWaliLoading(false));
-                    const step = screenForStep(me.profile.onboardingStep) as Screen | undefined;
-                    const waliNameMissing = !me.profile.fullName;
-                    if (me.profile.onboardingCompleted || (step === 'WaliComplete' && !waliNameMissing)) {
-                      setOnboardingComplete(true);
-                      navigate('Home');
-                    } else if (step === 'WaliDetails' || (step === 'WaliComplete' && waliNameMissing)) {
-                      navigate('WaliDetails');
-                    } else {
-                      navigate('WaliRole');
-                    }
-                    return;
-                  }
-
-                  // Same gate as session restore: an unverified email OR phone
-                  // goes back to the verification screen rather than Home. The
-                  // sign-in response only reports the email, so the check has to
-                  // happen here where the server's answer for both is available.
-                  const needsEmail = me.user.email && !me.user.emailVerified;
-                  const needsPhone = me.profile.phone && !me.user.phoneVerified;
-                  if (needsEmail || needsPhone) {
-                    if (me.user.email) setUserEmail(me.user.email);
-                    if (me.profile.phone) setPhoneE164(me.profile.phone);
-                    setPendingEmail(me.user.email || '');
-                    savePendingEmail(me.user.email || '').catch(() => {});
-                    navigate('AccountVerification', { reset: true });
-                    return;
-                  }
-
-                  if (me.profile.onboardingCompleted) {
-                    setOnboardingComplete(true);
-                    // Ask the server what this account's home state is; do not assume
-                    // "onboarding complete" means verified. Awaited so Home paints the
-                    // real state on first frame instead of an empty screen.
-                    return refreshHomeState(true).then(() => navigate('Home'));
-                  } else if (me.profile.onboardingStep) {
-                    const dest = destinationForSavedStep(me.profile.onboardingStep);
-                    if (dest.resumeAt) setResumeScreen(dest.resumeAt);
-                    if (dest.kind === 'complete') {
-                      setOnboardingComplete(true);
-                      // Ask the server what this account's home state is; do not assume
-                      // "onboarding complete" means verified. Awaited so Home paints the
-                      // real state on first frame instead of an empty screen.
-                      return refreshHomeState(true).then(() => navigate('Home'));
-                    } else if (dest.kind === 'resume' && dest.resumeAt) {
-                      navigate(dest.resumeAt);
-                    } else {
-                      navigate('Home');
-                    }
-                  } else {
-                    navigate('Home');
-                  }
-                })
-                .catch(() => {
-                  // Fallback — token saved, go to home
-                  setOnboardingComplete(true);
-                  // Ask the server what this account's home state is; do not assume
-                  // "onboarding complete" means verified. Awaited so Home paints the
-                  // real state on first frame instead of an empty screen.
-                  return refreshHomeState(true).then(() => navigate('Home'));
-                });
+              // login() already saved tokens; check onboarding status.
+              // Returned, not fired and forgotten: the screen awaits this to
+              // decide when to drop its loader, and everything below — /auth/me,
+              // then the home state — happens before there is a screen to show.
+              return enterAppWithSession(_loginRole);
             }}
-            onGoogleSignIn={() => console.log('Google sign-in')}
+            onForgotPassword={(typed) => {
+              // The sign-in field takes either an email or a phone, so route on
+              // what they actually typed — passing a number in as an email
+              // would open recovery on the wrong tab with the wrong value.
+              const isPhone = /^\+?\d[\d\s-]{6,}$/.test(typed);
+              setRecoveryEmail(isPhone ? '' : typed);
+              setRecoveryPhone(isPhone ? typed.replace(/[\s-]/g, '') : '');
+              navigate('ForgotPassword');
+            }}
+            googleError={googleError}
+            onGoogleSignIn={async () => {
+              setGoogleError(null);
+              try {
+                // Stores the session; the same routing then runs as after a
+                // password sign-in, so onboarding resume behaves identically.
+                await googleSignIn();
+                await enterAppWithSession();
+              } catch (e: any) {
+                setGoogleError(
+                  e?.message ?? 'Google sign-in failed. Please try again.',
+                );
+              }
+            }}
             onCreateAccount={() => navigate('Phone')}
           />
         );
@@ -1425,7 +2044,20 @@ export default function App() {
               clearTokens().catch(() => {});
               navigate('AccountVerification');
             }}
-            onGoogleSignIn={() => console.log('Google sign-in')}
+            googleError={googleError}
+            onGoogleSignIn={async () => {
+              setGoogleError(null);
+              try {
+                // Stores the session; the same routing then runs as after a
+                // password sign-in, so onboarding resume behaves identically.
+                await googleSignIn();
+                await enterAppWithSession();
+              } catch (e: any) {
+                setGoogleError(
+                  e?.message ?? 'Google sign-in failed. Please try again.',
+                );
+              }
+            }}
           />
         );
 
@@ -1444,7 +2076,7 @@ export default function App() {
             onPhoneVerified={setVerifiedPhoneE164}
             emailCodeSentAt={emailCodeSentAt}
             onLogout={async () => {
-              try { await logout(); } catch { await clearTokens(); }
+              await signOutAndClearCaches();
               // Clear the pending-signup keys too: leaving them behind would
               // send the restore effect straight back to this screen on the
               // next launch, which is the opposite of signing out.
@@ -1468,7 +2100,7 @@ export default function App() {
               return getMe()
                 .then(me => {
                   setUserId(me.user.id);
-                  setUserName(me.profile.fullName?.split(' ')[0] ?? '');
+                  setUserName(firstNameFrom(me.profile.fullName, me.user.email));
                   if (me.profile.onboardingCompleted) {
                     setOnboardingComplete(true);
                     // Ask the server what this account's home state is; do not assume
@@ -1506,22 +2138,30 @@ export default function App() {
               // the signup form is gone (after a reload, or a pending signup
               // restored from storage) — the save then failed on a password
               // field the user could not even see.
+              // Only the field that changed. The endpoint patches, and an
+              // omitted key leaves the stored value alone — where an empty
+              // string would be validated as a malformed phone number.
               await updatePendingContact({
                 currentEmail: (pendingEmail || userEmail).trim().toLowerCase(),
-                email: nextEmail,
-                phone: nextPhone,
+                ...(nextEmail ? { email: nextEmail } : {}),
+                ...(nextPhone ? { phone: nextPhone } : {}),
               });
-              await savePendingEmail(nextEmail);
-              await savePendingPhone(nextPhone);
-              setUserEmail(nextEmail);
-              setPendingEmail(nextEmail);
-              setPhone(nextPhone);
-              setPhoneE164(nextPhone);
-              // The old values are no longer the ones on the account, so any
-              // confirmation recorded against them must not carry over.
-              setVerifiedPhoneE164('');
-              setServerEmailVerified(false);
-              setEmailCodeSentAt(Date.now());
+
+              // Each side clears only its own verification: correcting an email
+              // says nothing about whether the number is still proven.
+              if (nextEmail) {
+                await savePendingEmail(nextEmail);
+                setUserEmail(nextEmail);
+                setPendingEmail(nextEmail);
+                setServerEmailVerified(false);
+                setEmailCodeSentAt(Date.now());
+              }
+              if (nextPhone) {
+                await savePendingPhone(nextPhone);
+                setPhone(nextPhone);
+                setPhoneE164(nextPhone);
+                setVerifiedPhoneE164('');
+              }
             }}
           />
         );
@@ -1539,6 +2179,22 @@ export default function App() {
         );
 
       // ── WhoIsFor ──────────────────────────────────────────────────────────────
+      case 'ForgotPassword':
+        return (
+          <ForgotPasswordScreen
+            onBack={() => goBackOr('SignIn')}
+            initialEmail={recoveryEmail || undefined}
+            initialPhoneE164={recoveryPhone || undefined}
+            // Straight to sign-in with the address prefilled: the password they
+            // just set is the one they need next, and sending them to Home
+            // would skip the login the reset just invalidated.
+            onDone={() => {
+              setUserEmail(recoveryEmail);
+              navigate('SignIn', { reset: true });
+            }}
+          />
+        );
+
       case 'WhoIsFor':
         return (
           <WhoIsForScreen
@@ -1568,7 +2224,7 @@ export default function App() {
       case 'WaliWelcome':
         return (
           <WaliWelcomeScreen
-            dependentName="your dependent"
+            dependentName={dependentName || undefined}
             onContinue={() => navigate('WaliAccountSetup')}
             onLearnMore={() => navigate('WaliRole')}
           />
@@ -1642,6 +2298,7 @@ export default function App() {
           <WaliEmailVerifyScreen
             email={waliEmail}
             codeSent={waliCodeSent}
+            resendCooldownFrom={waliResendFrom}
             sending={waliEmailSending}
             verifying={waliEmailVerifying}
             error={waliEmailError}
@@ -1659,13 +2316,22 @@ export default function App() {
               try {
                 await resendEmailOtp(waliEmail);
                 setWaliCodeSent(true);
+                // A fresh timestamp on every accepted send, so the screen
+                // restarts its cooldown for resends too.
+                setWaliResendFrom(Date.now());
               } catch (e: any) {
                 const msg: string = (e?.message ?? '').toLowerCase();
+                const rateLimited =
+                  msg.includes('rate') || msg.includes('many') || msg.includes('429');
                 setWaliEmailError(
-                  msg.includes('rate') || msg.includes('many') || msg.includes('429')
+                  rateLimited
                     ? 'Too many requests. Please wait a minute and try again.'
                     : 'Could not send the code. Please try again.',
                 );
+                // Being told to wait is itself a reason to start the timer.
+                // Without this the link came straight back and the next tap
+                // simply earned the same refusal.
+                if (rateLimited) setWaliResendFrom(Date.now());
               } finally {
                 setWaliEmailSending(false);
               }
@@ -1702,6 +2368,7 @@ export default function App() {
       case 'WaliRole':
         return (
           <WaliRoleExplainScreen
+            dependentName={dependentName || undefined}
             onBack={onboardingBack('WaliCode')}
             onAccept={() => {
               // Recorded in the background, as everywhere else: the step only
@@ -1747,6 +2414,7 @@ export default function App() {
       case 'WaliComplete':
         return (
           <WaliSetupCompleteScreen
+            dependentName={dependentName || undefined}
             onGoHome={() => { setOnboardingComplete(true); navigate('Home'); }}
             onSeeDependent={() => { setOnboardingComplete(true); navigate('Home'); }}
           />
@@ -1756,8 +2424,10 @@ export default function App() {
       case 'F6':
         return (
           <CountryScreen
-            onBack={onboardingBack('WhoIsFor')}
-            onSave={() => console.log('Save')}
+            // Entered from Home to finish a profile → an X back to Home.
+            // Reached during signup there is nowhere to return to, so the only
+            // exit is to abandon the account.
+            {...onboardingExit()}
             onLocationDetected={coords => setLocationCoords(coords)}
             onContinue={c => {
               setCountry(c);
@@ -1779,10 +2449,10 @@ export default function App() {
         return (
           <CityScreen
             countryCode={country.iso2}
+            {...onboardingExit()}
             countryName={country.name}
             initialCoords={locationCoords ?? undefined}
             onBack={onboardingBack('F6')}
-            onSave={() => console.log('Save')}
             onContinue={(city, coords) => {
               setObCity(city);
               // The city goes with the coordinates now. It used to be dropped
@@ -1810,12 +2480,17 @@ export default function App() {
         return (
           <EssentialsScreen
             onBack={onboardingBack('F7')}
+            {...onboardingExit()}
+            accountEmail={userEmail || undefined}
             onContinue={data => {
               setObSect(data.sect);
               setObMarital(data.maritalStatus);
               setUserName(data.name.split(' ')[0]);
               saveThenAdvance(async () => {
                 await updateEssentials({
+                  // Overwrites the placeholder registration derived from the
+                  // email address; this is the first time a real name is known.
+                  fullName: data.name,
                   gender: toGender(data.gender as 'man' | 'woman'),
                   dateOfBirth: parseDob(data.dob),
                   maritalStatus: toMaritalStatus(data.maritalStatus),
@@ -1837,7 +2512,7 @@ export default function App() {
         return (
           <ProgressHubScreen
             onBack={onboardingBack('F8')}
-            onSave={() => console.log('Save')}
+            {...onboardingExit()}
             onContinue={() => navigateForward('F11')}
             continueLoading={continueBusy}
           />
@@ -1848,7 +2523,7 @@ export default function App() {
         return (
           <FamilyAndHomeScreen
             onBack={onboardingBack('F10')}
-            onSave={() => console.log('Save')}
+            {...onboardingExit()}
             onContinue={data => saveThenAdvance(() => updateFamilyBackground(data), 'F12')}
             continueLoading={continueBusy}
           />
@@ -1859,80 +2534,77 @@ export default function App() {
         return (
           <GuidedPromptScreen
             onBack={onboardingBack('F11')}
-            onSave={() => console.log('Save')}
+            {...onboardingExit()}
             onNext={text => saveThenAdvance(() => updatePrompts({ familyDescription: text }), 'F13')}
-            questionIndex={1}
-            totalQuestions={3}
             progress={0.72}
             continueLoading={continueBusy}
           />
         );
 
       // ── F13: Preferences ─────────────────────────────────────────────────────
-      case 'F13':
+      case 'F13': {
+        // Only the city is seeded here. Everything else the form shows is read
+        // from the stored preference by the screen itself, so a relaunch cannot
+        // show one thing while the server filters by another. `cities` has no
+        // column on `PartnerPreference`, which is why it still travels as state.
+        const prefSeed: Partial<PreferenceValues> = {};
+        if (obCity) { prefSeed.cities = [obCity]; }
         return (
           <PreferencesScreen
-            onContinue={({ narrow, ageMin, ageMax }) => {
-              setObAgeMin(ageMin);
-              setObAgeMax(ageMax);
-              saveThenAdvance(
-                () => updatePreferences(ageMin, ageMax),
-                narrow ? 'H11' : 'F14',
+            initialValues={prefSeed}
+            {...onboardingExit()}
+            onContinue={values => {
+              // What is answered here *is* the user's partner preference set:
+              // it becomes the defaults PartnerPreferencesScreen opens on and
+              // AdjustFiltersScreen inherits, exactly as saving from the
+              // settings screen does.
+              setObAgeMin(values.ageMin);
+              setObAgeMax(values.ageMax);
+              setObSect(values.sects.includes('Any') ? '' : (values.sects[0] ?? ''));
+              setObMarital(
+                values.maritalStatuses.includes('Any') ? '' : (values.maritalStatuses[0] ?? ''),
               );
+              setPreferenceFilters(values);
+              setAppliedFilters(undefined);
+              // The whole set goes to the server. Cities and "include
+              // overseas" are the exception: `PartnerPreference` has no city
+              // column, so those two stay in app state.
+              saveThenAdvance(() => updatePreferences(preferencesToApi(values)), 'F14');
             }}
-            onSave={() => console.log('Save')}
             continueLoading={continueBusy}
           />
         );
+      }
 
       // ── F14: Photos ───────────────────────────────────────────────────────────
       case 'F14':
         return (
           <PhotosScreen
             onBack={onboardingBack('F13')}
+            {...onboardingExit()}
             onContinue={() => navigateForward('F16')}
             continueLoading={continueBusy}
           />
         );
 
       // ── F15: Wali Invite ──────────────────────────────────────────────────────
+      // Not an onboarding step. F14 continues straight to F16 and a saved F15
+      // resumes at F16 (SKIP_PAST), so nothing routes through here: it is a
+      // standalone screen opened from Home, and it closes back to Home.
       case 'F15':
-        // Helper: advance the saved step to F16 in the background so that
-        // on next app restart F15 is not shown again (it was already seen).
-        const advancePastWali = () => {
-          const n = stepNumberFor('F16');
-          if (n != null) saveOnboardingStep(n).catch(() => {});
-          setResumeScreen('F16');
-        };
-        return (
-          <WaliInviteScreen
-            onBack={onboardingBack('F14')}
-            onLater={() => { advancePastWali(); navigate('F16'); }}
-            onInviteWhatsApp={() => {
-              advancePastWali();
-              navigate('F16');
-            }}
-            onReadCode={() => {
-              advancePastWali();
-              navigate('F16');
-            }}
-            onSkip={() => {
-              advancePastWali();
-              navigate('F16');
-            }}
-          />
-        );
+        return <WaliInviteScreen onClose={() => navigate('Home')} />;
 
       // ── F16: Verification ─────────────────────────────────────────────────────
       case 'F16':
         return (
           <VerificationScreen
             faceDone={faceDone}
+            {...onboardingExit()}
             cnicDone={cnicDone}
             faceFailed={faceFailed}
             cnicFailed={cnicFailed}
             faceAttemptsLeft={faceAttemptsLeft}
-            onBack={verifyFromHome ? undefined : () => navigate('F15')}
+            onBack={verifyFromHome ? undefined : onboardingBack('F14')}
             onScanFace={async () => {
               // Really submitted, not simulated. This screen used to fake a
               // failure on the first tap and a success on retry without ever
@@ -2006,6 +2678,7 @@ export default function App() {
         return (
           <PaymentScreen
             paying={paying}
+            {...onboardingExit()}
             onBack={onboardingBack('F16')}
             onPay={async () => {
               setPaying(true);
@@ -2044,7 +2717,16 @@ export default function App() {
                 );
                 if (result.isEntitled) {
                   setPaymentFailed(false);
-                  setUnderReviewPaid(true);
+                  // `underReviewPaid` is not set here. It is one of the flags
+                  // `refreshHomeState` owns, and guessing it made Home show
+                  // "One step left — verify my identity" for a moment until the
+                  // server's real answer (WALI_REQUIRED, say) replaced it.
+                  //
+                  // Marking the home state unloaded instead means Home waits for
+                  // that answer rather than rendering a guess, and the refresh
+                  // below has the whole of F18 to land in.
+                  setHomeStateLoaded(false);
+                  refreshHomeState().catch(() => {});
                   const n = stepNumberFor('F18');
                   if (n != null) saveOnboardingStep(n).catch(() => {});
                   navigate('F18');
@@ -2060,13 +2742,16 @@ export default function App() {
               }
             }}
             onSkip={() => {
-              // User verified but skipped payment → H8 (under review, unpaid)
-              setUnderReviewUnpaid(true);
+              // Same as the paid path: which card Home shows is the server's
+              // answer, not a guess made here.
+              setHomeStateLoaded(false);
+              refreshHomeState().catch(() => {});
               const n = stepNumberFor('F18');
               if (n != null) saveOnboardingStep(n).catch(() => {});
               navigate('F18');
             }}
-            onWhatDoIGet={() => console.log('What do I get?')}
+            // The membership screen is the page that answers this.
+            onWhatDoIGet={() => navigate('Membership')}
           />
         );
 
@@ -2075,7 +2760,6 @@ export default function App() {
         return (
           <DoneScreen
             waliName={waliName}
-            onRemindWali={() => console.log('Remind wali')}
             onGoHome={() => {
               captureAndStoreLocation();
               setOnboardingComplete(true);
@@ -2092,7 +2776,18 @@ export default function App() {
         return (
           <NarrowCriteriaScreen
             userName={userName}
-            filters={appliedFilters ?? preferenceFilters ?? onboardingFilters}
+            // `preferenceFilters` is Partial, and this screen renders every
+            // row — so the gaps are filled rather than cast away, which is
+            // what would have rendered "undefined–undefined" for the age range.
+            // This screen renders every row, so a Partial has to be completed
+            // first — otherwise the age range prints "undefined–undefined".
+            // Filled from the filter screen's own defaults, not a local copy.
+            filters={
+              appliedFilters ??
+              (preferenceFilters
+                ? { ...BASE_DEFAULTS, ...preferenceFilters }
+                : onboardingFilters)
+            }
             onWidenCriteria={() => navigate('Filters')}
             onKeepCriteria={() => {
               const dest = h11FromHome ? 'Home' : 'F14';
@@ -2131,7 +2826,7 @@ export default function App() {
             city="Multan"
             familyCount={40}
             onFinishBiodata={() => navigate('F11')}
-            onSearchNearby={() => console.log('Search nearby')}
+            onSearchNearby={() => { setH11FromHome(false); navigate('Filters'); }}
           />
         );
 
@@ -2184,9 +2879,19 @@ export default function App() {
                 });
               }}
               wardIntroductions={wardIntroductions.filter(i => {
+                // Withdrawn proposals do not hide anyone. The row survives a
+                // withdrawal — the server sets its stage rather than deleting
+                // it — so counting every proposal here kept the recipient out of
+                // the feed for good, which is exactly what withdrawing is meant
+                // to undo. The server's own discovery query makes the same
+                // exception.
                 const proposedIds = new Set([
-                  ...localWardProposals.map(p => p.toUserId),
-                  ...wardProposals.map(p => p.toUserId),
+                  ...localWardProposals
+                    .filter(p => p.stage !== 'WITHDRAWN')
+                    .map(p => p.toUserId),
+                  ...wardProposals
+                    .filter(p => p.stage !== 'WITHDRAWN')
+                    .map(p => p.toUserId),
                 ]);
                 return !proposedIds.has(i.userId);
               })}
@@ -2195,6 +2900,8 @@ export default function App() {
                 ...wardProposals,
               ]}
               wardReceivedProposals={wardReceivedProposals}
+              onPhotoRequests={() => navigate('PhotoRequests')}
+              photoRequestsBadge={waliPhotoRequestsBadge}
               onViewIntroProfile={async (userId) => {
                 setViewingDependent(false);
                 setDetailProfile(undefined);
@@ -2217,7 +2924,9 @@ export default function App() {
                       bio: intro.bio,
                       photoUrl: intro.photoUrl,
                       photoUrls: intro.photoUrls,
-                      blurPhotos: intro.blurPhotos,
+                      photosWithheld: intro.photosWithheld,
+                      photoRequestStatus: intro.photoRequestStatus ?? null,
+                      photoRequestWaitingOn: intro.photoRequestWaitingOn ?? null,
                       hideDistance: intro.hideDistance,
                       distanceKm: intro.distanceKm,
                       gender: intro.gender,
@@ -2227,7 +2936,7 @@ export default function App() {
                       willingToRelocate: intro.willingToRelocate,
                       sect: intro.sect,
                       madhhab: intro.madhhab,
-                      religiosity: intro.religiosity,
+                      religiosity: intro.religiosityLevel,
                       prayerFrequency: intro.prayerFrequency,
                       wearsHijab: intro.wearsHijab,
                       keepsBeard: intro.keepsBeard,
@@ -2258,6 +2967,9 @@ export default function App() {
                 const intro = wardIntroductions.find(i => i.userId === userId);
                 const optimistic: WardProposal = {
                   id: `optimistic-${userId}`,
+                  // The proposal is the ward's, so a withdraw before the next
+                  // refresh still knows whose it is.
+                  seekerUserId: dependentProfile?.userId ?? '',
                   toUserId: userId,
                   recipientName: intro?.fullName ?? null,
                   recipientAge: intro?.age ?? null,
@@ -2274,8 +2986,14 @@ export default function App() {
                 };
                 // Wait for the API before removing from intro feed — keeps the
                 // modal mounted with its loader visible while the request is in-flight.
-                await sendWardProposal(userId, note).catch(() => {});
-                // Optimistic updates — socket's proposals:stale will trigger
+                // The ward is the sender, so their id is the second argument.
+                // It used to be called as `(userId, note)` — the note string
+                // landed in the `seekerUserId` slot and went to the server as
+                // the ward's id, which it rejected as "must be a UUID".
+                if (!dependentProfile?.userId) return;
+                await sendWardProposal(userId, dependentProfile.userId, note)
+                  .catch(() => {});
+                // Optimistic updates — the proposals:stale broadcast will trigger
                 // loadWaliProfile() which refreshes all feeds and prunes localWardProposals.
                 setWardIntroductions(prev => prev.filter(i => i.userId !== userId));
                 setLocalWardProposals(prev => [optimistic, ...prev.filter(p => p.toUserId !== userId)]);
@@ -2301,6 +3019,39 @@ export default function App() {
                 setDependentPhotos([]);
                 setDependentMembershipId('');
               }}
+              // Refetch everything: the withdrawn proposal leaves the Sent
+              // list and its recipient returns to the introductions feed.
+              onProposalWithdrawn={() => { loadWaliProfile().catch(() => {}); }}
+              // The guardian's own review step. These two API functions
+              // had no caller anywhere before this, so the stage the whole
+              // pipeline waits on could be read but never actioned.
+              onApproveReceived={async (proposalId) => {
+                setWaliLoading(true);
+                try {
+                  await approveProposal(proposalId);
+                } catch { /* the refetch below shows the unchanged state */ }
+                await loadWaliProfile().catch(() => {});
+                setWaliLoading(false);
+              }}
+              onDeclineReceived={async (proposalId) => {
+                setWaliLoading(true);
+                try {
+                  await declineProposal(proposalId);
+                } catch { /* as above */ }
+                await loadWaliProfile().catch(() => {});
+                setWaliLoading(false);
+              }}
+              wardFilters={wardFilters}
+              onApplyWardFilters={filters => {
+                setWardFilters(filters);
+                // The ref is what `loadWaliProfile` reads, and state has not
+                // committed yet at this point.
+                wardFiltersRef.current = filters;
+                setWaliLoading(true);
+                loadWaliProfile()
+                  .catch(() => {})
+                  .finally(() => setWaliLoading(false));
+              }}
               onViewDependentProfile={() => {
                 if (!dependentProfile) return;
                 setViewingDependent(true);
@@ -2317,7 +3068,7 @@ export default function App() {
                   bio: dependentProfile.bio ?? null,
                   photoUrl: dependentPhotos[0]?.url ?? null,
                   photoUrls: dependentPhotos.map(p => p.url),
-                  blurPhotos: false,
+                  photosWithheld: false,
                   idVerified: dependentProfile.idVerified,
                   gender: dependentProfile.gender ?? null,
                   heightCm: dependentProfile.heightCm ?? null,
@@ -2360,18 +3111,26 @@ export default function App() {
         }
         return (
           <HomeScreen
+            userId={userId}
+            onPhotoRequests={() => navigate('PhotoRequests')}
+            photoRequestsBadge={photoRequestsBadge}
+            onOpenNotifications={() => navigate('NotificationFeed')}
+            notificationsBadge={notificationsBadge}
             userName={userName}
             paymentFailed={paymentFailed}
             faceFailed={faceFailed}
             cnicFailed={cnicFailed}
             faceAttemptsLeft={faceAttemptsLeft}
+            homeStateLoaded={homeStateLoaded}
             underReviewUnpaid={underReviewUnpaid}
             underReviewPaid={underReviewPaid}
             proposalsReadyUnpaid={proposalsReadyUnpaid}
             matchCount={matchCount}
             introductionAvailable={introductionAvailable}
             hasIntroductions={hasIntroductions}
-            introductionCity={introductionCity}
+            // `undefined`, not '', so the block's own "your city" wording
+            // stands in when the profile has no city.
+            introductionCity={introductionCity || undefined}
             introductionProfile={introductionProfile}
             matchCriteria={matchCriteria}
             reviewedThisWeek={reviewedThisWeek}
@@ -2389,69 +3148,49 @@ export default function App() {
               setIntroductionIndex(i => i + 1);
               loadNextIntroduction();
             }}
-            onProposalWithdrawn={() => {
-              // Interest record deleted → person re-enters discovery pool.
-              // Reload the introduction card so the home feed reflects the change.
+            // The recipient's own decision at the last gate. Accepting is what
+            // creates the match and opens the conversation; both refresh the
+            // home state so the proposals badge and feed settle.
+            onAcceptProposal={async (fromUserId) => {
+              try {
+                await acceptProposal(fromUserId);
+              } catch (err: any) {
+                Alert.alert('Could not accept', saveFailedMessage(err));
+              }
+              setProposalsRefreshKey(k => k + 1);
+              await refreshHomeState().catch(() => {});
               loadNextIntroduction().catch(() => {});
             }}
-            onViewProposalProfile={(userId, type, matchId) => {
-              setViewingDependent(false);
-              setDetailProfile(undefined);
-              setDetailLoading(true);
-              setProfileMatchId(matchId);
-              // Determine context: if matchId is set → matched, else use type
-              const ctx: ProposalContext = matchId
-                ? (type === 'sent' ? 'sent_matched' : 'received_matched')
-                : (type === 'sent' ? 'sent_pending' : 'received_pending');
-              setProfileProposalContext(ctx);
-              navigate('ProfileDetail');
-              getIntroduction(userId)
-                .then((intro: FullIntroduction) => {
-                  setDetailProfile({
-                    userId: intro.userId,
-                    displayName: intro.fullName,
-                    age: intro.age,
-                    city: intro.city,
-                    latitude: intro.latitude,
-                    longitude: intro.longitude,
-                    occupation: intro.occupation,
-                    educationLevel: intro.educationLevel,
-                    fieldOfStudy: intro.fieldOfStudy,
-                    employmentStatus: intro.employmentStatus,
-                    languagesSpoken: intro.languagesSpoken,
-                    bio: intro.bio,
-                    photoUrl: intro.photoUrl,
-                    photoUrls: intro.photoUrls,
-                    blurPhotos: intro.blurPhotos,
-                    hideDistance: intro.hideDistance,
-                    distanceKm: intro.distanceKm,
-                    gender: intro.gender,
-                    heightCm: intro.heightCm,
-                    maritalStatus: intro.maritalStatus,
-                    hasChildren: intro.hasChildren,
-                    willingToRelocate: intro.willingToRelocate,
-                    sect: intro.sect,
-                    madhhab: intro.madhhab,
-                    religiosity: intro.religiosity,
-                    prayerFrequency: intro.prayerFrequency,
-                    wearsHijab: intro.wearsHijab,
-                    keepsBeard: intro.keepsBeard,
-                    halalStrict: intro.halalStrict,
-                    quranMemorization: intro.quranMemorization,
-                    familyType: intro.familyType,
-                    housingStatus: intro.housingStatus,
-                    livingArrangement: intro.livingArrangement,
-                    fatherOccupation: intro.fatherOccupation,
-                    motherOccupation: intro.motherOccupation,
-                    siblingsSummary: intro.siblingsSummary,
-                    hasVehicle: intro.hasVehicle,
-                    idVerified: intro.idVerified,
-                    waliRegistered: intro.waliRegistered,
-                    countryCode: intro.countryCode,
-                  });
-                })
-                .finally(() => setDetailLoading(false));
+            onDeclineProposal={async (fromUserId) => {
+              try {
+                await declineReceivedProposal(fromUserId);
+              } catch (err: any) {
+                Alert.alert('Could not decline', saveFailedMessage(err));
+              }
+              setProposalsRefreshKey(k => k + 1);
+              await refreshHomeState().catch(() => {});
             }}
+            onOpenProposalChat={(matchId) => {
+              // Same lookup the profile screen uses: the thread is addressed by
+              // its conversation id, which the chats list maps from the match.
+              const chat = matchId ? chats.find(c => c.matchId === matchId) : undefined;
+              if (chat) {
+                setActiveChatId(chat.id);
+                navigate('ChatThread');
+                return;
+              }
+              // The match was created moments ago and this list has not caught
+              // up. The Chats tab loads it fresh.
+              setActiveTab('chats');
+              navigate('Home');
+            }}
+            onProposalWithdrawn={() => {
+              // The proposal is withdrawn, so the person re-enters the pool —
+              // discovery excludes every interest stage except WITHDRAWN.
+              // Reload the introduction card so the home feed reflects it.
+              loadNextIntroduction().catch(() => {});
+            }}
+            onViewProposalProfile={openCounterpartProfile}
             onViewProfile={() => {
               if (!currentIntroductionId) return;
               setViewingDependent(false);
@@ -2477,7 +3216,9 @@ export default function App() {
                     bio: intro.bio,
                     photoUrl: intro.photoUrl,
                     photoUrls: intro.photoUrls,
-                    blurPhotos: intro.blurPhotos,
+                    photosWithheld: intro.photosWithheld,
+                    photoRequestStatus: intro.photoRequestStatus ?? null,
+                    photoRequestWaitingOn: intro.photoRequestWaitingOn ?? null,
                     hideDistance: intro.hideDistance,
                     distanceKm: intro.distanceKm,
                     gender: intro.gender,
@@ -2487,7 +3228,7 @@ export default function App() {
                     willingToRelocate: intro.willingToRelocate,
                     sect: intro.sect,
                     madhhab: intro.madhhab,
-                    religiosity: intro.religiosity,
+                    religiosity: intro.religiosityLevel,
                     prayerFrequency: intro.prayerFrequency,
                     wearsHijab: intro.wearsHijab,
                     keepsBeard: intro.keepsBeard,
@@ -2506,7 +3247,7 @@ export default function App() {
                   });
                 })
                 .finally(() => setDetailLoading(false));
-              // stats:stale socket event will trigger the refresh automatically
+              // stats:stale broadcast will trigger the refresh automatically
             }}
             onSendProposal={async (note) => {
               if (!currentIntroductionId) return;
@@ -2519,17 +3260,14 @@ export default function App() {
             onChangeCity={() => { setH11FromHome(true); navigate('Filters'); }}
             onAdjustFilters={() => { setH11FromHome(true); navigate('Filters'); }}
             onOpenSettings={() => navigate('Settings')}
-            waliState="unresponsive"
-            onAskWaliAgain={() => console.log('Ask wali again')}
+            onAskWaliAgain={() => navigate('YourWali')}
             onChooseAnotherWali={() => navigate('F15')}
-            onRemindWali={() => console.log('Remind wali')}
-            onChangeWali={() => navigate('F15')}
-            onReviewProposal={() => console.log('Review proposal')}
+            onReviewProposal={() => { setActiveTab('proposals'); navigate('Home'); }}
             onSwitchToProfile={() => setActiveTab('home')}
             onRefresh={async () => {
               await Promise.all([
                 loadNextIntroduction(),
-                getHomeStats()
+                getHomeStats(sessionFiltersRef.current)
                   .then(stats => {
                     setMatchCriteria(stats.matchCriteria);
                     setReviewedThisWeek(stats.reviewedThisWeek);
@@ -2561,11 +3299,16 @@ export default function App() {
               navigate(target ? (target as Screen) : resumeScreen)
             }
             onBecomeAMember={() => {
-              setUnderReviewUnpaid(false);
-              setProposalsReadyUnpaid(false);
+              // Leaving for the payment screen. The card to show on return is
+              // the server's answer either way — including when the payment is
+              // abandoned — so the state is marked unloaded rather than cleared
+              // to a guess about what comes next.
+              setHomeStateLoaded(false);
               navigate('F17');
             }}
-            onConfirmWali={() => navigate('F15')}
+            waliRequired={waliRequired}
+            // F15 is the wali invite step, the same screen onboarding uses.
+            onAddWali={() => navigate('F15')}
             onImproveBiodata={() => navigate('F8')}
             onReviewPreferences={() => navigate('F13')}
             verificationSubmittedAt={verificationSubmittedAt}
@@ -2585,7 +3328,14 @@ export default function App() {
               if (tab === 'chats') navigate('Chats');
               else setActiveTab(tab);
             }}
-            proposalsBadge={proposalsBadge}
+            // Everything awaiting an answer, in one number: received
+            // proposals plus photo requests. Summed here so neither source has
+            // to know about the other.
+            proposalsBadge={proposalsBadge + photoRequestsBadge}
+            // Conversations holding something unread. Derived from the chat
+            // list already in state rather than tracked separately, so it
+            // cannot drift from what the Chats tab actually shows.
+            chatsBadge={chats.filter(c => (c.unreadCount ?? 0) > 0).length}
             proposalsRefreshKey={proposalsRefreshKey}
             onProposalsBadgeChange={setProposalsBadge}
           />
@@ -2600,10 +3350,37 @@ export default function App() {
             isWaliView={isWali}
             isDependent={viewingDependent}
             proposalContext={profileProposalContext}
-            onBack={() => { setViewingDependent(false); setProfileProposalContext('none'); setProfileMatchId(null); navigate('Home'); }}
+            onBack={() => {
+              setViewingDependent(false);
+              setProfileProposalContext('none');
+              setProfileMatchId(null);
+              // Was hardcoded to Home, so opening a profile from a chat thread
+              // or a proposal and pressing back dropped the user on Home with
+              // the thread they were reading gone.
+              goBackOr('Home');
+            }}
             onNotSuitable={() => { setProfileProposalContext('none'); navigate('Home'); }}
-            onRequestPhoto={() => console.log('Request photo')}
-            onSendProposal={() => console.log('Send proposal')}
+            // Actually sends it now. This was `console.log`, so the screen
+            // showed "Photo request sent" for a request that never left the app.
+            onRequestPhoto={async () => {
+              const target = detailProfile?.userId;
+              if (!target) throw new Error('Could not tell whose photos to ask for.');
+              // A guardian asks for their ward, not for themselves: the request
+              // belongs to the ward, and the recipient must see the seeker.
+              const forWard = isWali ? dependentProfile?.userId : undefined;
+              if (isWali && !forWard) {
+                throw new Error('No linked dependent to request photos for.');
+              }
+              await requestPhoto(target, forWard);
+            }}
+            // The same call the introduction card makes; this site was a stub,
+            // so "Send proposal" from a profile opened this way did nothing.
+            onSendProposal={async (note) => {
+              const target = detailProfile?.userId;
+              if (!target) return;
+              await sendProposal(target, note).catch(() => {});
+              navigate('Home');
+            }}
             onWithdrawProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
             onAcceptProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
             onDeclineProposal={() => { setProfileProposalContext('none'); navigate('Home'); }}
@@ -2627,6 +3404,28 @@ export default function App() {
         );
 
       // ── Chats: CH1 / CH2 ─────────────────────────────────────────────────
+      case 'NotificationFeed':
+        return (
+          <NotificationFeedScreen
+            onBack={() => goBackOr('Home')}
+            userId={userId}
+            // The bell badge lives in App, so the screen reports read-state
+            // changes rather than owning a second copy of the count.
+            onReadStateChange={refreshNotificationCount}
+            onOpen={openNotification}
+          />
+        );
+
+      case 'PhotoRequests':
+        return (
+          // Back through history: reached from the Proposals header today, but
+          // a hardcoded destination is what put the profile screen wrong.
+          <PhotoRequestsScreen
+            onBack={() => goBackOr('Home')}
+            onOpenPrivacy={() => navigate('Privacy')}
+          />
+        );
+
       case 'Chats':
         return (
           <ChatsListScreen
@@ -2654,6 +3453,20 @@ export default function App() {
             myDisplayName={userName}
             chatTitle={chatTitle}
             onBack={() => isWali ? navigate('Home') : navigate('Chats')}
+            // Passed explicitly, not spread: a conditional `{...}` spread
+            // silences excess-property checks, which is how two screens in this
+            // file were once handed props they did not accept.
+            // Undefined when the partner is unknown — the button hides itself.
+            onViewProfile={
+              activeChatPartner
+                ? () =>
+                    openCounterpartProfile(
+                      activeChatPartner.userId,
+                      'received',
+                      activeChatPartner.matchId,
+                    )
+                : undefined
+            }
             onMessageSent={(text) => {
               // Optimistically update the chat preview immediately — no waiting
               // for the Supabase chats:stale round-trip.
@@ -2664,7 +3477,7 @@ export default function App() {
                     ? { ...c, lastMessage: text, lastMessageAt: now, lastMessageSenderId: userId }
                     : c,
                 );
-                updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+                updated.sort(byNewestMessage);
                 return updated;
               });
             }}
@@ -2687,7 +3500,7 @@ export default function App() {
               onPrivacyPolicy={() => navigate('PrivacyPolicy')}
               onTermsOfService={() => navigate('TermsOfService')}
               onSignOut={async () => {
-                try { await logout(); } catch { await clearTokens(); }
+                await signOutAndClearCaches();
                 applyRole('self');
                 setUserId('');
                 setDependentName('');
@@ -2701,14 +3514,16 @@ export default function App() {
                 setWaliLoading(false);
                 navigate('F1');
               }}
-              onDeleteAccount={() => navigate('DeleteAccount')}
             />
           );
         }
         return (
           <SettingsScreen
-            userName={userName || 'Mian Haseeb'}
-            userCity="Lahore"
+            // No `userName`: this screen wants the full name, and `userName` is
+            // only the first. It reads the profile itself.
+            verified={verificationApproved}
+            matchCount={matchCount}
+            isPaidMember={isPaidMember}
             onBack={() => navigate('Home')}
             onViewBiodata={() => navigate('EditProfile')}
             onEdit={() => navigate('EditProfile')}
@@ -2723,15 +3538,12 @@ export default function App() {
             onPrivacyPolicy={() => navigate('PrivacyPolicy')}
             onTermsOfService={() => navigate('TermsOfService')}
             onRefundPolicy={() => navigate('RefundPolicy')}
-            onFoundMyMatch={() => navigate('FoundMyMatch')}
-            onDownloadData={() => navigate('DownloadData')}
             onSignOut={async () => {
-              try { await logout(); } catch { await clearTokens(); }
+              await signOutAndClearCaches();
               applyRole('self');
               setUserId('');
               navigate('F1');
             }}
-            onDeleteAccount={() => navigate('DeleteAccount')}
           />
         );
 
@@ -2749,7 +3561,8 @@ export default function App() {
         return (
           <YourPhotosScreen
             onBack={() => navigate('Privacy')}
-            onAddPhoto={() => console.log('Add photo')}
+            // F12 is the photo step; it owns the picker and the upload.
+            onAddPhoto={() => navigate('F12')}
           />
         );
 
@@ -2758,23 +3571,18 @@ export default function App() {
         return (
           <MembershipScreen
             onBack={() => navigate('Settings')}
-            onEmailReceipt={() => console.log('Email receipt')}
-            onRequestRefund={() => console.log('Request refund')}
-            onReadRefundPolicy={() => console.log('Read refund policy')}
-          />
-        );
-
-      // ── DeleteAccount: M5 ────────────────────────────────────────────────
-      case 'DeleteAccount':
-        return (
-          <DeleteAccountScreen
-            onBack={() => navigate('Settings')}
-            onFoundMyMatch={() => { navigate('Home'); }}
-            onKeepAccount={() => navigate('Settings')}
-            onDeletePermanently={async () => {
-              await clearTokens();
-              navigate('F1');
+            // No receipt endpoint exists, so this control is not offered
+            // rather than shown and doing nothing. Support handles receipts.
+            onRequestRefund={async () => {
+              try {
+                await requestRefund();
+                setRefundNotice('Refund request sent. Support will be in touch.');
+              } catch (e: any) {
+                setRefundNotice(e?.message ?? 'Could not send the request. Please try again.');
+              }
             }}
+            refundNotice={refundNotice}
+            onReadRefundPolicy={() => navigate('RefundPolicy')}
           />
         );
 
@@ -2847,46 +3655,26 @@ export default function App() {
           />
         );
 
-      // ── FoundMyMatch ──────────────────────────────────────────────────────
-      case 'FoundMyMatch':
-        return (
-          <FoundMyMatchScreen
-            onBack={() => navigate('Settings')}
-            onConfirm={async () => {
-              await clearTokens();
-              navigate('F1');
-            }}
-          />
-        );
-
-      // ── DownloadData ──────────────────────────────────────────────────────
-      case 'DownloadData':
-        return (
-          <DownloadDataScreen
-            onBack={() => navigate('Settings')}
-          />
-        );
-
       // ── PartnerPreferences ────────────────────────────────────────────────
       case 'PartnerPreferences':
         return (
           <PartnerPreferencesScreen
             onBack={() => navigate('Settings')}
-            initialAgeMin={obAgeMin}
-            initialAgeMax={obAgeMax}
-            initialSect={obSect}
-            initialMaritalStatus={obMarital}
             onSave={(values) => {
-              const { ageMin, ageMax, sects, maritalStatuses, heightMinCm, heightMaxCm, minReligiosity, educationLevels, cities, includeOverseas } = values;
-              // Keep ob* vars in sync for onboarding defaults fallback
-              setObAgeMin(ageMin);
-              setObAgeMax(ageMax);
+              const { sects, maritalStatuses } = values;
               setObSect(sects.includes('Any') ? '' : (sects[0] ?? ''));
               setObMarital(maritalStatuses.includes('Any') ? '' : (maritalStatuses[0] ?? ''));
-              // Store full preferences so AdjustFiltersScreen inherits all fields as defaults
-              setPreferenceFilters({ ageMin, ageMax, heightMinCm, heightMaxCm, cities, includeOverseas, sects, minReligiosity, educationLevels, maritalStatuses });
-              // Clear any manually applied filters so saved preferences take over
+              // A session filter is an override of the stored preference, so
+              // changing the preference retires it — otherwise the new
+              // preference would be saved and then immediately overruled by a
+              // filter the user set against the old one.
               setAppliedFilters(undefined);
+              // Re-read rather than trusting the values just submitted: the
+              // server is what the feed is filtered by, and it normalises (an
+              // "Any" chip becomes an empty list, an unmapped enum is dropped).
+              // Reading it back means the filter screens show what will actually
+              // be applied.
+              loadStoredPreferences();
             }}
           />
         );
@@ -2894,13 +3682,13 @@ export default function App() {
       case 'YourWali':
         return (
           <FamilyScreen
-            waliState="unresponsive"
             onBack={() => navigate('Settings')}
-            onRemindWali={() => console.log('Remind wali')}
-            onChangeWali={() => navigate('F15')}
-            onAskWaliAgain={() => console.log('Ask wali again')}
+            // "Ask again" and "Review proposal" both mean going to the wali
+            // screen that actually shows the state — they were console.log
+            // stubs, which looked wired and did nothing.
+            onAskWaliAgain={() => navigate('YourWali')}
             onChooseAnotherWali={() => navigate('F15')}
-            onReviewProposal={() => console.log('Review proposal')}
+            onReviewProposal={() => { setActiveTab('proposals'); navigate('Home'); }}
             onSwitchToProfile={() => navigate('Home')}
           />
         );
@@ -2910,9 +3698,25 @@ export default function App() {
     }
   }
 
-  // Show a blank screen while the session-restore check runs
+  /**
+   * Continues the native splash while the session-restore check runs.
+   *
+   * This used to be a bare `<View style={styles.root} />` — and `root` sets
+   * only `flex: 1`, so it rendered default white. The launch window was
+   * branded, the first screen is `#F6F5FA`, and this sat between them as a
+   * white flash for however long the restore took.
+   *
+   * Same colour and same centred mark as the splash, so the handover from the
+   * native window to JS is invisible rather than a blank gap.
+   */
   if (!appReady) {
-    return <SafeAreaProvider><View style={styles.root} /></SafeAreaProvider>;
+    return (
+      <SafeAreaProvider>
+        <View style={styles.boot}>
+          <Image source={require('./src/assets/logo.png')} style={styles.bootLogo} />
+        </View>
+      </SafeAreaProvider>
+    );
   }
 
   return (
@@ -2930,4 +3734,14 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  // Matches the splash exactly: same ground, same logo size and position.
+  boot: {
+    flex: 1,
+    backgroundColor: '#F6F5FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 140, matching the native splash mark exactly so the handover from
+  // the launch window to JS shows no change in size.
+  bootLogo: { width: 140, height: 140, resizeMode: 'contain' },
 });

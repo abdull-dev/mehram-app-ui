@@ -397,7 +397,12 @@ interface AdjustFiltersScreenProps {
   onBack?: () => void;
 }
 
-const BASE_DEFAULTS: FilterValues = {
+/**
+ * A complete FilterValues, exported so callers holding a Partial can fill the
+ * gaps from the same source this screen uses. Re-declaring the shape at each
+ * call site is how the two drift apart.
+ */
+export const BASE_DEFAULTS: FilterValues = {
   ageMin: 24,
   ageMax: 34,
   heightMinCm: null,

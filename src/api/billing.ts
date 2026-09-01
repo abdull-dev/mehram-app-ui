@@ -123,3 +123,14 @@ export async function verifyPurchase(
 export async function getEntitlement(): Promise<EntitlementResponse> {
   return apiRequest<EntitlementResponse>('/billing/entitlement');
 }
+
+/**
+ * Asks support to review a refund.
+ *
+ * The endpoint records the request and notifies an admin; it does not refund
+ * money or revoke entitlement, both of which happen after dual approval. So the
+ * app should tell the user it has been submitted, not that it is done.
+ */
+export async function requestRefund(): Promise<void> {
+  await apiRequest<void>('/billing/request-refund', { method: 'POST' });
+}
