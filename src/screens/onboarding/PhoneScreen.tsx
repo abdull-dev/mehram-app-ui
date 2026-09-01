@@ -44,6 +44,7 @@ import Svg, { Path } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GOOGLE_SIGN_IN_ENABLED } from '../../api/config';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -89,6 +90,16 @@ interface PhoneScreenProps {
   onSendCode?: (phone: string, dialCode: string, email: string, password: string, phoneE164: string) => void;
   /** Called when user taps "Continue with Google" */
   onGoogleSignIn?: () => void;
+  /** Why the last Google attempt failed, if it did. */
+  googleError?: string | null;
+  /**
+   * The address or number already has an account.
+   *
+   * Two ways out, because either could be the real situation: they already have
+   * an account and forgot, or they have one and forgot the password.
+   */
+  onSignIn?: () => void;
+  onForgotPassword?: () => void;
   /** DEV ONLY — skip phone verification entirely */
   onSkip?: () => void;
   /**
@@ -113,6 +124,9 @@ export function PhoneScreen({
   onBack,
   onSendCode,
   onGoogleSignIn,
+  googleError,
+  onSignIn,
+  onForgotPassword,
   onSkip,
   initial,
   focusField,
@@ -172,13 +186,26 @@ export function PhoneScreen({
     return Object.keys(e).length === 0;
   }
 
+  /**
+   * Set when the server answers 409.
+   *
+   * A plain error line saying "already registered" left the user stuck on a
+   * form that could not succeed. This offers the two routes that can.
+   */
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+
   async function handleSend() {
     if (!validate() || loading) return;
+    setAlreadyRegistered(false);
     setLoading(true);
     try {
       const dialCode = country.code.replace(/[^+\d]/g, '');
       const e164 = toE164(dialCode, phone);
       await registerUser({
+        // A placeholder, not the user's name: this form asks for none, and the
+        // endpoint requires the field. F8 (EssentialsScreen) collects the real
+        // name and overwrites this — anything that shows a name before then is
+        // showing the email address.
         fullName: email.split('@')[0],
         email: email.trim().toLowerCase(),
         phone: e164,
@@ -201,6 +228,14 @@ export function PhoneScreen({
         e164,
       );
     } catch (err: any) {
+      // 409 is the server's "this email or phone already has an account". It is
+      // the one failure the user can actually act on, so it gets the hint panel
+      // rather than a red line under a field they cannot change their way out of.
+      if (err?.status === 409) {
+        setAlreadyRegistered(true);
+        setLoading(false);
+        return;
+      }
       const msg: string = err?.message ?? 'Could not create account. Please try again.';
       const lower = msg.toLowerCase();
       if (lower.includes('phone')) {
@@ -295,6 +330,11 @@ export function PhoneScreen({
                 />
               </Svg>
             </Pressable>
+{/* Under the button that caused it — most often "enable the Google
+    provider in Supabase", which is actionable. */}
+{!!googleError && (
+  <Text style={styles.googleError}>{googleError}</Text>
+)}
             <View style={styles.progressTrack}>
               <LinearGradient
                 colors={[...GradientColors.primary]}
@@ -307,10 +347,8 @@ export function PhoneScreen({
           </View>
 
           {/* ── Question section ──────────────────────────────────────── */}
-          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}>
-            <View style={styles.kicker}>
-              <Text style={styles.kickerText}>Step 1 of 5</Text>
-            </View>
+          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.heading}>
               {editing ? <>Change your{'\n'}details</> : <>Create your{'\n'}account</>}
             </Text>
@@ -322,7 +360,8 @@ export function PhoneScreen({
           </Animated.View>
 
           {/* ── Phone field ───────────────────────────────────────────── */}
-          <Animated.View style={[styles.fieldWrap, riseStyle(phoneField.anim)]}>
+          <Animated.View style={[styles.fieldWrap, riseStyle(phoneField.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.fieldLabel}>Mobile number</Text>
             <Pressable
               style={[styles.inputRow, errors.phone ? styles.inputRowError : null]}
@@ -352,7 +391,8 @@ export function PhoneScreen({
           </Animated.View>
 
           {/* ── Email field ───────────────────────────────────────────── */}
-          <Animated.View style={[styles.fieldWrap, riseStyle(emailField.anim)]}>
+          <Animated.View style={[styles.fieldWrap, riseStyle(emailField.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.fieldLabel}>Email address</Text>
             <Pressable
               style={[styles.inputRow, errors.email ? styles.inputRowError : null]}
@@ -398,7 +438,8 @@ export function PhoneScreen({
           </Animated.View>
 
           {/* ── Password fields ───────────────────────────────────────── */}
-          <Animated.View style={riseStyle(passwordField.anim)}>
+          <Animated.View style={riseStyle(passwordField.anim)}
+            needsOffscreenAlphaCompositing>
             {/* Password */}
             <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>Password</Text>
@@ -521,7 +562,31 @@ export function PhoneScreen({
           </Animated.View>
 
           {/* ── Sign up + Divider + Google ────────────────────────────── */}
-          <Animated.View style={[styles.footer, riseStyle(divider.anim)]}>
+          {/* The one failure the user can act on. Sits directly above the
+              button they just pressed, not at the foot of the scroll. */}
+          {alreadyRegistered && (
+            <View style={styles.dupCard}>
+              <Text style={styles.dupTitle}>This account already exists</Text>
+              <Text style={styles.dupBody}>
+                An account is already registered with this email or phone number.
+              </Text>
+              <View style={styles.dupActions}>
+                <Pressable
+                  onPress={onSignIn}
+                  style={({ pressed }) => [styles.dupBtn, styles.dupBtnFill, pressed && { opacity: 0.85 }]}>
+                  <Text style={styles.dupBtnFillText}>Sign in</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onForgotPassword}
+                  style={({ pressed }) => [styles.dupBtn, styles.dupBtnGhost, pressed && { opacity: 0.7 }]}>
+                  <Text style={styles.dupBtnGhostText}>Reset password</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          <Animated.View style={[styles.footer, riseStyle(divider.anim)]}
+            needsOffscreenAlphaCompositing>
             <GradientButton
               label={editing ? 'Save and send codes' : 'Continue to signup'}
               variant={canSubmit ? 'primary' : 'disabled'}
@@ -533,21 +598,29 @@ export function PhoneScreen({
                 details belong to, so it is not offered while editing one. */}
             {!editing && (
               <>
-                <View style={styles.orWrap}>
-                  <View style={styles.orLine} />
-                  <Text style={styles.orText}>or</Text>
-                  <View style={styles.orLine} />
-                </View>
+                {/* Hidden while Google sign-in has no client half — see
+                    GOOGLE_SIGN_IN_ENABLED. Showing a button that can only fail is
+                    worse than not offering the method. The divider is inside the
+                    gate too, or a lone "or" is left dangling. */}
+                {GOOGLE_SIGN_IN_ENABLED && (
+                  <>
+                  <View style={styles.orWrap}>
+                    <View style={styles.orLine} />
+                    <Text style={styles.orText}>or</Text>
+                    <View style={styles.orLine} />
+                  </View>
 
-                <Pressable
-                  onPress={onGoogleSignIn}
-                  style={({ pressed }) => [
-                    styles.googleBtn,
-                    pressed && styles.googleBtnPressed,
-                  ]}>
-                  <GoogleIcon />
-                  <Text style={styles.googleLabel}>Continue with Google</Text>
-                </Pressable>
+                  <Pressable
+                    onPress={onGoogleSignIn}
+                    style={({ pressed }) => [
+                      styles.googleBtn,
+                      pressed && styles.googleBtnPressed,
+                    ]}>
+                    <GoogleIcon />
+                    <Text style={styles.googleLabel}>Continue with Google</Text>
+                  </Pressable>
+                  </>
+                )}
               </>
             )}
 
@@ -662,21 +735,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingBottom: 2,
   },
-  kicker: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.vioSoft,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 9,
-    marginBottom: 10,
-  },
-  kickerText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: Colors.vioInk,
-  },
   heading: {
     fontSize: 24,
     fontWeight: '800',
@@ -750,6 +808,36 @@ const styles = StyleSheet.create({
     marginTop: 7,
     lineHeight: 17,
   },
+  // Gold rather than red: this is not the user's mistake, it is a fork in the
+  // road, and red would read as "you did something wrong".
+  dupCard: {
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FBF2DE',
+    borderWidth: 1,
+    borderColor: '#F0DCA8',
+  },
+  dupTitle: { fontSize: 14.5, fontWeight: '700', color: '#7A5709' },
+  dupBody: { fontSize: 13, lineHeight: 19, color: '#8A6A24', marginTop: 4 },
+  dupActions: { flexDirection: 'row', gap: 9, marginTop: 13 },
+  dupBtn: {
+    flex: 1, height: 42, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dupBtnFill: { backgroundColor: '#7A5709' },
+  dupBtnFillText: { fontSize: 13.5, fontWeight: '700', color: '#FFFFFF' },
+  dupBtnGhost: { borderWidth: 1.4, borderColor: '#D8BE7A' },
+  dupBtnGhostText: { fontSize: 13.5, fontWeight: '700', color: '#7A5709' },
+
+  googleError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#A31C48',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+
   errorText: {
     fontSize: 11.5,
     color: '#D9304F',
@@ -880,6 +968,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.ink,
     textAlign: 'center',
+    // iOS counterpart to `elevation`, which Android alone honours.
+    shadowColor: '#3C2878',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
     elevation: 1,
   },
   otpBoxFocused: {

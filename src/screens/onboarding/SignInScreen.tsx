@@ -43,6 +43,7 @@ import Svg, { Path } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GOOGLE_SIGN_IN_ENABLED } from '../../api/config';
 
 // ─── animation constants ──────────────────────────────────────────────────────
 
@@ -174,31 +175,60 @@ function GoogleIcon() {
 
 interface SignInScreenProps {
   onBack?: () => void;
+  /** Pre-fills the address field. */
+  initialEmail?: string;
   /** Called after successful login with tokens already saved */
-  onSignIn?: (email: string, password: string, emailVerified: boolean, role: string) => void;
+  /**
+   * Awaited, so the button keeps its loader until the caller has finished.
+   *
+   * Signing in is not done when `login` resolves: the caller still has to read
+   * /auth/me and, for a completed account, the home state before it knows which
+   * screen to show. Returning void from this left the button idle across those
+   * two round trips — the loader vanished and the app looked hung until Home
+   * appeared.
+   */
+  onSignIn?: (
+    email: string,
+    password: string,
+    emailVerified: boolean,
+    role: string,
+  ) => void | Promise<void>;
   onGoogleSignIn?: () => void;
+  /** Why the last Google attempt failed, if it did. */
+  googleError?: string | null;
   onCreateAccount?: () => void;
+  /**
+   * Opens the recovery flow, carrying whatever they typed so they do not
+   * re-enter it. There was no way out of a forgotten password before this.
+   */
+  onForgotPassword?: (email: string) => void;
   /** When true, shows wali-specific copy and hides seeker-only options */
   isWali?: boolean;
 }
 
 export function SignInScreen({
   onBack,
+  initialEmail,
   onSignIn,
   onGoogleSignIn,
+  googleError,
+  onForgotPassword,
   onCreateAccount,
   isWali = false,
 }: SignInScreenProps) {
   const insets = useSafeAreaInsets();
 
-  const [identifier, setIdentifier] = useState('');
+  // Pre-filled when the user was sent here from a signup that turned out to be
+  // an existing confirmed account — retyping the address they just entered is
+  // busywork.
+  const [identifier, setIdentifier] = useState(initialEmail ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
 
-  const identifierRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
+  const identifierRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
 
   // ── Staggered entrance animations ──────────────────────────────────────────
   const question = useFadeRise(70);
@@ -249,10 +279,15 @@ export function SignInScreen({
       // An unconfirmed address comes back as pending rather than as a session,
       // so the caller can route to verification instead of being refused.
       if (isPendingConfirmation(result)) {
-        onSignIn?.(identifier, password, false, '');
+        await onSignIn?.(identifier, password, false, '');
         return;
       }
-      onSignIn?.(identifier, password, result.user.emailVerified, result.user.role);
+      await onSignIn?.(
+        identifier,
+        password,
+        result.user.emailVerified,
+        result.user.role,
+      );
     } catch (err: any) {
       const msg: string = err?.message ?? 'Invalid credentials. Please try again.';
       setErrors(e => ({ ...e, identifier: msg }));
@@ -301,6 +336,11 @@ export function SignInScreen({
                 />
               </Svg>
             </Pressable>
+{/* Under the button that caused it — most often "enable the Google
+    provider in Supabase", which is actionable. */}
+{!!googleError && (
+  <Text style={styles.googleError}>{googleError}</Text>
+)}
             <View style={styles.progressTrack}>
               <LinearGradient
                 colors={[...GradientColors.primary]}
@@ -313,7 +353,8 @@ export function SignInScreen({
           </View>
 
           {/* ── Heading section ───────────────────────────────────────── */}
-          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}>
+          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>{isWali ? 'Wali sign in' : 'Welcome back'}</Text>
             </View>
@@ -328,7 +369,8 @@ export function SignInScreen({
           </Animated.View>
 
           {/* ── Email / Phone field ───────────────────────────────────── */}
-          <Animated.View style={[styles.fieldWrap, riseStyle(identifierField.anim)]}>
+          <Animated.View style={[styles.fieldWrap, riseStyle(identifierField.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.fieldLabel}>Email or Phone</Text>
             <Pressable
               style={[styles.inputRow, errors.identifier ? styles.inputRowError : null]}
@@ -357,7 +399,8 @@ export function SignInScreen({
           </Animated.View>
 
           {/* ── Password field ────────────────────────────────────────── */}
-          <Animated.View style={[styles.fieldWrap, riseStyle(passwordField.anim)]}>
+          <Animated.View style={[styles.fieldWrap, riseStyle(passwordField.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.fieldLabel}>Password</Text>
             <Pressable
               style={[styles.inputRow, errors.password ? styles.inputRowError : null]}
@@ -384,10 +427,23 @@ export function SignInScreen({
             {errors.password ? (
               <Text style={styles.errorText}>{errors.password}</Text>
             ) : null}
+
+            {/* Directly under the password field, which is where someone looks
+                the moment they realise they cannot remember it. */}
+            {!!onForgotPassword && (
+              <Pressable
+                onPress={() => onForgotPassword(identifier.trim().toLowerCase())}
+                hitSlop={8}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.forgotWrap, pressed && { opacity: 0.6 }]}>
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </Pressable>
+            )}
           </Animated.View>
 
           {/* ── Footer (sign-in + divider + Google + create account) ───── */}
-          <Animated.View style={[styles.footer, riseStyle(footer.anim)]}>
+          <Animated.View style={[styles.footer, riseStyle(footer.anim)]}
+            needsOffscreenAlphaCompositing>
             <GradientButton
               label="Sign in"
               variant={canSubmit ? 'primary' : 'disabled'}
@@ -397,21 +453,29 @@ export function SignInScreen({
 
             {!isWali ? (
               <>
-                <View style={styles.orWrap}>
-                  <View style={styles.orLine} />
-                  <Text style={styles.orText}>or</Text>
-                  <View style={styles.orLine} />
-                </View>
+                {/* Hidden while Google sign-in has no client half — see
+                    GOOGLE_SIGN_IN_ENABLED. Showing a button that can only fail is
+                    worse than not offering the method. The divider is inside the
+                    gate too, or a lone "or" is left dangling. */}
+                {GOOGLE_SIGN_IN_ENABLED && (
+                  <>
+                  <View style={styles.orWrap}>
+                    <View style={styles.orLine} />
+                    <Text style={styles.orText}>or</Text>
+                    <View style={styles.orLine} />
+                  </View>
 
-                <Pressable
-                  onPress={onGoogleSignIn}
-                  style={({ pressed }) => [
-                    styles.googleBtn,
-                    pressed && styles.googleBtnPressed,
-                  ]}>
-                  <GoogleIcon />
-                  <Text style={styles.googleLabel}>Continue with Google</Text>
-                </Pressable>
+                  <Pressable
+                    onPress={onGoogleSignIn}
+                    style={({ pressed }) => [
+                      styles.googleBtn,
+                      pressed && styles.googleBtnPressed,
+                    ]}>
+                    <GoogleIcon />
+                    <Text style={styles.googleLabel}>Continue with Google</Text>
+                  </Pressable>
+                  </>
+                )}
 
                 <TouchableOpacity
                   onPress={onCreateAccount}
@@ -563,6 +627,17 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     backgroundColor: 'transparent',
   },
+  forgotWrap: { alignSelf: 'flex-end', paddingVertical: 9, paddingHorizontal: 2 },
+  forgotText: { fontSize: 13, fontWeight: '700', color: Colors.vioD },
+
+  googleError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#A31C48',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+
   errorText: {
     fontSize: 11.5,
     color: '#D9304F',

@@ -290,3 +290,50 @@ export async function login(
   await saveTokens(result.session.accessToken, result.session.refreshToken);
   return result;
 }
+
+// ─── password recovery ────────────────────────────────────────────────────────
+//
+// Two routes to the same outcome, because the app collects both a phone and an
+// email at signup and a user may have lost access to either.
+//
+//   email  →  forgotPassword()        sends a Supabase recovery OTP
+//             resetPassword()         verifies it and sets the password
+//   phone  →  sendOtp()               reuses the signup SMS OTP
+//             resetPasswordByPhone()  verifies it and sets the password
+
+/** Sends a recovery code to the address, if an account has it. */
+export async function forgotPassword(email: string): Promise<void> {
+  await apiRequest<void>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Completes the email route. Throws on a wrong or expired code. */
+export async function resetPassword(
+  email: string,
+  otp: string,
+  newPassword: string,
+): Promise<void> {
+  await apiRequest<void>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, otp, newPassword }),
+  });
+}
+
+/**
+ * Completes the phone route.
+ *
+ * The code comes from `sendOtp`, the same one signup uses — there is no
+ * separate "recovery" SMS, so the send step is shared.
+ */
+export async function resetPasswordByPhone(
+  phone: string,
+  otp: string,
+  newPassword: string,
+): Promise<void> {
+  await apiRequest<void>('/auth/reset-password-phone', {
+    method: 'POST',
+    body: JSON.stringify({ phone, otp, newPassword }),
+  });
+}

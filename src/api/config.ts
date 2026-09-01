@@ -46,3 +46,16 @@ export function resolvePhotoUrl(url: string | null | undefined): string | null {
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   return `${MEDIA_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 }
+
+/**
+ * Whether to offer "Continue with Google".
+ *
+ * On: the flow runs through Supabase's own OAuth (see lib/googleAuth), so the
+ * app needs no Google SDK and holds no client IDs.
+ *
+ * It still depends on one-time Supabase dashboard setup — the Google provider
+ * enabled with a Google Cloud client ID/secret, and `mehram://auth-callback`
+ * allow-listed as a redirect URL. Until that is done the button surfaces the
+ * provider error rather than failing silently.
+ */
+export const GOOGLE_SIGN_IN_ENABLED = true;
