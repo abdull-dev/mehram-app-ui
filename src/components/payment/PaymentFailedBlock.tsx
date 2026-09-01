@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── hero gradient (same calm indigo as VerificationBlock) ────────────────────
 const HERO_GRADIENT = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -86,11 +87,14 @@ export function PaymentFailedBlock({ onRetry, onChangeMethod, userName = '' }: P
         ) : null}
 
         {/* ── Hero card ─────────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.heroCard}>
+          <LinearGradient
           colors={[...HERO_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           {/* Rose status dot + label */}
           <View style={styles.heroChip}>
@@ -107,7 +111,7 @@ export function PaymentFailedBlock({ onRetry, onChangeMethod, userName = '' }: P
           <Text style={styles.heroPara}>
             No money was taken. Your introductions are ready as soon as it clears.
           </Text>
-        </LinearGradient>
+        </View>
 
         {/* ── Mint banner ───────────────────────────────────────────── */}
         <View style={styles.mintBanner}>
@@ -180,7 +184,10 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   heroChip: {
     flexDirection: 'row',

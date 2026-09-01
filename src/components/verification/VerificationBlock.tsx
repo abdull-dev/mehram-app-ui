@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── hero gradient ────────────────────────────────────────────────────────────
 const HERO_GRADIENT = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -103,11 +104,14 @@ export function VerificationBlock({
         )}
 
         {/* ── Hero card ─────────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.heroCard}>
+          <LinearGradient
           colors={[...HERO_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           {/* Rose oval pill + label */}
           <View style={styles.heroChip}>
@@ -131,15 +135,18 @@ export function VerificationBlock({
               ? "Don't worry — it happens. Make sure your face is clearly lit and centred in the frame."
               : 'Everything else is ready. This is the only step between you and your introductions.'}
           </Text>
-        </LinearGradient>
+        </View>
 
         {/* ── Banner ────────────────────────────────────────────────── */}
         {isFace ? (
-          <LinearGradient
+          <View style={styles.banner}>
+            <LinearGradient
             colors={['#FDF5E6', '#FBEFD8']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.banner}>
+            style={GRADIENT_FILL}
+            pointerEvents="none"
+          />
             <View style={[styles.bannerCircle, { borderColor: Colors.goldInk }]}>
               <Text style={[styles.bannerCircleText, { color: Colors.goldInk }]}>!</Text>
             </View>
@@ -151,13 +158,16 @@ export function VerificationBlock({
                 After that, a member of our team will review it by hand.
               </Text>
             </View>
-          </LinearGradient>
+          </View>
         ) : (
-          <LinearGradient
+          <View style={styles.banner}>
+            <LinearGradient
             colors={['#E9FBF3', '#DFF6EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.banner}>
+            style={GRADIENT_FILL}
+            pointerEvents="none"
+          />
             <View style={[styles.bannerCircle, { borderColor: Colors.mintInk }]}>
               <Text style={[styles.bannerCircleText, { color: Colors.mintInk }]}>!</Text>
             </View>
@@ -169,7 +179,7 @@ export function VerificationBlock({
                 This is the only thing between you and your introductions.
               </Text>
             </View>
-          </LinearGradient>
+          </View>
         )}
 
         {/* ── White card ────────────────────────────────────────────── */}
@@ -255,7 +265,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 12,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   heroChip: {
     flexDirection: 'row',
@@ -302,7 +315,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   bannerCircle: {
     width: 22,

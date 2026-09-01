@@ -67,7 +67,7 @@ export function WaliCodeEntryScreen({
 }: WaliCodeEntryScreenProps) {
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const isReady = code.length === CODE_LENGTH && !loading;
 
   function handleChange(text: string) {
@@ -250,8 +250,13 @@ const styles = StyleSheet.create({
   otpBoxFocused: {
     borderColor: Colors.vio,
     shadowColor: Colors.vio,
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.16,
     shadowRadius: 10,
+    // Android ignores shadow* entirely, so the focus glow existed only on iOS.
+    // `elevation` is the Android equivalent, matching AccountVerificationScreen's
+    // focused OTP box.
+    elevation: 3,
   },
   otpChar: {
     fontSize: 22,

@@ -18,6 +18,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 const DUAS = [
   {
@@ -47,11 +48,14 @@ export function DailyDuaCard({ index = 0 }: DailyDuaCardProps) {
   const dua = DUAS[index % DUAS.length];
 
   return (
-    <LinearGradient
+    <View style={styles.card}>
+      <LinearGradient
       colors={['#3E3776', '#2B2653']}
       start={{ x: 0, y: 0 }}
       end={{ x: 0.3, y: 1 }}
-      style={styles.card}>
+      style={GRADIENT_FILL}
+      pointerEvents="none"
+    />
       {/* Label row */}
       <View style={styles.labelRow}>
         <View style={styles.labelDot} />
@@ -63,7 +67,7 @@ export function DailyDuaCard({ index = 0 }: DailyDuaCardProps) {
 
       {/* Source */}
       <Text style={styles.source}>{dua.source}</Text>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -74,7 +78,10 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     padding: 20,
     marginBottom: 12,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',

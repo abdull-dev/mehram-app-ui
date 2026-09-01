@@ -49,6 +49,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -264,17 +265,20 @@ function InfoBanner({
   body: string;
 }) {
   return (
-    <LinearGradient
+    <View style={styles.banner}>
+      <LinearGradient
       colors={['#F3EEFE', '#EBE3FD']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={styles.banner}>
+      style={GRADIENT_FILL}
+      pointerEvents="none"
+    />
       <View style={styles.bannerIcon}>{icon}</View>
       <View style={styles.bannerText}>
         <Text style={styles.bannerTitle}>{title}</Text>
         <Text style={styles.bannerBody}>{body}</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -331,13 +335,22 @@ export function WhoIsForScreen({ onBack, onContinue }: WhoIsForScreenProps) {
         <View style={styles.body}>
 
           {/* Heading */}
-          <Animated.View style={[styles.question, riseStyle(question.anim)]}>
+          <Animated.View
+            style={[styles.question, riseStyle(question.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.heading}>Create account as</Text>
             <Text style={styles.subheading}>Choose how you'll use Mehram.</Text>
           </Animated.View>
 
-          {/* Selection cards */}
-          <Animated.View style={[styles.cardsField, riseStyle(cards.anim)]}>
+          {/* Selection cards.
+              `needsOffscreenAlphaCompositing`: Android applies an animated
+              parent's opacity to each descendant separately unless the subtree
+              is flattened first. These cards have a translucent background, so
+              mid-fade it composited twice where the text sits and drew a pale
+              box over it. */}
+          <Animated.View
+            style={[styles.cardsField, riseStyle(cards.anim)]}
+            needsOffscreenAlphaCompositing>
             <SelectionCard
               selected={selection === 'self'}
               onPress={() => setSelection('self')}
@@ -355,7 +368,9 @@ export function WhoIsForScreen({ onBack, onContinue }: WhoIsForScreenProps) {
           </Animated.View>
 
           {/* Info banner */}
-          <Animated.View style={riseStyle(banner.anim)}>
+          <Animated.View
+            style={riseStyle(banner.anim)}
+            needsOffscreenAlphaCompositing>
             <InfoBanner
               icon={<ShieldIcon />}
               title="A wali needs an invitation"
@@ -546,7 +561,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 18,
     marginTop: 12,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   bannerIcon: {
     marginTop: 1,

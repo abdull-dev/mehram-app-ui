@@ -46,6 +46,7 @@ import Svg, { Path, Polyline, Circle } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
 import { DailyDuaCard } from '../ui/DailyDuaCard';
 import { WhileYouWaitCard } from '../ui/WhileYouWaitCard';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── gradients ────────────────────────────────────────────────────────────────
 const HERO_GRADIENT   = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -256,8 +257,6 @@ function formatTimeAgo(date: Date): string {
 interface UnderReviewUnpaidBlockProps {
   /** Primary CTA — navigate to payment screen */
   onBecomeAMember?: () => void;
-  /** Optional: confirm wali tap */
-  onConfirmWali?: () => void;
   /** Optional: improve biodata tap */
   onImproveBiodata?: () => void;
   /** Optional: review preferences tap */
@@ -269,7 +268,6 @@ interface UnderReviewUnpaidBlockProps {
 
 export function UnderReviewUnpaidBlock({
   onBecomeAMember,
-  onConfirmWali,
   onImproveBiodata,
   onReviewPreferences,
   userName = '',
@@ -301,11 +299,14 @@ export function UnderReviewUnpaidBlock({
         ) : null}
 
         {/* ── Hero card ─────────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.heroCard}>
+          <LinearGradient
           colors={[...HERO_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           {/* Amber pulse dot + label */}
           <View style={styles.heroTop}>
@@ -332,14 +333,17 @@ export function UnderReviewUnpaidBlock({
               <Text style={styles.statLabel}>You submitted</Text>
             </View>
           </View>
-        </LinearGradient>
+        </View>
 
         {/* ── Membership / Payment card ──────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.payCard}>
+          <LinearGradient
           colors={[...PAY_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.8, y: 1 }}
-          style={styles.payCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           <Text style={styles.payLabel}>Membership</Text>
 
@@ -380,12 +384,11 @@ export function UnderReviewUnpaidBlock({
               If verification doesn't pass, you're refunded in full, automatically. No introduction in 90 days, also refunded.
             </Text>
           </View>
-        </LinearGradient>
+        </View>
 
         {/* ── While you wait checklist ──────────────────────────────── */}
         <WhileYouWaitCard
           doneCount={2}
-          onConfirmWali={onConfirmWali}
           onImproveBiodata={onImproveBiodata}
           onReviewPreferences={onReviewPreferences}
         />
@@ -418,7 +421,10 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   heroTop: {
     flexDirection: 'row',
@@ -500,7 +506,10 @@ const styles = StyleSheet.create({
   payCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   payLabel: {
     fontSize: 10.5,

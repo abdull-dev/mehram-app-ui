@@ -44,8 +44,10 @@ import Svg, { Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 import { getMyProfile } from '../../api/profile';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -124,14 +126,16 @@ function AlertIcon() {
 interface GuidedPromptScreenProps {
   /** Called when the user taps the back arrow */
   onBack?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   /** Called when the user taps "Save" (top-right) */
   onSave?: () => void;
   /** Called when the user taps "Next question" — passes the entered text */
   onNext?: (text: string) => void;
-  /** Which prompt question this is (1-indexed) */
-  questionIndex?: number;
-  /** Total number of prompt questions in this section */
-  totalQuestions?: number;
   /** Overall onboarding progress, 0–1 (displayed in the progress bar) */
   progress?: number;
   continueLoading?: boolean;
@@ -139,10 +143,10 @@ interface GuidedPromptScreenProps {
 
 export function GuidedPromptScreen({
   onBack,
+  onClose,
+  onLogout,
   onSave,
   onNext,
-  questionIndex = 1,
-  totalQuestions = 3,
   progress = 0.72,
   continueLoading,
 }: GuidedPromptScreenProps) {
@@ -203,7 +207,7 @@ export function GuidedPromptScreen({
           {/* Back button */}
           {/* Omitted when there is nothing behind this screen: entering the
               flow straight from Home makes this its first step. */}
-          {onBack ? (
+          {!!onBack && !onClose && !onLogout && (
             <Pressable
               onPress={onBack}
               style={({ pressed }) => [
@@ -212,8 +216,6 @@ export function GuidedPromptScreen({
               ]}>
               <ChevronLeft />
             </Pressable>
-          ) : (
-            <View style={styles.back} />
           )}
 
           {/* Progress bar track */}
@@ -227,19 +229,24 @@ export function GuidedPromptScreen({
             />
           </View>
 
-          {/* Save link */}
-          <Pressable
-            onPress={onSave}
-            style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-            <Text style={styles.saveText}>Save</Text>
-          </Pressable>
+          {/* The exit when there is one, otherwise the Save link. */}
+          {onClose || onLogout ? (
+            <OnboardingExit onClose={onClose} onLogout={onLogout} />
+          ) : (
+            <Pressable
+              onPress={onSave}
+              style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+              <Text style={styles.saveText}>Save</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Body ────────────────────────────────────────────────────── */}
         <View style={styles.body}>
 
           {/* Q header block (.q) — d1 */}
-          <Animated.View style={[styles.qBlock, riseStyle(header.anim)]}>
+          <Animated.View style={[styles.qBlock, riseStyle(header.anim)]}
+            needsOffscreenAlphaCompositing>
             {/* Section pill (.qk) */}
             <View style={styles.sectionPill}>
               <Text style={styles.sectionPillText}>In your words</Text>
@@ -257,7 +264,8 @@ export function GuidedPromptScreen({
           </Animated.View>
 
           {/* Text input field — d2 */}
-          <Animated.View style={[styles.fieldWrap, riseStyle(field.anim)]}>
+          <Animated.View style={[styles.fieldWrap, riseStyle(field.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={[styles.inp, focused && styles.inpFocused]}>
               <TextInput
                 style={styles.textInput}
@@ -272,14 +280,16 @@ export function GuidedPromptScreen({
                 scrollEnabled={false}
               />
             </View>
+            {/* Character count only. The "question N of M" half was a step
+                counter, and the progress bar above already carries position. */}
             <Text style={styles.fhint}>
-              {charCount} / {MIN_CHARS} characters
-              {meetsMin ? ` · question ${questionIndex} of ${totalQuestions}` : ` minimum`}
+              {charCount} / {MIN_CHARS} characters{meetsMin ? '' : ' minimum'}
             </Text>
           </Animated.View>
 
           {/* "Show me an example" chip — d3 */}
-          <Animated.View style={[styles.chipWrap, riseStyle(chip.anim)]}>
+          <Animated.View style={[styles.chipWrap, riseStyle(chip.anim)]}
+            needsOffscreenAlphaCompositing>
             <Pressable
               onPress={() => setText(EXAMPLE_TEXT)}
               style={({ pressed }) => [
@@ -291,11 +301,14 @@ export function GuidedPromptScreen({
           </Animated.View>
 
           {/* Gold warning banner (.bn-gold) */}
-          <LinearGradient
+          <View style={styles.banner}>
+            <LinearGradient
             colors={['#FDF5E6', '#FBEFD8']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.banner}>
+            style={GRADIENT_FILL}
+            pointerEvents="none"
+          />
             <View style={styles.bannerIconWrap}>
               <AlertIcon />
             </View>
@@ -305,7 +318,7 @@ export function GuidedPromptScreen({
                 Employer names, numbers and social handles are removed automatically.
               </Text>
             </View>
-          </LinearGradient>
+          </View>
         </View>
 
         {/* ── Footer (.foot) ──────────────────────────────────────────── */}
@@ -347,6 +360,9 @@ const styles = StyleSheet.create({
   },
 
   // Back button (.back)
+  // Holds the back button's place when there is none, so the progress bar
+  // sits identically either way. Size only — it reused `back` before, which
+  // carries the white pill and shadow, so the gap rendered as a blank button.
   back: {
     width: 38,
     height: 38,
@@ -519,7 +535,10 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: 'flex-start',
     flexShrink: 0,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   bannerIconWrap: {
     flexShrink: 0,

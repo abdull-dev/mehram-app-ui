@@ -41,7 +41,9 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { VerificationBlock } from '../../components/verification/VerificationBlock';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -191,11 +193,14 @@ function Banner({ tone, icon, title, body }: BannerProps) {
   const bodyColor = tone === 'gold' ? '#8A6410' : '#2A7A5E';
 
   return (
-    <LinearGradient
+    <View style={styles.banner}>
+      <LinearGradient
       colors={gradColors}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={styles.banner}>
+      style={GRADIENT_FILL}
+      pointerEvents="none"
+    />
       <View style={styles.bannerIcon}>
         {icon === 'shield' ? <ShieldIcon color={iconColor} /> : <LockIcon color={iconColor} />}
       </View>
@@ -203,7 +208,7 @@ function Banner({ tone, icon, title, body }: BannerProps) {
         <Text style={[styles.bannerTitle, { color: titleColor }]}>{title}</Text>
         <Text style={[styles.bannerBody, { color: bodyColor }]}>{body}</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -221,6 +226,12 @@ interface VerificationScreenProps {
   faceAttemptsLeft?: number;
   /** Back chevron */
   onBack?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   /** Tap "Scan my face" */
   onScanFace?: () => void;
   /** Tap the CNIC step row */
@@ -242,6 +253,8 @@ export function VerificationScreen({
   cnicFailed = false,
   faceAttemptsLeft = 2,
   onBack,
+  onClose,
+  onLogout,
   onScanFace,
   onAddId,
   onContinue,
@@ -360,7 +373,7 @@ export function VerificationScreen({
           {/* Omitted when there is no handler: opened from the home screen this
               is the first screen of its own trip, and the step behind it in the
               onboarding order is one the user already finished. */}
-          {onBack ? (
+          {!!onBack && !onClose && !onLogout && (
             <Pressable
               onPress={onBack}
               style={({ pressed }) => [
@@ -369,8 +382,6 @@ export function VerificationScreen({
               ]}>
               <BackIcon />
             </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
           )}
 
           {/* Progress bar — 95% (.prg) */}
@@ -383,6 +394,7 @@ export function VerificationScreen({
               style={styles.progressFill}
             />
           </View>
+          <OnboardingExit onClose={onClose} onLogout={onLogout} />
         </View>
 
         {/* ── Body (.body) ─────────────────────────────────────────── */}
@@ -393,7 +405,8 @@ export function VerificationScreen({
           keyboardShouldPersistTaps="handled">
 
           {/* Question section (.q .an.d1) */}
-          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}>
+          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>Verification</Text>
             </View>
@@ -401,7 +414,8 @@ export function VerificationScreen({
           </Animated.View>
 
           {/* Step list (.an.d2) */}
-          <Animated.View style={[styles.stepList, riseStyle(steps.anim)]}>
+          <Animated.View style={[styles.stepList, riseStyle(steps.anim)]}
+            needsOffscreenAlphaCompositing>
             {/* Step 1 — phone, always verified */}
             <StepRow
               state="done"
@@ -432,7 +446,8 @@ export function VerificationScreen({
           </Animated.View>
 
           {/* Info banner — gold (.bn.bn-gold .an.d3) */}
-          <Animated.View style={riseStyle(bannerGold.anim)}>
+          <Animated.View style={riseStyle(bannerGold.anim)}
+            needsOffscreenAlphaCompositing>
             <Banner
               tone="gold"
               icon="shield"
@@ -442,7 +457,8 @@ export function VerificationScreen({
           </Animated.View>
 
           {/* Info banner — mint (.bn.bn-mint .an.d4) */}
-          <Animated.View style={riseStyle(bannerMint.anim)}>
+          <Animated.View style={riseStyle(bannerMint.anim)}
+            needsOffscreenAlphaCompositing>
             <Banner
               tone="mint"
               icon="lock"
@@ -499,7 +515,6 @@ const styles = StyleSheet.create({
   // Holds the back button's place in the row when there is nothing behind this
   // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
   // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,
@@ -651,7 +666,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
     flexShrink: 0,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
   bannerIcon: {
     flexShrink: 0,
     marginTop: 1,

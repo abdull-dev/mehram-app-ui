@@ -42,11 +42,29 @@ function PeopleIcon() {
   );
 }
 
-const RELATIONSHIP_OPTIONS = ['Father', 'Brother', 'Uncle', 'Grandfather', 'Other'] as const;
+/**
+ * Both genders, paired so the list reads as pairs rather than as men with
+ * women appended. A guardian can be a mother or a sister — the server's
+ * `WaliKinship` enum has carried MOTHER and SISTER all along — but the picker
+ * offered only male options, so every woman here had to pick "Other".
+ */
+const RELATIONSHIP_OPTIONS = [
+  'Father', 'Mother',
+  'Brother', 'Sister',
+  'Uncle', 'Aunt',
+  'Grandfather', 'Grandmother',
+  'Other',
+] as const;
 type Relationship = (typeof RELATIONSHIP_OPTIONS)[number];
 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface WaliDetailsScreenProps {
+  /**
+   * The ward's name, from `GET /wali/me`. Absent when the ward has not set a
+   * real name yet, in which case every line here is worded without one — this
+   * used to default to "Sana", so a guardian was told they were guarding
+   * someone with that name.
+   */
   dependentName?: string;
   onContinue?: (name: string, relationship: string) => void;
   onBack?: () => void;
@@ -58,7 +76,7 @@ interface WaliDetailsScreenProps {
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliDetailsScreen({
-  dependentName = 'Sana',
+  dependentName,
   onContinue,
   onBack,
   saving = false,
@@ -68,6 +86,13 @@ export function WaliDetailsScreen({
   const [name, setName] = useState('');
   const [relationship, setRelationship] = useState<Relationship | null>(null);
   const [nameFocused, setNameFocused] = useState(false);
+
+  // Each line works with the name or without it, rather than substituting a
+  // stand-in name for one we do not have.
+  const ward = dependentName?.trim() || null;
+  const wardSubject = ward ?? 'They';
+  const wardObject = ward ?? 'them';
+  const wardPossessive = ward ? `${ward}'s` : 'their';
 
   const canContinue = name.trim().length > 0 && relationship !== null && !saving;
 
@@ -101,7 +126,7 @@ export function WaliDetailsScreen({
           </View>
           <Text style={styles.heading}>A little{'\n'}about you</Text>
           <Text style={styles.subheading}>
-            {dependentName} will see your name and relationship. Nothing else.
+            {wardSubject} will see your name and relationship. Nothing else.
           </Text>
         </View>
 
@@ -125,7 +150,7 @@ export function WaliDetailsScreen({
 
         {/* Relationship chips */}
         <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Your relationship to {dependentName}</Text>
+          <Text style={styles.fieldLabel}>Your relationship to {wardObject}</Text>
           <View style={styles.chipWrap}>
             {RELATIONSHIP_OPTIONS.map(rel => {
               const active = relationship === rel;
@@ -157,7 +182,7 @@ export function WaliDetailsScreen({
           <View style={{ flex: 1 }}>
             <Text style={styles.bannerTitle}>Families on the other side see this too</Text>
             <Text style={styles.bannerBody}>
-              When you approve a proposal, they see that {dependentName}'s{' '}
+              When you approve a proposal, they see that {wardPossessive}{' '}
               {relationship?.toLowerCase() ?? 'wali'} reviewed it. That is what builds their confidence.
             </Text>
           </View>
@@ -285,8 +310,13 @@ const styles = StyleSheet.create({
   inputFocused: {
     borderColor: Colors.vio,
     shadowColor: Colors.vio,
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.16,
     shadowRadius: 10,
+    // Android ignores shadow* entirely, so the focus glow existed only on iOS.
+    // `elevation` is the Android equivalent, matching AccountVerificationScreen's
+    // focused OTP box.
+    elevation: 3,
   },
   input: {
     fontSize: 15,

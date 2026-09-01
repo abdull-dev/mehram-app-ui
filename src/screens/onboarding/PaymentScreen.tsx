@@ -40,7 +40,9 @@ import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Polyline, Rect } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -105,6 +107,12 @@ function LockIcon({ color }: { color: string }) {
 interface PaymentScreenProps {
   /** Called when user taps the back chevron */
   onBack?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   /** Called when user taps "Become a member" */
   onPay?: () => void;
   /** Called when user taps "Skip" */
@@ -115,7 +123,7 @@ interface PaymentScreenProps {
   paying?: boolean;
 }
 
-export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = false }: PaymentScreenProps) {
+export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhatDoIGet, paying = false }: PaymentScreenProps) {
   const insets = useSafeAreaInsets();
 
   // Staggered entrance: d1, d2, d3, d4
@@ -161,7 +169,7 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
         <View style={styles.navbar}>
           {/* Omitted when there is nothing behind this screen: entering the
               flow straight from Home makes this its first step. */}
-          {onBack ? (
+          {!!onBack && !onClose && !onLogout && (
             <Pressable
               onPress={onBack}
               style={({ pressed }) => [
@@ -170,17 +178,20 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
               ]}>
               <ChevronLeft />
             </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
           )}
 
           <View style={styles.navSpacer} />
 
-          <Pressable
-            onPress={onSkip}
-            style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
+          {/* The exit when there is one, otherwise Skip. */}
+          {onClose || onLogout ? (
+            <OnboardingExit onClose={onClose} onLogout={onLogout} />
+          ) : (
+            <Pressable
+              onPress={onSkip}
+              style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+              <Text style={styles.skipText}>Skip</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Scrollable body ─────────────────────────────────────── */}
@@ -190,7 +201,8 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
           showsVerticalScrollIndicator={false}>
 
           {/* Question section (.q .an d1) */}
-          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}>
+          <Animated.View style={[styles.qSection, riseStyle(question.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>Last step</Text>
             </View>
@@ -202,20 +214,25 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
           </Animated.View>
 
           {/* Price block (.price .an.d2) — dark gradient card */}
-          <Animated.View style={riseStyle(price.anim)}>
-            <LinearGradient
+          <Animated.View style={riseStyle(price.anim)}
+            needsOffscreenAlphaCompositing>
+            <View style={styles.priceCard}>
+              <LinearGradient
               colors={[...GradientColors.vertDark]}
               locations={[0, 0.6, 1]}
               start={{ x: 0.1, y: 0 }}
               end={{ x: 0.4, y: 1 }}
-              style={styles.priceCard}>
+              style={GRADIENT_FILL}
+              pointerEvents="none"
+            />
               <Text style={styles.priceAmount}>PKR 4,500</Text>
               <Text style={styles.priceLabel}>One payment. No renewal, ever.</Text>
-            </LinearGradient>
+            </View>
           </Animated.View>
 
           {/* Benefit banner 1 — mint / refund (.bn.bn-mint.an.d3) */}
-          <Animated.View style={[styles.banner, styles.bannerMint, riseStyle(banner1.anim)]}>
+          <Animated.View style={[styles.banner, styles.bannerMint, riseStyle(banner1.anim)]}
+            needsOffscreenAlphaCompositing>
             <ShieldIcon color={Colors.mintInk} />
             <View style={styles.bannerText}>
               <Text style={[styles.bannerHeading, styles.bannerHeadingMint]}>
@@ -229,7 +246,8 @@ export function PaymentScreen({ onBack, onPay, onSkip, onWhatDoIGet, paying = fa
           </Animated.View>
 
           {/* Benefit banner 2 — indigo / privacy (.bn.bn-ind.an.d4) */}
-          <Animated.View style={[styles.banner, styles.bannerInd, riseStyle(banner2.anim)]}>
+          <Animated.View style={[styles.banner, styles.bannerInd, riseStyle(banner2.anim)]}
+            needsOffscreenAlphaCompositing>
             <LockIcon color={Colors.vioInk} />
             <View style={styles.bannerText}>
               <Text style={[styles.bannerHeading, styles.bannerHeadingInd]}>
@@ -285,7 +303,6 @@ const styles = StyleSheet.create({
   // Holds the back button's place in the row when there is nothing behind this
   // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
   // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

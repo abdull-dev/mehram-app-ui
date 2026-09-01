@@ -31,6 +31,7 @@ import type {
   ProfileCompletion,
   ProfileSectionKey,
 } from '../../api/profile';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── hero gradient (calm indigo — waiting / blocked) ──────────────────────────
 const HERO_GRAD = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -72,9 +73,16 @@ const SERVER_SECTIONS: Array<{
   required: boolean;
   screen: string;
 }> = [
+  // Listed in the order onboarding itself asks for them, so someone returning
+  // to finish sees the same sequence they saw the first time. Location is first
+  // because F6/F7 run before F8 — it used to sit third, which made the card
+  // disagree with the flow behind it.
+  //
+  // It points at F6, not F7: the country is chosen first, and the city list has
+  // no country to page through until it is.
+  { key: 'location',    label: 'Your location',       required: true,  screen: 'F6'  },
   { key: 'basicInfo',   label: 'Basic identity',      required: true,  screen: 'F8'  },
   { key: 'religious',   label: 'Faith & practice',    required: true,  screen: 'F8'  },
-  { key: 'location',    label: 'Your location',       required: true,  screen: 'F7'  },
   { key: 'family',      label: 'Family & home',       required: false, screen: 'F11' },
   { key: 'prompts',     label: 'Your story',          required: false, screen: 'F12' },
   { key: 'preferences', label: 'Partner preferences', required: true,  screen: 'F13' },
@@ -225,11 +233,14 @@ export function ProfileIncompleteBlock({
         ) : null}
 
         {/* ── Hero ──────────────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.hero}>
+          <LinearGradient
           colors={[...HERO_GRAD]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.hero}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           {/* amber dot + label */}
           <View style={styles.htop}>
@@ -247,7 +258,7 @@ export function ProfileIncompleteBlock({
             <View style={[styles.hbarFill, { width: `${pct}%` as any }]} />
           </View>
           <Text style={styles.hnote}>{doneCount} of {total} sections complete</Text>
-        </LinearGradient>
+        </View>
 
         {/* ── Steps card ────────────────────────────────────────────── */}
         <View style={styles.stepsCard}>
@@ -280,11 +291,6 @@ export function ProfileIncompleteBlock({
                   ]}>
                     {step.label}
                   </Text>
-                  <View style={[styles.badge, step.required ? styles.badgeReq : styles.badgeOpt]}>
-                    <Text style={[styles.badgeText, step.required ? styles.badgeTextReq : styles.badgeTextOpt]}>
-                      {step.required ? 'Required' : 'Optional'}
-                    </Text>
-                  </View>
                 </View>
                 {step.status === 'next' && (
                   <Text style={styles.sts}>Next section</Text>
@@ -327,7 +333,13 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, gap: 14 },
 
   // ── Hero — .hero.wait{border-radius:26px;padding:19px} ───────────────────────
-  hero: { borderRadius: 26, padding: 19 },
+  hero: {
+    borderRadius: 26,
+    padding: 19,
+    // Clips the background gradient to the rounded corners. The View itself is
+    // sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   // .htop{gap:9px;margin-bottom:9px}
   htop: {
@@ -446,16 +458,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
-  badge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeReq: { backgroundColor: 'rgba(230,57,110,0.10)' },
-  badgeOpt: { backgroundColor: 'rgba(150,149,165,0.12)' },
-  badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
-  badgeTextReq: { color: '#E6396E' },
-  badgeTextOpt: { color: '#9695A5' },
 
   stt: {
     fontSize: 16,

@@ -20,6 +20,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Keyboard,
@@ -132,7 +133,15 @@ interface Props {
    * reopening the signup form: the account already exists by now, so sending
    * the user back to a form that would create one is the wrong shape.
    */
-  onSaveContact?: (next: { email: string; phone: string }) => Promise<void>;
+  /**
+   * Save the one contact detail being corrected.
+   *
+   * Only the edited field is sent. Passing both meant an email edit also carried
+   * the phone, and an account with no number yet sent `phone: ''` — which the
+   * endpoint validates as a malformed number, so correcting an email failed with
+   * "phone must be in E.164 format".
+   */
+  onSaveContact?: (next: { email?: string; phone?: string }) => Promise<void>;
   /**
    * This number was already confirmed earlier in the session — the user left to
    * fix their email and came back. The server keys phone verification on the
@@ -167,7 +176,7 @@ interface Props {
    * this screen is reached, so there is nothing to go "back" to — leaving means
    * abandoning a real session, which is a different action from navigation.
    */
-  onLogout?: () => void;
+  onLogout?: () => void | Promise<void>;
 }
 
 /**
@@ -207,6 +216,25 @@ export function AccountVerificationScreen({
   onLogout,
 }: Props) {
   const insets = useSafeAreaInsets();
+
+  /**
+   * Signing out hits the network and then unwinds a screenful of parent state,
+   * so the tap is not instant. Without this the button just sits there looking
+   * ignored, and a second tap fires a second logout.
+   */
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    if (!onLogout || loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      // The parent normally navigates away and this screen unmounts, but if the
+      // sign-out failed we are still here and the button has to work again.
+      setLoggingOut(false);
+    }
+  };
 
   // ── phone verification state ───────────────────────────────────────────────
   const [phoneExpanded, setPhoneExpanded]   = useState(false);
@@ -296,10 +324,9 @@ export function AccountVerificationScreen({
     setSavingContact(true);
     setContactError(null);
     try {
-      await onSaveContact?.({
-        email: editingField === 'email' ? value : email,
-        phone: editingField === 'phone' ? value : phone,
-      });
+      await onSaveContact?.(
+        editingField === 'email' ? { email: value } : { phone: value },
+      );
       // Whatever was changed is no longer proven, so its code boxes and any
       // running resend timer are cleared rather than left pointing at the old
       // value.
@@ -917,20 +944,26 @@ export function AccountVerificationScreen({
           </View>
           {!!onLogout && (
             <Pressable
-              onPress={onLogout}
+              onPress={handleLogout}
+              disabled={loggingOut}
               hitSlop={10}
               style={({ pressed }) => [s.logoutBtn, pressed && s.logoutBtnPressed]}>
-              <Text style={s.logoutLabel}>Log out</Text>
+              <Text style={[s.logoutLabel, loggingOut && s.logoutLabelHidden]}>
+                Log out
+              </Text>
+              {loggingOut && (
+                <View style={s.logoutSpinner} pointerEvents="none">
+                  <ActivityIndicator size="small" color={Colors.ink3} />
+                </View>
+              )}
             </Pressable>
           )}
         </View>
 
         {/* Body */}
         <View style={s.body}>
-          <Animated.View style={[s.q, riseStyle(aHead)]}>
-            <View style={s.kickerWrap}>
-              <Text style={s.kicker}>Step 2 of 5</Text>
-            </View>
+          <Animated.View style={[s.q, riseStyle(aHead)]}
+            needsOffscreenAlphaCompositing>
             <Text style={s.heading}>Verify your{'\n'}accounts</Text>
             <Text style={s.subtitle}>
               Tap Verify next to each item below to confirm ownership.
@@ -942,7 +975,8 @@ export function AccountVerificationScreen({
               nothing for that button to send a code to. Progress does not depend
               on it: Continue is gated on the email only. */}
           {!!phoneNumber && (
-            <Animated.View style={[s.card, riseStyle(aPhone)]}>
+            <Animated.View style={[s.card, riseStyle(aPhone)]}
+              needsOffscreenAlphaCompositing>
               <Text style={s.cardLabel}>Mobile number</Text>
 
               {editingField !== 'phone' && renderPhoneRow()}
@@ -961,7 +995,8 @@ export function AccountVerificationScreen({
           )}
 
           {/* Email card */}
-          <Animated.View style={[s.card, riseStyle(aEmail)]}>
+          <Animated.View style={[s.card, riseStyle(aEmail)]}
+            needsOffscreenAlphaCompositing>
             <Text style={s.cardLabel}>Email address</Text>
             {editingField !== 'email' && renderEmailRow()}
 
@@ -1009,6 +1044,8 @@ const s = StyleSheet.create({
   },
   logoutBtnPressed: { opacity: 0.65 },
   logoutLabel: { fontSize: 12, fontWeight: '800', color: Colors.ink3 },
+  logoutLabelHidden: { opacity: 0 },
+  logoutSpinner: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' },
   backBtn: { width: 38, height: 38, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center', flexShrink: 0, shadowColor: '#3C2878', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 3 },
   prgTrack: { flex: 1, height: 7, borderRadius: 5, backgroundColor: 'rgba(155,123,240,0.16)', overflow: 'hidden' },
   prgFill:  { height: '100%', borderRadius: 5 },
@@ -1016,8 +1053,6 @@ const s = StyleSheet.create({
   // ── heading ──
   body:      { flex: 1 },
   q:         { paddingTop: 18, paddingHorizontal: 2, paddingBottom: 4 },
-  kickerWrap:{ flexDirection: 'row', marginBottom: 10 },
-  kicker:    { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: Colors.vioInk, backgroundColor: Colors.vioSoft, paddingVertical: 5, paddingHorizontal: 11, borderRadius: 9 },
   heading:   { fontSize: 24, fontWeight: '800', letterSpacing: -0.7, lineHeight: 29, color: Colors.ink },
   subtitle:  { fontSize: 13, color: Colors.ink2, marginTop: 8, lineHeight: 20 },
 
@@ -1097,6 +1132,12 @@ const s = StyleSheet.create({
     borderColor: 'rgba(155,123,240,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    // iOS counterpart to `elevation`, which Android alone honours. Without it
+    // the box had a subtle lift on Android and sat flat on iOS.
+    shadowColor: '#3C2878',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
     elevation: 1,
   },
   obChar: { fontSize: 20, fontWeight: '800', color: Colors.ink },

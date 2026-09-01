@@ -41,6 +41,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── gradients ────────────────────────────────────────────────────────────────
 const HERO_GRADIENT = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -117,11 +118,14 @@ export function MatchesFoundUnpaidBlock({
         ) : null}
 
         {/* ── Hero card ─────────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.heroCard}>
+          <LinearGradient
           colors={[...HERO_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           {/* Green pulse dot + label */}
           <View style={styles.heroTop}>
@@ -136,7 +140,7 @@ export function MatchesFoundUnpaidBlock({
           <Text style={styles.heroPara}>
             Each one meets your criteria, and you meet theirs.
           </Text>
-        </LinearGradient>
+        </View>
 
         {/* ── What we found card ────────────────────────────────────── */}
         <View style={styles.foundCard}>
@@ -150,11 +154,14 @@ export function MatchesFoundUnpaidBlock({
         </View>
 
         {/* ── Payment card ──────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.payCard}>
+          <LinearGradient
           colors={[...PAY_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.8, y: 1 }}
-          style={styles.payCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           <Text style={styles.payLabel}>Membership</Text>
 
@@ -195,7 +202,7 @@ export function MatchesFoundUnpaidBlock({
               No wali-approved introduction within 90 days and you are refunded in full.
             </Text>
           </View>
-        </LinearGradient>
+        </View>
 
       </ScrollView>
     </View>
@@ -222,7 +229,10 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   heroTop: {
     flexDirection: 'row',
@@ -320,7 +330,10 @@ const styles = StyleSheet.create({
   payCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   payLabel: {
     fontSize: 10.5,

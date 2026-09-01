@@ -41,6 +41,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { Colors } from '../../theme/colors';
 import { FilterValues } from '../home/AdjustFiltersScreen';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── gradients ────────────────────────────────────────────────────────────────
 const HERO_GRADIENT = ['#5F55A8', '#3E3776', '#2B2653'] as const;
@@ -117,12 +118,16 @@ export function NarrowCriteriaScreen({
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.root}>
+    // The safe-area inset belongs on the root, not on the greeting. It used to
+    // live only on `hdr`, which renders conditionally, so a visitor with no name
+    // to greet got no top inset at all and the hero card started underneath the
+    // status bar and notch — with nothing above it to scroll back to.
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" />
 
       {/* ── Greeting (fixed, does not scroll) ─────────────────────────── */}
       {userName ? (
-        <View style={[styles.hdr, { paddingTop: Math.max(insets.top + 16, 32) }]}>
+        <View style={styles.hdr}>
           <Text style={styles.hdrSalam}>Assalamu alaikum</Text>
           <Text style={styles.hdrName}>{userName}</Text>
         </View>
@@ -131,16 +136,21 @@ export function NarrowCriteriaScreen({
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
+          // The greeting supplies this gap when it is there.
+          { paddingTop: userName ? 0 : 16 },
           { paddingBottom: Math.max(insets.bottom + 16, 32) },
         ]}
         showsVerticalScrollIndicator={false}>
 
         {/* ── Hero card (indigo) ────────────────────────────────────────── */}
-        <LinearGradient
+        <View style={styles.heroCard}>
+          <LinearGradient
           colors={[...HERO_GRADIENT]}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+          style={GRADIENT_FILL}
+          pointerEvents="none"
+        />
 
           <View style={styles.heroTop}>
             <View style={styles.greenpulse} />
@@ -152,7 +162,7 @@ export function NarrowCriteriaScreen({
           <Text style={styles.heroPara}>
             Each adjustment below adds more profiles to your daily introductions.
           </Text>
-        </LinearGradient>
+        </View>
 
         {/* ── Applied filters card ──────────────────────────────────────── */}
         {filterRows.length > 0 ? (
@@ -211,7 +221,7 @@ const styles = StyleSheet.create({
   },
 
   // ── Greeting ──────────────────────────────────────────────────────────────
-  hdr: { paddingHorizontal: 20, paddingBottom: 13 },
+  hdr: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 13 },
   hdrSalam: { fontSize: 13.5, color: '#9695A5' },
   hdrName: { fontSize: 25, fontWeight: '700', letterSpacing: -0.6, color: '#17171F', marginTop: 1 },
 
@@ -219,7 +229,10 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   heroTop: {
     flexDirection: 'row',

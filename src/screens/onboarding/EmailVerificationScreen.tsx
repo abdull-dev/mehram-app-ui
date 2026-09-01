@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 const CODE_LENGTH = 6;
 const RESEND_SECONDS = 30;
@@ -56,7 +57,7 @@ export function EmailVerificationScreen({ email, onVerified, onBack, onSkip }: E
   const [apiError, setApiError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const [canResend, setCanResend] = useState(false);
-  const inputRefs = useRef<(TextInput | null)[]>([]);
+  const inputRefs = useRef<(React.ComponentRef<typeof TextInput> | null)[]>([]);
 
   const isComplete = digits.every(d => d !== '');
 
@@ -143,8 +144,8 @@ export function EmailVerificationScreen({ email, onVerified, onBack, onSkip }: E
 
         {/* Body */}
         <View style={styles.body}>
-          <Animated.View style={[styles.q, riseStyle(aQ.anim)]}>
-            <View style={styles.qkWrap}><Text style={styles.qk}>Step 1 of 5</Text></View>
+          <Animated.View style={[styles.q, riseStyle(aQ.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.qh}>Verify your email</Text>
             <Text style={styles.qs}>
               {'We sent a 6-digit code to '}
@@ -153,7 +154,8 @@ export function EmailVerificationScreen({ email, onVerified, onBack, onSkip }: E
           </Animated.View>
 
           {/* OTP boxes */}
-          <Animated.View style={riseStyle(aOtp.anim)}>
+          <Animated.View style={riseStyle(aOtp.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.otp}>
               {Array.from({ length: CODE_LENGTH }).map((_, i) => (
                 <TextInput
@@ -176,12 +178,16 @@ export function EmailVerificationScreen({ email, onVerified, onBack, onSkip }: E
             {!!apiError && <Text style={styles.errText}>{apiError}</Text>}
           </Animated.View>
 
-          <Animated.View style={riseStyle(aBot.anim)}>
+          <Animated.View style={riseStyle(aBot.anim)}
+            needsOffscreenAlphaCompositing>
             <Pressable onPress={handleResend} disabled={!canResend} style={styles.resendWrap}>
               <Text style={[styles.resend, canResend && styles.resendActive]}>{timerLabel}</Text>
             </Pressable>
             {/* Email info banner */}
-            <LinearGradient colors={['#EEF0FE', '#E8ECFD']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.banner}>
+            <View style={styles.banner}>
+              <LinearGradient colors={['#EEF0FE', '#E8ECFD']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={GRADIENT_FILL}
+              pointerEvents="none"
+            />
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
                 <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke={Colors.vioInk} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
                 <Path d="M22 6l-10 7L2 6" stroke={Colors.vioInk} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
@@ -190,13 +196,13 @@ export function EmailVerificationScreen({ email, onVerified, onBack, onSkip }: E
                 <Text style={styles.bannerTitle}>Check your inbox</Text>
                 <Text style={styles.bannerText}>Can't find it? Check spam or request a new code.</Text>
               </View>
-            </LinearGradient>
+            </View>
           </Animated.View>
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
-          <GradientButton label={verifying ? 'Verifying…' : 'Verify email'} variant={buttonVariant} onPress={handleVerify} loading={verifying} />
+          <GradientButton label="Verify email" variant={buttonVariant} onPress={handleVerify} loading={verifying} />
           {onSkip && (
             <Pressable onPress={onSkip} style={styles.skipBtn}>
               <Text style={styles.skipLabel}>⚡ Skip (dev only)</Text>
@@ -217,8 +223,6 @@ const styles = StyleSheet.create({
   prgFill: { height: '100%', borderRadius: 5 },
   body: { flex: 1, flexDirection: 'column' },
   q: { paddingTop: 18, paddingHorizontal: 2, paddingBottom: 2, flexShrink: 0 },
-  qkWrap: { flexDirection: 'row', marginBottom: 10 },
-  qk: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: Colors.vioInk, backgroundColor: Colors.vioSoft, paddingVertical: 5, paddingHorizontal: 11, borderRadius: 9 },
   qh: { fontSize: 24, fontWeight: '800', letterSpacing: -0.7, lineHeight: 29, color: Colors.ink },
   qs: { fontSize: 13, color: Colors.ink2, marginTop: 8, lineHeight: 20 },
   qsEmail: { fontWeight: '700', color: Colors.ink },
@@ -230,7 +234,18 @@ const styles = StyleSheet.create({
   resendWrap: { marginTop: 12, alignSelf: 'flex-start' },
   resend: { fontSize: 11.5, color: Colors.ink3, lineHeight: 17 },
   resendActive: { color: Colors.vioD, fontWeight: '700' },
-  banner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, paddingVertical: 13, paddingHorizontal: 14, marginTop: 12 },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 18,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    marginTop: 12,
+    // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+  },
   bannerTitle: { fontSize: 13, fontWeight: '800', color: Colors.vioInk, marginBottom: 2 },
   bannerText: { fontSize: 11.5, lineHeight: 17, color: Colors.vioD },
   footer: { paddingTop: 12, flexShrink: 0 },

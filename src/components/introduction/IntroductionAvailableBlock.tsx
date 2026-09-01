@@ -11,10 +11,10 @@
  *   ┌──────────────────────────────────┐
  *   │  Hero (dark indigo, green dot)   │
  *   │  SEARCH ACTIVE                   │
- *   │  We're looking for your match    │
+ *   │  We're looking for someone      │
  *   │  Introductions are made…         │
  *   │  ─────────────────────────────   │
- *   │  6  Match your criteria          │
+ *   │  6  Fit your criteria            │
  *   │  148  Reviewed this week         │
  *   └──────────────────────────────────┘
  *
@@ -73,57 +73,37 @@ import { Coords, distanceKm, formatDistanceKm } from '../../utils/location';
 import { DailyDuaCard } from '../ui/DailyDuaCard';
 import { WhileYouWaitCard } from '../ui/WhileYouWaitCard';
 import { formatHeight } from '../../utils/height';
+import { Bone, DarkBone } from '../ui/Skeleton';
+import {
+  EDUCATION_LABELS,
+  MADHHAB_LABELS,
+  MARITAL_LABELS,
+  RELIGIOSITY_LABELS,
+  SECT_LABELS,
+  labelFor,
+} from '../../utils/enumLabels';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-const EDUCATION_LABELS: Record<string, string> = {
-  PRIMARY: 'Primary school',
-  SECONDARY: 'Secondary school',
-  HIGHER_SECONDARY: 'A-levels / FSc',
-  HIGH_SCHOOL: 'High school',
-  DIPLOMA: 'Diploma',
-  BACHELORS: "Bachelor's degree",
-  MASTERS: "Master's degree",
-  DOCTORATE: 'PhD',
-  PHD: 'PhD',
-  OTHER: 'Other',
-};
 function formatEducation(level: string | null | undefined): string | null {
-  if (!level) return null;
-  return EDUCATION_LABELS[level] ?? level;
+  return labelFor(EDUCATION_LABELS, level);
 }
 
-const SECT_LABELS: Record<string, string> = {
-  SUNNI: 'Sunni', SHIA: 'Shia', AHMADI: 'Ahmadi',
-  ISMAILI: 'Ismaili', OTHER: 'Other',
-};
-const MADHHAB_LABELS: Record<string, string> = {
-  HANAFI: 'Hanafi', SHAFI: 'Shafi', MALIKI: 'Maliki',
-  HANBALI: 'Hanbali', JAFARI: 'Jafari',
-};
-const RELIGIOSITY_LABELS: Record<string, string> = {
-  VERY_PRACTICING: 'Very practicing', PRACTICING: 'Practicing',
-  MODERATELY_PRACTICING: 'Moderately practicing',
-  MODERATE: 'Moderate', CULTURAL: 'Cultural',
-};
-const MARITAL_LABELS: Record<string, string> = {
-  NEVER_MARRIED: 'Single', DIVORCED: 'Divorced', WIDOWED: 'Widowed',
-};
-
 function formatSect(sect?: string | null, madhhab?: string | null): string | null {
-  if (!sect) return null;
-  const s = SECT_LABELS[sect] ?? sect;
-  const m = madhhab && madhhab !== 'NONE' ? MADHHAB_LABELS[madhhab] : null;
+  const s = labelFor(SECT_LABELS, sect);
+  if (!s) return null;
+  // NONE is a real Madhhab member meaning "not followed", so it is omitted
+  // rather than printed beside the sect.
+  const m = madhhab && madhhab !== 'NONE' ? labelFor(MADHHAB_LABELS, madhhab) : null;
   return m ? `${s} (${m})` : s;
 }
 
 function formatReligiosity(r?: string | null): string | null {
-  if (!r) return null;
-  return RELIGIOSITY_LABELS[r] ?? r;
+  return labelFor(RELIGIOSITY_LABELS, r);
 }
 
 function formatMarital(m?: string | null): string | null {
-  if (!m) return null;
-  return MARITAL_LABELS[m] ?? m;
+  return labelFor(MARITAL_LABELS, m);
 }
 
 // ─── gradients ────────────────────────────────────────────────────────────────
@@ -232,7 +212,16 @@ export interface IntroductionProfile {
   bio?: string | null;
   photoUrl?: string | null;
   photoUrls?: string[];
-  blurPhotos?: boolean;
+  photosWithheld?: boolean;
+  /**
+   * The viewer's standing photo request, resolved by the server.
+   *
+   * Held here rather than in the detail screen's own state: component state is
+   * lost on remount, so a request that had already been sent came back as
+   * "never asked" and the button offered it again.
+   */
+  photoRequestStatus?: 'PENDING' | 'APPROVED' | 'DECLINED' | 'REVOKED' | null;
+  photoRequestWaitingOn?: 'owner' | 'wali' | null;
   hideDistance?: boolean;
   compatibility?: number;
   distanceKm?: number | null;
@@ -303,81 +292,25 @@ interface IntroductionAvailableBlockProps {
   onOpenFilters?: () => void;
 }
 
-const DEFAULT_PROFILE: IntroductionProfile = {
-  userId: '',
-  displayName: 'Fatima S.',
-  age: 27,
-  city: 'Lahore',
-  latitude: null,
-  longitude: null,
-  occupation: 'Healthcare',
-  educationLevel: 'MASTERS',
-  bio: null,
-  photoUrl: null,
-  photoUrls: [],
-  blurPhotos: false,
-  hideDistance: false,
-  compatibility: 0,
-  distanceKm: null,
-  sect: 'SUNNI',
-  madhhab: 'HANAFI',
-  religiosity: 'PRACTICING',
-  heightCm: 163,
-  maritalStatus: 'NEVER_MARRIED',
-  familyType: 'Joint family',
-  idVerified: true,
-  waliRegistered: true,
-};
 
 // ─── skeleton ─────────────────────────────────────────────────────────────────
 
-function usePulse() {
-  const anim = useRef(new Animated.Value(0.45)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1, duration: 750, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0.45, duration: 750, useNativeDriver: true }),
-      ]),
-    ).start();
-  }, [anim]);
-  return anim;
-}
-
-function Bone({ w, h, radius = 8, style }: { w: number | string; h: number; radius?: number; style?: object }) {
-  const opacity = usePulse();
-  return (
-    <Animated.View
-      style={[
-        { width: w as any, height: h, borderRadius: radius, backgroundColor: '#E2DFF0' },
-        { opacity },
-        style,
-      ]}
-    />
-  );
-}
-
-function DarkBone({ w, h, radius = 8, style }: { w: number | string; h: number; radius?: number; style?: object }) {
-  const opacity = usePulse();
-  return (
-    <Animated.View
-      style={[
-        { width: w as any, height: h, borderRadius: radius, backgroundColor: 'rgba(255,255,255,0.15)' },
-        { opacity },
-        style,
-      ]}
-    />
-  );
-}
-
-function IntroductionSkeleton({ insets, userName }: { insets: { top: number }; userName: string }) {
+function IntroductionSkeleton({ insets, userName }: {
+  // `bottom` too: the skeleton has to clear the floating nav by the same
+  // margin as the content it stands in for, or the list jumps on load.
+  insets: { top: number; bottom: number };
+  userName: string;
+}) {
   return (
     <ScrollView
       contentContainerStyle={[
         skStyles.scroll,
         {
           paddingTop: Math.max(insets.top + 16, 32),
-          paddingBottom: 110,
+          // Matches the real content's padding. A flat 110 ignored the home
+          // indicator, so the skeleton's last row sat closer to the floating
+          // nav than the content that replaced it — a visible jump on load.
+          paddingBottom: Math.max(insets.bottom + 100, 110),
         },
       ]}
       showsVerticalScrollIndicator={false}
@@ -392,11 +325,14 @@ function IntroductionSkeleton({ insets, userName }: { insets: { top: number }; u
       ) : null}
 
       {/* Hero card */}
-      <LinearGradient
+      <View style={skStyles.hero}>
+        <LinearGradient
         colors={[...HERO_GRADIENT]}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.6, y: 1 }}
-        style={skStyles.hero}>
+        style={GRADIENT_FILL}
+        pointerEvents="none"
+      />
         <View style={skStyles.heroTopRow}>
           <DarkBone w={10} h={10} radius={5} />
           <DarkBone w={100} h={11} radius={5} />
@@ -414,7 +350,7 @@ function IntroductionSkeleton({ insets, userName }: { insets: { top: number }; u
             <DarkBone w={110} h={11} radius={5} />
           </View>
         </View>
-      </LinearGradient>
+      </View>
 
       {/* Section header */}
       <View style={skStyles.sectionRow}>
@@ -471,11 +407,12 @@ export function IntroductionAvailableBlock({
   hasIntroductions = true,
   city = 'your city',
   userCoords,
-  matchCriteria = 6,
+  // 0, not a sample figure: an unpassed count must not read as a real one.
+  matchCriteria = 0,
   reviewedThisWeek = 148,
   introductionIndex,
   totalIntroductions,
-  profile = DEFAULT_PROFILE,
+  profile,
   onNotSuitable,
   onViewProfile,
   onSendProposal,
@@ -593,7 +530,7 @@ export function IntroductionAvailableBlock({
   // Use backend-provided distanceKm first; fall back to client-side haversine
   // if the backend didn't compute it but we have both sets of coordinates.
   const distanceLabel: string | null =
-    profile.hideDistance
+    !profile || profile.hideDistance
       ? null
       : profile.distanceKm != null
         ? formatDistanceKm(profile.distanceKm)
@@ -605,6 +542,16 @@ export function IntroductionAvailableBlock({
               }),
             )
           : null;
+
+  /**
+   * There is an actual introduction to show.
+   *
+   * `hasIntroductions` alone was not enough: it is the server's answer about the
+   * pool, and it stays true for the moment between a filter change emptying the
+   * feed and the next response landing. Requiring the profile too means the
+   * empty state shows rather than a card with nothing behind it.
+   */
+  const hasCard = hasIntroductions && !!profile?.userId;
 
   if (isLoading) {
     return (
@@ -622,8 +569,19 @@ export function IntroductionAvailableBlock({
       {/* ── Sticky greeting header — outside ScrollView so it never scrolls ── */}
       {userName ? (
         <View style={[styles.stickyHdr, { paddingTop: insets.top + 11 }]}>
-          <Text style={styles.hdrSalam}>Assalamu alaikum</Text>
-          <Text style={styles.hdrName}>{userName}</Text>
+          {/* Scaled rather than truncated: a greeting cut to "Assalamu
+              alaik…" reads as broken, and at ~280dp (a folded Galaxy Fold)
+              the reserved chrome leaves it just short of fitting. */}
+          <Text
+            style={styles.hdrSalam}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}>
+            Assalamu alaikum
+          </Text>
+          {/* The name truncates instead of scaling — a shrinking name would
+              change size between users, which reads as a bug. */}
+          <Text style={styles.hdrName} numberOfLines={1}>{userName}</Text>
         </View>
       ) : null}
 
@@ -645,12 +603,25 @@ export function IntroductionAvailableBlock({
           />
         }>
 
-        {/* ── Hero card ─────────────────────────────────────────────── */}
-        <LinearGradient
-          colors={[...HERO_GRADIENT]}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.6, y: 1 }}
-          style={styles.heroCard}>
+        {/* ── Hero card ───────────────────────────────────────────────
+            A plain View owns the layout and the gradient fills behind it.
+
+            The gradient used to be the container itself, and on iOS it did not
+            grow to its children: the card rendered short and its borderRadius
+            mask cut straight through the stats row, so the numbers were sliced
+            in half and their labels were gone entirely. Android sized it
+            correctly, which is why it only showed up on iOS.
+
+            A View's height is Yoga's to decide on both platforms, so the two
+            now agree. */}
+        <View style={styles.heroCard}>
+          <LinearGradient
+            colors={[...HERO_GRADIENT]}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.6, y: 1 }}
+            style={styles.heroFill}
+            pointerEvents="none"
+          />
 
           {/* Green pulse dot + label */}
           <View style={styles.heroTop}>
@@ -659,7 +630,7 @@ export function IntroductionAvailableBlock({
           </View>
 
           <Text style={styles.heroHeading}>
-            {"We're looking for\nyour match"}
+            {"We're looking for\nsomeone suitable"}
           </Text>
 
           <Text style={styles.heroPara}>
@@ -670,16 +641,16 @@ export function IntroductionAvailableBlock({
           <View style={styles.statsRow}>
             <View style={styles.statCell}>
               <Text style={styles.statNumber}>{matchCriteria}</Text>
-              <Text style={styles.statLabel}>Match your criteria</Text>
+              <Text style={styles.statLabel}>Fit your criteria</Text>
             </View>
             <View style={[styles.statCell, styles.statCellBorder]}>
               <Text style={styles.statNumber}>{reviewedThisWeek}</Text>
               <Text style={styles.statLabel}>Reviewed this week</Text>
             </View>
           </View>
-        </LinearGradient>
+        </View>
 
-        {hasIntroductions ? (
+        {hasCard && profile ? (
           <>
             {/* ── Section header ─────────────────────────────────────── */}
             <View style={styles.sectionHeader}>
@@ -696,11 +667,17 @@ export function IntroductionAvailableBlock({
                     <Text style={styles.nearestText}>Nearest first</Text>
                   </View>
                 )}
-                {introductionIndex != null && totalIntroductions != null && (
-                  <Text style={styles.sectionCount}>
-                    {introductionIndex} of {totalIntroductions}
-                  </Text>
-                )}
+                {/* Only when the pair actually describes a position in a
+                    list. A total below the current index cannot be true of the
+                    card being shown, and printing it anyway is how "1 of 0"
+                    appeared above a real profile. */}
+                {introductionIndex != null &&
+                  totalIntroductions != null &&
+                  totalIntroductions >= introductionIndex && (
+                    <Text style={styles.sectionCount}>
+                      {introductionIndex} of {totalIntroductions}
+                    </Text>
+                  )}
               </View>
             </View>
 
@@ -833,7 +810,7 @@ export function IntroductionAvailableBlock({
             </Text>
 
             <Text style={styles.emptyBody}>
-              There are no matches available from your city right now.
+              There are no profiles available from your city right now.
               Try using a different city or adjust your criteria from
               the filters to find more profiles.
             </Text>
@@ -985,7 +962,17 @@ const styles = StyleSheet.create({
 
   // Sticky greeting — sits above the ScrollView, never scrolls
   stickyHdr: {
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    /**
+     * Clears the three floating buttons Home overlays on this same band.
+     *
+     * They are absolutely positioned from the right edge (see CHROME_RIGHT in
+     * HomeScreen: bell 108, filter 62, menu 16, each 38 wide), so the outermost
+     * reaches 146px in. With only `paddingHorizontal: 20` a long name ran
+     * underneath them — invisible on a wide phone, overlapping on a narrow one
+     * like a folded Galaxy Fold at ~280dp.
+     */
+    paddingRight: 152,
     paddingBottom: 13,
     backgroundColor: Colors.page,
   },
@@ -996,7 +983,13 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 20,
     padding: 20,
+    // Clips the gradient to the rounded corners; the View itself is sized by
+    // its content, so nothing of the content is ever clipped.
+    overflow: 'hidden',
   },
+  // Fills the card behind the content. Absolute, so it takes the View's final
+  // height rather than trying to establish one.
+  heroFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
 
   heroTop: {
     flexDirection: 'row',
@@ -1438,7 +1431,10 @@ const skStyles = StyleSheet.create({
   hero: {
     borderRadius: 20,
     padding: 20,
-  },
+      // Clips the background gradient to the rounded corners. The View
+    // itself is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
   heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',

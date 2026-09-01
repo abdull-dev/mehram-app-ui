@@ -44,6 +44,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -126,7 +127,8 @@ export function NoMatchScreen({
         <View style={styles.body}>
 
           {/* Kicker + heading + sub — d1 */}
-          <Animated.View style={[styles.qSection, riseStyle(header.anim)]}>
+          <Animated.View style={[styles.qSection, riseStyle(header.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>Being straight with you</Text>
             </View>
@@ -138,20 +140,25 @@ export function NoMatchScreen({
           </Animated.View>
 
           {/* Dark gradient count card — d2 */}
-          <Animated.View style={riseStyle(countCard.anim)}>
-            <LinearGradient
+          <Animated.View style={riseStyle(countCard.anim)}
+            needsOffscreenAlphaCompositing>
+            <View style={styles.countCard}>
+              <LinearGradient
               colors={[...GradientColors.vertDark]}
               locations={[0, 0.6, 1]}
               start={{ x: 0.1, y: 0 }}
               end={{ x: 0.4, y: 1 }}
-              style={styles.countCard}>
+              style={GRADIENT_FILL}
+              pointerEvents="none"
+            />
               <Text style={styles.countNumber}>{familyCount}</Text>
               <Text style={styles.countLabel}>families in {city} so far</Text>
-            </LinearGradient>
+            </View>
           </Animated.View>
 
           {/* White reassurance card — d3 */}
-          <Animated.View style={[styles.whiteCard, riseStyle(whiteCard.anim)]}>
+          <Animated.View style={[styles.whiteCard, riseStyle(whiteCard.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.whiteCardHeading}>
               You have not been charged
             </Text>

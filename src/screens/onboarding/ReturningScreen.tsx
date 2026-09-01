@@ -43,6 +43,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
 const RISE_DURATION = 550;
@@ -117,7 +118,8 @@ export function ReturningScreen({ onContinue }: ReturningScreenProps) {
         <View style={styles.body}>
 
           {/* Kicker + heading + sub — d1 */}
-          <Animated.View style={[styles.qSection, riseStyle(header.anim)]}>
+          <Animated.View style={[styles.qSection, riseStyle(header.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>Welcome back</Text>
             </View>
@@ -128,20 +130,25 @@ export function ReturningScreen({ onContinue }: ReturningScreenProps) {
           </Animated.View>
 
           {/* Dark gradient count card — d2 */}
-          <Animated.View style={riseStyle(countCard.anim)}>
-            <LinearGradient
+          <Animated.View style={riseStyle(countCard.anim)}
+            needsOffscreenAlphaCompositing>
+            <View style={styles.countCard}>
+              <LinearGradient
               colors={[...GradientColors.vertDark]}
               locations={[0, 0.6, 1]}
               start={{ x: 0.1, y: 0 }}
               end={{ x: 0.4, y: 1 }}
-              style={styles.countCard}>
+              style={GRADIENT_FILL}
+              pointerEvents="none"
+            />
               <Text style={styles.countNumber}>142</Text>
               <Text style={styles.countLabel}>still match what you told us</Text>
-            </LinearGradient>
+            </View>
           </Animated.View>
 
           {/* Progress rows card — d3 */}
-          <Animated.View style={[styles.progressCard, riseStyle(progressRows.anim)]}>
+          <Animated.View style={[styles.progressCard, riseStyle(progressRows.anim)]}
+            needsOffscreenAlphaCompositing>
 
             {/* Row 1 — violet badge, "Where you left off" */}
             <View style={styles.progressRow}>

@@ -41,6 +41,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { Colors, GradientColors } from '../../theme/colors';
+import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const CODE_LENGTH = 6;
@@ -154,7 +155,7 @@ export function CodeScreen({
   const [digits, setDigits] = useState<string[]>(Array(CODE_LENGTH).fill(''));
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const inputRefs = useRef<(TextInput | null)[]>([]);
+  const inputRefs = useRef<(React.ComponentRef<typeof TextInput> | null)[]>([]);
 
   const isComplete = digits.every(d => d !== '');
 
@@ -254,7 +255,7 @@ export function CodeScreen({
   // ── derived button state ───────────────────────────────────────────────────
   const hasAnyError = hasError || !!apiError;
   const buttonVariant = !isComplete || hasAnyError ? 'disabled' : 'primary';
-  const buttonLabel = verifying ? 'Verifying…' : 'Continue';
+  const buttonLabel = 'Continue';
 
   return (
     <View style={styles.root}>
@@ -298,10 +299,8 @@ export function CodeScreen({
         <View style={styles.body}>
 
           {/* Question block — .q / .qk / .qh / .qs */}
-          <Animated.View style={[styles.q, riseStyle(aQ.anim)]}>
-            <View style={styles.qkWrap}>
-              <Text style={styles.qk}>Step 1 of 5</Text>
-            </View>
+          <Animated.View style={[styles.q, riseStyle(aQ.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.qh}>Verify your phone</Text>
             <Text style={styles.qs}>
               {'Code sent to '}
@@ -335,7 +334,8 @@ export function CodeScreen({
           </Animated.View>
 
           {/* OTP boxes + error message — .otp / .ob / .ob.f / .ob.e */}
-          <Animated.View style={riseStyle(aOtp.anim)}>
+          <Animated.View style={riseStyle(aOtp.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.otp}>
               {Array.from({ length: CODE_LENGTH }).map((_, i) => {
                 const isFocused = focusedIdx === i;
@@ -378,7 +378,8 @@ export function CodeScreen({
           </Animated.View>
 
           {/* Hint + mint banner */}
-          <Animated.View style={riseStyle(aBot.anim)}>
+          <Animated.View style={riseStyle(aBot.anim)}
+            needsOffscreenAlphaCompositing>
             {/* Resend countdown / link — .fhint */}
             <Pressable
               onPress={handleResend}
@@ -390,11 +391,14 @@ export function CodeScreen({
             </Pressable>
 
             {/* Mint banner — .bn-mint (linear-gradient(140deg, #E9FBF3, #DFF6EC)) */}
-            <LinearGradient
+            <View style={styles.bnMint}>
+              <LinearGradient
               colors={['#E9FBF3', '#DFF6EC']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.bnMint}>
+              style={GRADIENT_FILL}
+              pointerEvents="none"
+            />
               <ShieldIcon />
               <View style={styles.bnBody}>
                 <Text style={styles.bnTitle}>Read automatically</Text>
@@ -402,7 +406,7 @@ export function CodeScreen({
                   On most phones you will not type anything.
                 </Text>
               </View>
-            </LinearGradient>
+            </View>
           </Animated.View>
         </View>
 
@@ -410,6 +414,8 @@ export function CodeScreen({
         <View style={styles.footer}>
           <GradientButton
             label={buttonLabel}
+            // 'Continue' would map to 'Continuing…'; this button checks a code.
+            loadingLabel="Verifying…"
             variant={buttonVariant}
             onPress={handleVerify}
             loading={verifying}
@@ -495,23 +501,8 @@ const styles = StyleSheet.create({
   },
 
   // .qk chip wrapper
-  qkWrap: {
-    flexDirection: 'row',
-    marginBottom: 10,
-  },
 
   // .qk — uppercase pill label
-  qk: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: Colors.vioInk,
-    backgroundColor: Colors.vioSoft,
-    paddingVertical: 5,
-    paddingHorizontal: 11,
-    borderRadius: 9,
-  },
 
   // .qh — heading
   qh: {
@@ -635,7 +626,10 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     paddingHorizontal: 14,
     marginTop: 12,
-  },
+      // Clips the background gradient to the rounded corners; the View
+    // is sized by its content, so the content is never clipped.
+    overflow: 'hidden',
+},
 
   bnBody: {
     flex: 1,
