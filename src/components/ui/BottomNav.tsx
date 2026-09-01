@@ -17,13 +17,23 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
+import { PressableScale } from './Motion';
 
 export type NavTab = 'home' | 'proposals' | 'chats' | 'family';
 
 interface BottomNavProps {
   activeTab?: NavTab;
   onTabChange?: (tab: NavTab) => void;
-  proposalsBadge?: number;
+  /**
+   * Badge counts keyed by tab.
+   *
+   * Was a single `proposalsBadge` prop with the tab id hardcoded at the render
+   * site, so every new badge needed another special case — and the wali bar,
+   * a hand-written copy of this component, had already grown one.
+   *
+   * Omit a tab, or give it 0, to show nothing.
+   */
+  badges?: Partial<Record<NavTab, number>>;
 }
 
 // ─── icons ────────────────────────────────────────────────────────────────────
@@ -123,7 +133,7 @@ function TabIcon({ id, color }: { id: NavTab; color: string }) {
 export function BottomNav({
   activeTab = 'home',
   onTabChange,
-  proposalsBadge,
+  badges,
 }: BottomNavProps) {
   const insets = useSafeAreaInsets();
 
@@ -136,18 +146,22 @@ export function BottomNav({
       {TABS.map(tab => {
         const isActive = tab.id === activeTab;
         const color = isActive ? ROSE : INACTIVE;
-        const showBadge = tab.id === 'proposals' && proposalsBadge && proposalsBadge > 0;
+        const badge = badges?.[tab.id] ?? 0;
 
         return (
-          <Pressable
+          // The most-tapped control in the app, and it had no press response
+          // at all — the only feedback was the tab colour changing after the
+          // switch had already happened.
+          <PressableScale
             key={tab.id}
             onPress={() => onTabChange?.(tab.id)}
+            scaleTo={0.92}
             style={styles.tab}>
             {/* Badge */}
-            {showBadge ? (
+            {badge > 0 ? (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
-                  {proposalsBadge! > 99 ? '99+' : String(proposalsBadge)}
+                  {badge > 99 ? '99+' : String(badge)}
                 </Text>
               </View>
             ) : null}
@@ -160,7 +174,7 @@ export function BottomNav({
 
             {/* Active dot */}
             {isActive && <View style={styles.dot} />}
-          </Pressable>
+          </PressableScale>
         );
       })}
     </View>

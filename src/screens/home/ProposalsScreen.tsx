@@ -9,9 +9,8 @@
  * via ProposalDetailScreen.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -21,13 +20,16 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MADHHAB_LABELS, SECT_LABELS, labelFor } from '../../utils/enumLabels';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { getProposals, getReceivedProposals } from '../../api/proposals';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
 import type { ProposalDetailSelection } from './ProposalDetailScreen';
-import { useProposalsSocket } from '../../hooks/useProposalsSocket';
+import { Bone } from '../../components/ui/Skeleton';
+import { FadeInUp, PressableScale } from '../../components/ui/Motion';
+import { useProposalsRealtime } from '../../hooks/useProposalsRealtime';
 import { formatHeight } from '../../utils/height';
-import { buildProposalSteps, pronounsFor } from '../../lib/proposalSteps';
+import { buildProposalSteps, pronounsFor, isResolvedStage } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -70,19 +72,11 @@ interface ProposalCard {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-const SECT_LABELS: Record<string, string> = {
-  SUNNI: 'Sunni', SHIA: 'Shia', AHMADIYYA: 'Ahmadiyya', IBADI: 'Ibadi', OTHER: 'Other',
-};
-const MADHHAB_LABELS: Record<string, string> = {
-  HANAFI: 'Hanafi', MALIKI: 'Maliki', SHAFII: "Shafi'i",
-  HANBALI: 'Hanbali', JAFARI: "Ja'fari", ZAIDI: 'Zaidi', OTHER: 'Other',
-};
-
 function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
-  const s = sect ? SECT_LABELS[sect] ?? sect : null;
-  const m = madhhab ? MADHHAB_LABELS[madhhab] ?? madhhab : null;
+  const s = labelFor(SECT_LABELS, sect);
+  const m = labelFor(MADHHAB_LABELS, madhhab);
   if (s && m) return `${s} (${m})`;
-  return s ?? null;
+  return s;
 }
 
 function fmtSentAt(iso: string): string {
@@ -128,7 +122,7 @@ const receivedStageMap = (
     HIS_WALI_PENDING:     { chipVariant: 'ind',  chipLabel: `With ${p.possessive} wali` },
     HER_WALI_REVIEWING:   { chipVariant: 'ind',  chipLabel: 'With your wali' },
     HER_DECISION_PENDING: { chipVariant: 'rose', chipLabel: 'Needs your answer' },
-    ACCEPTED:             { chipVariant: 'mint', chipLabel: 'Matched' },
+    ACCEPTED:             { chipVariant: 'mint', chipLabel: 'Accepted' },
     DECLINED:             { chipVariant: 'ind',  chipLabel: 'Not taken forward' },
     WITHDRAWN:            { chipVariant: 'ind',  chipLabel: 'Withdrawn' },
   };
@@ -170,11 +164,28 @@ function toReceivedCard(p: ReceivedProposal): ProposalCard {
     recipientHasWali: p.recipientHasWali,
     counterpartGender: p.gender,
   });
+  /**
+   * Once it is accepted, when it arrived stops being the useful fact — who
+   * agreed is. The full sentence goes here rather than in the chip, which
+   * cannot shrink and would squeeze the name out of the row.
+   *
+   * Only claims families where families actually acted: with no guardian on
+   * either side this was two people agreeing, and saying otherwise would
+   * credit an approval nobody gave.
+   */
+  const accepted = p.stage === 'ACCEPTED';
+  const bothFamilies = p.suitorHasWali === true && p.recipientHasWali === true;
+  const meta = accepted
+    ? bothFamilies
+      ? 'Accepted by both families'
+      : 'Accepted by you both'
+    : fmtReceivedAt(p.sentAt);
+
   return {
     name: p.fullName ?? 'Unknown',
     details: [p.age, p.city, formatHeight(p.heightCm)].filter(Boolean).join(' · '),
     sub: [sectStr, p.occupation].filter(Boolean).join(' · '),
-    meta: fmtReceivedAt(p.sentAt),
+    meta,
     chipVariant,
     chipLabel,
     doneSteps,
@@ -232,12 +243,19 @@ function ProgressBar({
   // One segment per approval this proposal actually needs. Fixed at four, a
   // proposal between two people with no wali showed three of them filled —
   // crediting two reviews that were never going to happen.
+  //
+  // Colours: done is mint, waiting is grey, and the step in progress is indigo.
+  // It used to be rose, which is this screen's colour for actions and for the
+  // "Withdraw" button — so a proposal moving along normally was marked in the
+  // same red as something needing attention. `ProposalDetailScreen` already
+  // draws the current step's dot in `indInk`, so the list and the detail view of
+  // the same proposal now agree.
   return (
     <View style={styles.progBar}>
       {Array.from({ length: totalSteps }, (_, i) => {
         const bg =
           i < doneSteps ? C.mint
-          : i === doneSteps && doneSteps < totalSteps ? C.rose
+          : i === doneSteps && doneSteps < totalSteps ? C.indInk
           : C.progEmpty;
         return <View key={i} style={[styles.progSeg, { backgroundColor: bg }]} />;
       })}
@@ -245,12 +263,48 @@ function ProgressBar({
   );
 }
 
-// ─── proposal card ────────────────────────────────────────────────────────────
-function ProposalRow({ card, onPress }: { card: ProposalCard; onPress: () => void }) {
+/**
+ * Stands in for `ProposalRow` while the list loads.
+ *
+ * Deliberately the same shape as the real card — name, details, sub, meta, chip
+ * and the segmented progress bar — so the list does not reflow when the data
+ * arrives. A centred spinner told the user nothing about what was coming.
+ */
+function ProposalRowSkeleton({ steps }: { steps: number }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}>
+    <View style={styles.card}>
+      <View style={styles.prow}>
+        <View style={styles.ptop}>
+          <View style={styles.ptopLeft}>
+            <Bone w={148} h={17} radius={7} />
+            <Bone w={112} h={13} radius={6} style={{ marginTop: 5 }} />
+            <Bone w={92} h={12} radius={6} style={{ marginTop: 4 }} />
+            <Bone w={72} h={11} radius={5} style={{ marginTop: 7 }} />
+          </View>
+          <Bone w={74} h={21} radius={8} />
+        </View>
+        <View style={styles.progBar}>
+          {Array.from({ length: steps }, (_, i) => (
+            <View key={i} style={[styles.progSeg, { backgroundColor: C.progEmpty }]} />
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── proposal card ────────────────────────────────────────────────────────────
+function ProposalRow({ card, onPress, index = 0 }: {
+  card: ProposalCard;
+  onPress: () => void;
+  /** Position in the list, for the staggered entrance. */
+  index?: number;
+}) {
+  return (
+    <FadeInUp index={index}>
+      {/* Scale rather than the previous opacity dip: fading a card reads as
+          disabling it, while a small scale reads as pressing it. */}
+      <PressableScale onPress={onPress} style={styles.card}>
       <View style={styles.prow}>
         <View style={styles.ptop}>
           <View style={styles.ptopLeft}>
@@ -263,7 +317,8 @@ function ProposalRow({ card, onPress }: { card: ProposalCard; onPress: () => voi
         </View>
         <ProgressBar doneSteps={card.doneSteps} totalSteps={card.totalSteps} />
       </View>
-    </Pressable>
+      </PressableScale>
+    </FadeInUp>
   );
 }
 
@@ -313,18 +368,61 @@ let _cachedSent: SentProposal[] = [];
 let _cachedReceived: ReceivedProposal[] = [];
 let _loaded = false;
 
+/**
+ * Drop the cache on sign-out.
+ *
+ * It is module-level, so it outlives the whole component tree: without this a
+ * second account signing in on the same device saw the previous user's
+ * proposals until the first fetch returned.
+ */
+export function resetProposalsCache(): void {
+  _cachedSent = [];
+  _cachedReceived = [];
+  _loaded = false;
+}
+
 // ─── props ────────────────────────────────────────────────────────────────────
 interface ProposalsScreenProps {
   onSeeIntroduction?: () => void;
   onSelectProposal?: (sel: ProposalDetailSelection) => void;
   /** Increment to trigger an immediate silent refresh (e.g. after sendProposal) */
   refreshKey?: number;
+  /**
+   * The signed-in user's id, used for the realtime subscription.
+   *
+   * `useProposalsRealtime` takes (userId, onStale); it was called with the
+   * loader alone, so the loader *became* the user id and the screen
+   * subscribed to a channel named after a function — one nothing has ever
+   * broadcast to. That is why proposals only moved on a manual reload.
+   */
+  userId?: string;
+  /** Opens the photo-requests queue from the header. */
+  onPhotoRequests?: () => void;
+  /**
+   * Photo requests waiting on this user.
+   *
+   * The nav badge sums proposals and photo requests, so a count with no
+   * proposals behind it left the user staring at an empty list wondering what
+   * the number meant. Shown on the link that leads to it.
+   */
+  photoRequestsBadge?: number;
   /** Called after every load with the current received proposals count — used for badge */
   onReceivedCountChange?: (count: number) => void;
 }
 
+/**
+ * How many received proposals still want the user — answered, declined and
+ * withdrawn ones do not.
+ *
+ * Shared by the bottom-nav badge and the "Received" tab label so the two
+ * cannot disagree about what the number means.
+ */
+function countUnresolved(list: ReceivedProposal[]): number {
+  return list.filter(r => !isResolvedStage(r.stage)).length;
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
-export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKey, onReceivedCountChange }: ProposalsScreenProps) {
+export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKey, userId, onPhotoRequests, photoRequestsBadge = 0, onReceivedCountChange }: ProposalsScreenProps) {
   const insets = useSafeAreaInsets();
   const [segment, setSegment] = useState<'sent' | 'received'>('sent');
   const [sentList, setSentList] = useState<SentProposal[]>(_cachedSent);
@@ -348,7 +446,9 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKe
       _loaded = true;
       setSentList(sent);
       setReceivedList(received);
-      onReceivedCountChangeRef.current?.(received.length);
+      // The badge means "these want you", not "these exist": an answered
+      // proposal kept the count lit with nothing left to act on.
+      onReceivedCountChangeRef.current?.(countUnresolved(received));
     } catch {
       // keep existing data on error
     } finally {
@@ -368,8 +468,11 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKe
     load();
   }, [refreshKey, load]);
 
-  // Real-time updates via Socket.io — no polling needed
-  useProposalsSocket(load);
+  // Live updates over Supabase Realtime — the server broadcasts
+  // 'proposals:stale' on every stage change, so no polling is needed.
+  useProposalsRealtime(userId ?? '', load);
+
+  const receivedPending = useMemo(() => countUnresolved(receivedList), [receivedList]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -397,6 +500,26 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKe
 
         <View style={styles.tabhdr}>
           <Text style={styles.tabhdrTitle}>Proposals</Text>
+          {/* Photo requests are a separate queue with its own answers, so they
+              get their own screen rather than a third segment here. */}
+          {!!onPhotoRequests && (
+            <Pressable
+              onPress={onPhotoRequests}
+              hitSlop={8}
+              accessibilityRole="button"
+              style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
+              <View style={styles.tabhdrActionRow}>
+                <Text style={styles.tabhdrAction}>Photo requests</Text>
+                {photoRequestsBadge > 0 && (
+                  <View style={styles.tabhdrBadge}>
+                    <Text style={styles.tabhdrBadgeText}>
+                      {photoRequestsBadge > 99 ? '99+' : photoRequestsBadge}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Pressable>
+          )}
         </View>
 
         <View style={styles.seg}>
@@ -411,22 +534,32 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKe
             style={[styles.sgItem, segment === 'received' && styles.sgItemOn]}
             onPress={() => setSegment('received')}>
             <Text style={[styles.sgText, segment === 'received' && styles.sgTextOn]}>
-              {`Received${receivedList.length > 0 ? ` (${receivedList.length})` : ''}`}
+              {/* Counts what still needs an answer, matching the nav badge.
+                  The number drops away entirely once everything is resolved —
+                  a literal "(0)" would sit beside cards that are still on
+                  screen, since the list keeps answered proposals as history. */}
+              {`Received${receivedPending > 0 ? ` (${receivedPending})` : ''}`}
             </Text>
           </Pressable>
         </View>
 
         {loading ? (
-          <ActivityIndicator size="small" color={C.rose} style={{ marginTop: 40 }} />
+          // Three rows: enough to fill the fold without implying a count.
+          <>
+            <ProposalRowSkeleton steps={4} />
+            <ProposalRowSkeleton steps={4} />
+            <ProposalRowSkeleton steps={4} />
+          </>
         ) : isEmpty ? (
           <EmptyState onSeeIntroduction={onSeeIntroduction} />
         ) : segment === 'received' ? (
           <>
             <MintBanner />
             {receivedList.length > 0
-              ? receivedList.map((p) => (
+              ? receivedList.map((p, i) => (
                   <ProposalRow
                     key={p.userId}
+                    index={i}
                     card={toReceivedCard(p)}
                     onPress={() => onSelectProposal?.({ type: 'received', proposal: p })}
                   />
@@ -436,9 +569,10 @@ export function ProposalsScreen({ onSeeIntroduction, onSelectProposal, refreshKe
           </>
         ) : (
           sentList.length > 0
-            ? sentList.map((p) => (
+            ? sentList.map((p, i) => (
                 <ProposalRow
                   key={p.userId}
+                  index={i}
                   card={toSentCard(p)}
                   onPress={() => onSelectProposal?.({ type: 'sent', proposal: p })}
                 />
@@ -456,7 +590,28 @@ const styles = StyleSheet.create({
 
   scroll: { paddingHorizontal: 15 },
 
-  tabhdr: { paddingTop: 12, paddingHorizontal: 4, paddingBottom: 6 },
+  tabhdr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingTop: 12,
+    paddingHorizontal: 4,
+    paddingBottom: 6,
+  },
+  tabhdrActionRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabhdrAction: { fontSize: 13, fontWeight: '700', color: C.rose },
+  // Matches the nav badge, so the same number reads as the same thing.
+  tabhdrBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: C.rose,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabhdrBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#fff' },
   tabhdrTitle: { fontSize: 26, fontWeight: '700', letterSpacing: -0.6, color: C.ink },
 
   seg: {

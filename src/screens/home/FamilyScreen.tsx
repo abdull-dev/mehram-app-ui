@@ -12,7 +12,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Clipboard,
   Linking,
   Pressable,
@@ -36,6 +35,7 @@ import {
 import { WaliResignedScreen }     from './WaliResignedScreen';
 import { WaliUnresponsiveScreen } from './WaliUnresponsiveScreen';
 import { IsWaliForScreen }        from './IsWaliForScreen';
+import { Bone } from '../../components/ui/Skeleton';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -378,10 +378,28 @@ export function FamilyScreen({
 
   // ── loading ─────────────────────────────────────────────────────────────────
   if (loading) {
+    /**
+     * A card-shaped stand-in rather than a centred spinner.
+     *
+     * This screen resolves to one of several states — no wali, an invite
+     * pending, a linked guardian — and all of them are a card with an icon,
+     * a heading and a couple of lines. That common shape is what the skeleton
+     * shows, so the page does not jump when the state is known.
+     */
     return (
-      <View style={[styles.root, styles.center, { paddingTop: insets.top }]}>
+      <View style={[styles.root, { paddingTop: insets.top }]}>
         <StatusBar barStyle="dark-content" />
-        <ActivityIndicator color={C.indInk} />
+        <View style={[styles.scroll, { paddingTop: 8 }]}>
+          <View style={styles.card}>
+            <View style={styles.emptyWrap}>
+              <Bone w={52} h={52} radius={18} />
+              <Bone w={132} h={17} radius={7} style={{ marginTop: 14 }} />
+              <Bone w={'86%'} h={13} radius={6} style={{ marginTop: 10 }} />
+              <Bone w={'70%'} h={13} radius={6} style={{ marginTop: 6 }} />
+              <Bone w={'100%'} h={48} radius={15} style={{ marginTop: 18 }} />
+            </View>
+          </View>
+        </View>
       </View>
     );
   }

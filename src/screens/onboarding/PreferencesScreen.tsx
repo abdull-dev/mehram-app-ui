@@ -1,7 +1,7 @@
 /**
  * PreferencesScreen  (F13)
  *
- * Preferences — live count.  Matches the HTML prototype screen F13 exactly:
+ * Preferences — asks the full partner-preference set during onboarding:
  *
  *   ┌─────────────────────────────────┐
  *   │  ████████████████░░░░  [Save]   │  ← 80 % progress nav
@@ -11,27 +11,26 @@
  *   │  hoping to meet?                │
  *   │  Narrow is fine…                │
  *   │                                 │
- *   │  ┌─ Age range ───────────────┐  │
- *   │  │  24 to 30 years           │  │
- *   │  │  ●══════════════════      │  │  min slider (18–55)
- *   │  │  ════════════●════════    │  │  max slider (18–60)
- *   │  └───────────────────────────┘  │
- *   │                                 │
- *   │  ┌─── dark gradient card ────┐  │
- *   │  │           56              │  │  ← live count (formula-driven)
- *   │  │  A healthy range…         │  │
- *   │  └───────────────────────────┘  │
+ *   │  ┌─ Age range ───────────────┐  │  at least / at most
+ *   │  ┌─ Height ──────────────────┐  │  at least / at most (cm + ft)
+ *   │  ┌─ Cities ──────────────────┐  │
+ *   │  ┌─ Sect ────────────────────┐  │
+ *   │  ┌─ Min religiosity ─────────┐  │
+ *   │  ┌─ Education ───────────────┐  │
+ *   │  ┌─ Marital status ──────────┐  │
  *   ├─────────────────────────────────┤
  *   │  [Continue]                     │
  *   └─────────────────────────────────┘
  *
- * Live count formula (mirrors prototype rng() function):
- *   n = max(0, round((max−min)×7.4 + (min<26 ? 14 : 0) − |28−(min+max)/2|×2.6))
+ * The cards are `PreferenceFields`, the same component PartnerPreferencesScreen
+ * renders, so whatever is answered here is exactly what that screen shows later
+ * — no second shape to map between.
  *
- * Animations:
- *   • Entrance: heading / field / live-card rise (staggered 70 / 150 / 230 ms)
- *   • Count pulse: quick scale 1→1.1→1 whenever the count changes
- *   • Sweep shimmer: 3 s looping shine across the dark card
+ * This replaced an age-only version topped with a dark gradient card showing a
+ * "live count" of matches. That number came from a hard-coded formula over the
+ * two ages (`(max−min)×7.4 …`), not from the server, so it was a decorative
+ * invention that also drove routing: a count of 0 sent the user to the fine-tune
+ * screen instead of on to photos. Both the card and that branch are gone.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -39,6 +38,7 @@ import {
   Animated,
   Easing,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -48,19 +48,42 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import {
+  AGE_CEIL,
+  AGE_FLOOR,
+  PreferenceFields,
+  PreferenceValues,
+  preferencesFromApi,
+  withPreferenceDefaults, PreferenceFieldsSkeleton } from '../../components/preferences/PreferenceFields';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 import { getMyProfile } from '../../api/profile';
 
-// ─── live count formula ───────────────────────────────────────────────────────
-function calcCount(minAge: number, maxAge: number): number {
-  const a = minAge;
-  const b = maxAge;
-  return Math.max(
-    0,
-    Math.round(
-      (b - a) * 7.4 + (a < 26 ? 14 : 0) - Math.abs(28 - (a + b) / 2) * 2.6,
-    ),
-  );
+/**
+ * How far either side of the user's own age the range opens by default.
+ *
+ * The fixed 24–34 this used to start from is a hard filter on the server, not a
+ * hint: `PreferenceFilterService.criteriaWhere` turns the saved ageMin/ageMax
+ * into a `dateOfBirth` bound and excludes everyone outside it. So an 18-year-old
+ * who tapped through this step was invisible to every account still on the
+ * default, and could not see anyone under 24 either — two new accounts of the
+ * same age never appeared to one another. Bracketing their own age instead means
+ * the default at least includes their own cohort.
+ */
+const AGE_SPAN_BELOW = 3;
+const AGE_SPAN_ABOVE = 6;
+
+/** Whole years between a date of birth and today. */
+function ageFromDob(iso: string): number | null {
+  const dob = new Date(iso);
+  if (Number.isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDelta = now.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age > 0 ? age : null;
 }
 
 // ─── animation helpers ────────────────────────────────────────────────────────
@@ -88,54 +111,84 @@ function riseStyle(anim: Animated.Value) {
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface PreferencesScreenProps {
-  /** Called with narrow=true when liveCount===0; also passes the chosen ages */
-  onContinue?: (data: { narrow: boolean; ageMin: number; ageMax: number }) => void;
+  /** Called with the full preference set the user chose. */
+  onContinue?: (values: PreferenceValues) => void;
   onSave?: () => void;
+  /**
+   * Leave the flow, shown as an ✕ in place of "Save".
+   *
+   * Set when this screen was entered from Home to finish a profile section: it
+   * is then the first step of its own trip, and the user needs a way back to
+   * where they came from.
+   */
+  onClose?: () => void;
+  /** Abandon the signup, shown as "Log out". */
+  onLogout?: () => void;
+  /** Seeds the form — e.g. the city picked at F7, or a previous visit's answers. */
+  initialValues?: Partial<PreferenceValues>;
   continueLoading?: boolean;
 }
 
 export function PreferencesScreen({
   onContinue,
   onSave,
+  onClose,
+  onLogout,
+  initialValues,
   continueLoading,
 }: PreferencesScreenProps) {
   const insets = useSafeAreaInsets();
 
-  // ── slider state ────────────────────────────────────────────────────────────
-  const [minAge, setMinAge] = useState(24);
-  const [maxAge, setMaxAge] = useState(30);
+  const [values, setValues] = useState<PreferenceValues>(() =>
+    withPreferenceDefaults(initialValues),
+  );
+  /**
+   * The stored preference has not been read yet.
+   *
+   * The fields are withheld until it has. They used to render immediately on the
+   * built-in defaults and then rewrite themselves when the fetch landed — the
+   * age range visibly changed under the user a moment after the screen opened,
+   * which reads as the app overriding a choice rather than finishing loading.
+   */
+  const [loading, setLoading] = useState(true);
 
-  // Pre-populate saved preferences when navigating back
+  const patch = (next: Partial<PreferenceValues>) =>
+    setValues(prev => ({ ...prev, ...next }));
+
+  // Pre-populate the saved age range when navigating back. Only age is on the
+  // profile today — `PUT /profile/me/preferences` takes nothing else — so the
+  // rest keeps whatever `initialValues` carried in.
   useEffect(() => {
-    getMyProfile().then(profile => {
-      const pref = profile.partnerPreference;
-      if (pref?.ageMin != null) setMinAge(pref.ageMin);
-      if (pref?.ageMax != null) setMaxAge(pref.ageMax);
-    }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    getMyProfile()
+      .then(profile => {
+        const pref = profile.partnerPreference;
+        if (pref?.ageMin != null || pref?.ageMax != null) {
+          // Something is stored, so the server is the answer — the whole set,
+          // not just the ages.
+          setValues(prev => ({ ...prev, ...preferencesFromApi(pref) }));
+          return;
+        }
+        // Nothing saved yet, so this is the first visit: open the range around
+        // the user's own age rather than leaving the fixed default, which can
+        // exclude their whole cohort. Still only a default — the steppers below
+        // are the answer, and this is what they start from.
+        const own = profile.dateOfBirth ? ageFromDob(profile.dateOfBirth) : null;
+        if (own == null) return;
+        setValues(prev => ({
+          ...prev,
+          ageMin: Math.max(AGE_FLOOR, own - AGE_SPAN_BELOW),
+          ageMax: Math.min(AGE_CEIL, own + AGE_SPAN_ABOVE),
+        }));
+      })
+      .catch(() => {
+        // Nothing stored, or the read failed: the defaults stand either way.
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const handleMinAge = (v: number) => {
-    setMinAge(v);
-    if (v > maxAge) { setMaxAge(v); }
-  };
-  const handleMaxAge = (v: number) => {
-    setMaxAge(v);
-    if (v < minAge) { setMinAge(v); }
-  };
-
-  // ── derived values ──────────────────────────────────────────────────────────
-  const liveCount = calcCount(minAge, maxAge);
-  const hint =
-    liveCount < 8
-      ? 'Narrow. Two more years usually adds nine profiles.'
-      : 'A healthy range. Introductions will come steadily.';
-  const ageLabel = `${minAge} to ${maxAge} years`;
-
-  // ── entrance animations (.an .d1/.d2/.d3) ──────────────────────────────────
+  // ── entrance animations (.an .d1/.d2) ──────────────────────────────────────
   const heading = useRise(70);
-  const field = useRise(150);
-  const liveCard = useRise(230);
+  const fields = useRise(150);
 
   useEffect(() => {
     const rise = ({ anim, delay }: ReturnType<typeof useRise>) =>
@@ -146,54 +199,9 @@ export function PreferencesScreen({
         easing: RISE_EASING,
         useNativeDriver: true,
       });
-    Animated.parallel([rise(heading), rise(field), rise(liveCard)]).start();
+    Animated.parallel([rise(heading), rise(fields)]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ── count pulse (scale 1 → 1.1 → 1 when liveCount changes) ─────────────────
-  const countScale = useRef(new Animated.Value(1)).current;
-  const prevCount = useRef(liveCount);
-
-  useEffect(() => {
-    if (prevCount.current === liveCount) { return; }
-    prevCount.current = liveCount;
-    countScale.stopAnimation();
-    Animated.sequence([
-      Animated.timing(countScale, {
-        toValue: 1.1,
-        duration: 100,
-        easing: Easing.bezier(0.2, 0.8, 0.3, 1),
-        useNativeDriver: true,
-      }),
-      Animated.timing(countScale, {
-        toValue: 1,
-        duration: 150,
-        easing: Easing.bezier(0.2, 0.8, 0.3, 1),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [liveCount, countScale]);
-
-  // ── sweep shimmer (3 s linear loop across the dark card) ───────────────────
-  const sweepAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(sweepAnim, {
-        toValue: 1,
-        duration: 3000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    ).start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Mirrors CSS: background-position -220px → 420px over 3 s
-  const sweepX = sweepAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-220, 420],
-  });
 
   // ── render ──────────────────────────────────────────────────────────────────
   return (
@@ -201,14 +209,7 @@ export function PreferencesScreen({
       <StatusBar barStyle="dark-content" />
       <AmbientBackground />
 
-      <View
-        style={[
-          styles.screen,
-          {
-            paddingTop: Math.max(insets.top, 16),
-            paddingBottom: Math.max(insets.bottom, 24),
-          },
-        ]}>
+      <View style={[styles.screen, { paddingTop: Math.max(insets.top, 16) }]}>
 
         {/* ── Progress nav bar ─────────────────────────────────────────── */}
         <View style={styles.nb}>
@@ -221,18 +222,27 @@ export function PreferencesScreen({
               style={styles.nbb}
             />
           </View>
-          <Pressable
-            onPress={onSave}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-            <Text style={styles.nbs}>Save</Text>
-          </Pressable>
+          {onClose || onLogout ? (
+            <OnboardingExit onClose={onClose} onLogout={onLogout} />
+          ) : (
+            <Pressable
+              onPress={onSave}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+              <Text style={styles.nbs}>Save</Text>
+            </Pressable>
+          )}
         </View>
 
-        {/* ── Body ─────────────────────────────────────────────────────── */}
-        <View style={styles.body}>
+        {/* ── Body — scrolls, the field set is taller than a phone ──────── */}
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
 
           {/* ── Question header (.q .an) ─────────────────────────────── */}
-          <Animated.View style={[styles.q, riseStyle(heading.anim)]}>
+          <Animated.View style={[styles.q, riseStyle(heading.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.qk}>Preferences</Text>
             <Text style={styles.qh}>Who are you{'\n'}hoping to meet?</Text>
             <Text style={styles.qs}>
@@ -240,101 +250,29 @@ export function PreferencesScreen({
             </Text>
           </Animated.View>
 
-          {/* ── Age range field (.field .an .d2) ─────────────────────── */}
-          <Animated.View style={[styles.field, riseStyle(field.anim)]}>
-            <Text style={styles.flab}>Age range</Text>
-            <Text style={styles.srowLabel}>{ageLabel}</Text>
-
-            <View style={styles.stepperRow}>
-              {/* Min age stepper */}
-              <View style={styles.stepperCol}>
-                <Text style={styles.stepperLabel}>Min</Text>
-                <View style={styles.stepper}>
-                  <Pressable
-                    style={({ pressed }) => [styles.stepBtn, pressed && styles.stepBtnPressed]}
-                    onPress={() => handleMinAge(Math.max(18, minAge - 1))}>
-                    <Text style={styles.stepBtnText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.stepValue}>{minAge}</Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.stepBtn, pressed && styles.stepBtnPressed]}
-                    onPress={() => handleMinAge(Math.min(55, minAge + 1))}>
-                    <Text style={styles.stepBtnText}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-
-              <View style={styles.stepperDivider} />
-
-              {/* Max age stepper */}
-              <View style={styles.stepperCol}>
-                <Text style={styles.stepperLabel}>Max</Text>
-                <View style={styles.stepper}>
-                  <Pressable
-                    style={({ pressed }) => [styles.stepBtn, pressed && styles.stepBtnPressed]}
-                    onPress={() => handleMaxAge(Math.max(18, maxAge - 1))}>
-                    <Text style={styles.stepBtnText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.stepValue}>{maxAge}</Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.stepBtn, pressed && styles.stepBtnPressed]}
-                    onPress={() => handleMaxAge(Math.min(60, maxAge + 1))}>
-                    <Text style={styles.stepBtnText}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
+          {/* ── The preference cards (.an .d2) ───────────────────────── */}
+          <Animated.View style={[styles.fields, riseStyle(fields.anim)]}
+            needsOffscreenAlphaCompositing>
+            {loading ? (
+              // The same stand-in the settings copy of this form uses, so the
+              // two screens breathe identically.
+              <PreferenceFieldsSkeleton />
+            ) : (
+              <PreferenceFields values={values} onChange={patch} />
+            )}
           </Animated.View>
-
-          {/* ── Live count card (.live-c .an .d3) ────────────────────── */}
-          <Animated.View style={riseStyle(liveCard.anim)}>
-            <LinearGradient
-              colors={[...GradientColors.vertDark]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.liveCard}>
-
-              {/* Sweep shimmer overlay (.live-c::after) */}
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.sweepWrap,
-                  { transform: [{ translateX: sweepX }] },
-                ]}>
-                <LinearGradient
-                  colors={[
-                    'transparent',
-                    'rgba(255,255,255,0.14)',
-                    'transparent',
-                  ]}
-                  locations={[0.3, 0.46, 0.62]}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={styles.sweep}
-                />
-              </Animated.View>
-
-              {/* Count number (.lcn) — pop animation on change */}
-              <Animated.Text
-                style={[
-                  styles.lcn,
-                  { transform: [{ scale: countScale }] },
-                ]}>
-                {liveCount}
-              </Animated.Text>
-
-              {/* Hint text (.lcl) */}
-              <Text style={styles.lcl}>{hint}</Text>
-            </LinearGradient>
-          </Animated.View>
-        </View>
+        </ScrollView>
 
         {/* ── Footer (.foot) ────────────────────────────────────────────── */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
           <GradientButton
             label="Continue"
+            // Inert until the stored preference has been read: continuing on the
+            // placeholder values would save the defaults over whatever the user
+            // had actually chosen.
+            variant={loading ? 'disabled' : 'primary'}
             loading={continueLoading}
-            onPress={() => onContinue?.({ narrow: liveCount === 0, ageMin: minAge, ageMax: maxAge })}
+            onPress={loading ? undefined : () => onContinue?.(values)}
           />
         </View>
       </View>
@@ -351,7 +289,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    paddingHorizontal: 16,
     flexDirection: 'column',
   },
 
@@ -359,6 +296,7 @@ const styles = StyleSheet.create({
   nb: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 12,
     gap: 14,
@@ -385,6 +323,10 @@ const styles = StyleSheet.create({
   // ── Body ─────────────────────────────────────────────────────────────────
   body: {
     flex: 1,
+  },
+  bodyContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
 
   // ── Question header (.q / .qk / .qh / .qs) ───────────────────────────────
@@ -421,130 +363,20 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ── Field card (.field / .flab / .srow) ──────────────────────────────────
-  field: {
+  loading: { paddingTop: 72, alignItems: 'center' },
+
+  // ── Field stack ───────────────────────────────────────────────────────────
+  fields: {
     marginTop: 16,
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: '#3C2878',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 3,
-  },
-  flab: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: Colors.ink3,
-  },
-  srowLabel: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: Colors.vioInk,
-    marginTop: 6,
-    marginBottom: 16,
-  },
-
-  // Stepper row — two columns side by side
-  stepperRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 0,
-  },
-  stepperCol: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepperLabel: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: Colors.ink3,
-  },
-  stepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.vioSoft,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  stepBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepBtnPressed: {
-    backgroundColor: 'rgba(155,123,240,0.18)',
-  },
-  stepBtnText: {
-    fontSize: 22,
-    fontWeight: '300',
-    color: Colors.vioInk,
-    lineHeight: 26,
-  },
-  stepValue: {
-    width: 40,
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.vioInk,
-    letterSpacing: -0.5,
-  },
-  stepperDivider: {
-    width: 1,
-    height: 44,
-    backgroundColor: 'rgba(155,123,240,0.15)',
-  },
-
-  // ── Live count card (.live-c / .lcn / .lcl) ───────────────────────────────
-  liveCard: {
-    marginTop: 12,
-    borderRadius: 24,
-    padding: 17,
-    alignItems: 'center',
-    overflow: 'hidden',
-    shadowColor: '#46308A',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.28,
-    shadowRadius: 30,
-    elevation: 12,
-  },
-  // Sweep shimmer overlay — translates across the card on a loop
-  sweepWrap: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 420,
-  },
-  sweep: {
-    flex: 1,
-  },
-  lcn: {
-    fontSize: 48,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: -1.8,
-    lineHeight: 48,
-    textShadowColor: 'rgba(0,0,0,0.16)',
-    textShadowOffset: { width: 0, height: 4 },
-    textShadowRadius: 18,
-  },
-  lcl: {
-    fontSize: 12.5,
-    color: '#DCD1FB',
-    marginTop: 9,
-    lineHeight: 19,
-    textAlign: 'center',
+    gap: 12,
   },
 
   // ── Footer (.foot) ────────────────────────────────────────────────────────
   footer: {
+    paddingHorizontal: 16,
     paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.line,
+    backgroundColor: Colors.page,
   },
 });

@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { getMyProfile, updateBasicIdentity } from '../../api/profile';
+import { Bone } from '../../components/ui/Skeleton';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -258,6 +259,13 @@ export function EditProfileScreen({ onBack, onCancel, onContinue }: EditProfileS
 
   const [maritalDisplay, setMaritalDisplay] = useState('');
   const [maritalOpen, setMaritalOpen]   = useState(false);
+  /**
+   * Fields this screen does not edit but the endpoint requires.
+   *
+   * `PUT /profile/me` is a full replace — it rejects a body without
+   * `countryCode` — so the stored value has to travel back out with the edits.
+   */
+  const [countryCode, setCountryCode]   = useState('');
 
   // ── load profile ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -270,6 +278,8 @@ export function EditProfileScreen({ onBack, onCancel, onContinue }: EditProfileS
           : profile.gender === 'FEMALE' ? 'Female'
           : '',
         );
+
+        setCountryCode(profile.countryCode ?? '');
 
         const parts = isoToParts(profile.dateOfBirth);
         setDobDayIdx(parts.dayIdx);
@@ -290,15 +300,28 @@ export function EditProfileScreen({ onBack, onCancel, onContinue }: EditProfileS
     setSaving(true);
     setError(null);
     try {
+      // The endpoint requires all four of these together. Anything still
+      // unknown means the profile has not loaded, so there is nothing to save
+      // yet — better to say so than to send a body the server will refuse.
+      const apiGender = gender === 'Male' ? 'MALE' : gender === 'Female' ? 'FEMALE' : null;
+      const apiMarital = maritalDisplay ? MARITAL_TO_API[maritalDisplay] : null;
+      const apiDob = dobDisplay ? partsToIso(dobDayIdx, dobMonthIdx, dobYearIdx) : null;
+      if (!apiGender || !apiMarital || !apiDob || !countryCode) {
+        setError('Some required details are missing. Reopen this screen and try again.');
+        setSaving(false);
+        return;
+      }
       await updateBasicIdentity({
         fullName: fullName.trim() || undefined,
-        dateOfBirth: dobDisplay ? partsToIso(dobDayIdx, dobMonthIdx, dobYearIdx) : undefined,
-        maritalStatus: maritalDisplay ? MARITAL_TO_API[maritalDisplay] : undefined,
+        gender: apiGender,
+        dateOfBirth: apiDob,
+        maritalStatus: apiMarital,
+        countryCode,
         heightCm: heightDisplay ? displayToCm(heightDisplay) : undefined,
       });
       onContinue?.();
-    } catch {
-      setError('Could not save. Please try again.');
+    } catch (err: any) {
+      setError(err?.message ?? 'Could not save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -320,9 +343,41 @@ export function EditProfileScreen({ onBack, onCancel, onContinue }: EditProfileS
   }
 
   if (loading) {
+    /**
+     * The form's own shape, not a centred spinner.
+     *
+     * The top bar is real — its title and back button need no data — so it
+     * stays, and only the fields below it are stood in for. That keeps the
+     * header from jumping into place when the profile lands.
+     */
     return (
-      <View style={[styles.root, { paddingTop: insets.top }, styles.center]}>
-        <ActivityIndicator color={C.rose} size="large" />
+      <View style={[styles.root, { paddingTop: insets.top }]}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.topBar}>
+          <Pressable style={styles.backBtn} onPress={onBack} hitSlop={10}>
+            <ChevLeft />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.topBarTitle}>Edit biodata</Text>
+            <Bone w={128} h={12} radius={6} style={{ marginTop: 4 }} />
+          </View>
+        </View>
+        <View style={[styles.scroll, { paddingTop: 4 }]}>
+          {/* Three cards of four labelled fields — the shape every section of
+              this form takes. */}
+          {[0, 1, 2].map(i => (
+            <View key={i} style={styles.card}>
+              <View style={styles.formPad}>
+                {[0, 1, 2, 3].map(j => (
+                  <View key={j} style={{ marginBottom: 16 }}>
+                    <Bone w={92} h={10} radius={5} />
+                    <Bone w={'100%'} h={44} radius={14} style={{ marginTop: 8 }} />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
     );
   }
