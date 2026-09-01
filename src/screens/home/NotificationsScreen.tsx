@@ -4,7 +4,7 @@
  * Toggle notification types on/off.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -14,6 +14,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreferences,
+} from '../../api/notifications';
 import Svg, { Path, Circle } from 'react-native-svg';
 
 const C = {
@@ -103,17 +108,21 @@ interface ToggleRowProps {
   on: boolean;
   onToggle: () => void;
   first?: boolean;
+  /** Inert while the real values are still loading. */
+  disabled?: boolean;
 }
 
-function ToggleRow({ icon, bg, title, subtitle, on, onToggle, first }: ToggleRowProps) {
+function ToggleRow({ icon, bg, title, subtitle, on, onToggle, first, disabled }: ToggleRowProps) {
   return (
-    <View style={[styles.li, first && styles.liFirst]}>
+    // Dimmed and inert until the server's values arrive: a switch that is
+    // showing a default rather than the real setting must not be flippable.
+    <View style={[styles.li, first && styles.liFirst, disabled && { opacity: 0.5 }]}>
       <View style={[styles.lic, { backgroundColor: bg }]}>{icon}</View>
       <View style={styles.lib}>
         <Text style={styles.lit}>{title}</Text>
         {subtitle ? <Text style={styles.lis}>{subtitle}</Text> : null}
       </View>
-      <Toggle on={on} onToggle={onToggle} />
+      <Toggle on={on} onToggle={disabled ? () => {} : onToggle} />
     </View>
   );
 }
@@ -122,14 +131,59 @@ interface NotificationsScreenProps {
   onBack?: () => void;
 }
 
+/**
+ * Server key behind each row.
+ *
+ * The server's names predate the app's proposal vocabulary — `newInterest` is a
+ * proposal arriving, `interestAccepted` is its status changing — and the server
+ * really does gate sends on these, so the labels have to map to them exactly.
+ */
+type PrefKey = keyof NotificationPreferences;
+
 export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
   const insets = useSafeAreaInsets();
 
-  const [newProposal, setNewProposal]     = useState(true);
-  const [proposalUpdate, setProposalUpdate] = useState(true);
-  const [waliAction, setWaliAction]       = useState(true);
-  const [newMessage, setNewMessage]       = useState(true);
-  const [appReminder, setAppReminder]     = useState(false);
+  /**
+   * Loaded from and written back to the server.
+   *
+   * These five were plain `useState(true)` with no API call anywhere in the
+   * file: every toggle reset on close, nothing reached the server, and the
+   * server was meanwhile gating notifications on values the user could not
+   * actually change.
+   */
+  const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getNotificationPreferences()
+      .then(p => { if (!cancelled) setPrefs(p); })
+      .catch(() => {
+        // Nothing is toggleable until the real values arrive; showing defaults
+        // would invite the user to "change" a setting that was never read.
+        if (!cancelled) setSaveError('Could not load your notification settings.');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Flip locally, persist, and roll back if the write fails.
+   *
+   * Optimistic because a switch that waits on a round-trip feels broken; rolled
+   * back because a switch that stays on after a failed save is a lie.
+   */
+  const toggle = (key: PrefKey) => async () => {
+    if (!prefs) return;
+    const next = !prefs[key];
+    setPrefs({ ...prefs, [key]: next });
+    setSaveError(null);
+    try {
+      await updateNotificationPreferences({ [key]: next });
+    } catch (e) {
+      setPrefs(prev => (prev ? { ...prev, [key]: !next } : prev));
+      setSaveError(e instanceof Error ? e.message : 'Could not save that change.');
+    }
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -146,6 +200,8 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
         contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom + 32, 40) }]}
         showsVerticalScrollIndicator={false}>
 
+        {!!saveError && <Text style={styles.saveError}>{saveError}</Text>}
+
         <SectionHeader label="Proposals" />
         <View style={styles.card}>
           <ToggleRow
@@ -153,8 +209,9 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
             bg="#FDECF2"
             title="New proposal received"
             subtitle="When someone sends you a proposal"
-            on={newProposal}
-            onToggle={() => setNewProposal(v => !v)}
+            on={!!prefs?.newInterest}
+            onToggle={toggle('newInterest')}
+            disabled={!prefs}
             first
           />
           <ToggleRow
@@ -162,8 +219,9 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
             bg="#FDECF2"
             title="Proposal status update"
             subtitle="Accepted, declined or withdrawn"
-            on={proposalUpdate}
-            onToggle={() => setProposalUpdate(v => !v)}
+            on={!!prefs?.interestAccepted}
+            onToggle={toggle('interestAccepted')}
+            disabled={!prefs}
           />
         </View>
 
@@ -174,8 +232,9 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
             bg={C.indSoft}
             title="Wali action required"
             subtitle="When your wali needs to review something"
-            on={waliAction}
-            onToggle={() => setWaliAction(v => !v)}
+            on={!!prefs?.waliApproval}
+            onToggle={toggle('waliApproval')}
+            disabled={!prefs}
             first
           />
         </View>
@@ -187,8 +246,9 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
             bg={C.mintSoft}
             title="New message"
             subtitle="In an active conversation"
-            on={newMessage}
-            onToggle={() => setNewMessage(v => !v)}
+            on={!!prefs?.newMessage}
+            onToggle={toggle('newMessage')}
+            disabled={!prefs}
             first
           />
         </View>
@@ -200,8 +260,9 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
             bg={C.goldSoft}
             title="Weekly reminder"
             subtitle="Nudge to check new introductions"
-            on={appReminder}
-            onToggle={() => setAppReminder(v => !v)}
+            on={!!prefs?.weeklyReminder}
+            onToggle={toggle('weeklyReminder')}
+            disabled={!prefs}
             first
           />
         </View>
@@ -211,6 +272,13 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  saveError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#A31C48',
+    paddingHorizontal: 4,
+    paddingBottom: 10,
+  },
   root: { flex: 1, backgroundColor: C.page },
   topBar: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

@@ -1,8 +1,8 @@
 /**
  * notificationChannel — shared Supabase Realtime channel singleton
  *
- * All three notification hooks (useHomeSocket, useProposalsSocket,
- * useChatListSocket) subscribe to the same backend channel
+ * All three notification hooks (useHomeRealtime, useProposalsRealtime,
+ * useChatListRealtime) subscribe to the same backend channel
  * `notifications:{userId}` but listen for different broadcast events.
  * This module maintains one Supabase channel for all three, rebuilding
  * it only when the userId changes.
@@ -14,7 +14,11 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
-type NotifEvent = 'stats:stale' | 'proposals:stale' | 'chats:stale';
+type NotifEvent =
+  | 'stats:stale'
+  | 'proposals:stale'
+  | 'chats:stale'
+  | 'notifications:new';
 
 // ─── module-level singleton ───────────────────────────────────────────────────
 let _channel: RealtimeChannel | null = null;
@@ -25,6 +29,7 @@ const _handlers: Record<NotifEvent, Set<() => void>> = {
   'stats:stale':     new Set(),
   'proposals:stale': new Set(),
   'chats:stale':     new Set(),
+  'notifications:new': new Set(),
 };
 
 function _createChannel(userId: string): RealtimeChannel {
@@ -35,6 +40,9 @@ function _createChannel(userId: string): RealtimeChannel {
     })
     .on('broadcast', { event: 'proposals:stale' }, () => {
       _handlers['proposals:stale'].forEach(h => h());
+    })
+    .on('broadcast', { event: 'notifications:new' }, () => {
+      _handlers['notifications:new'].forEach(h => h());
     })
     .on('broadcast', { event: 'chats:stale' }, () => {
       _handlers['chats:stale'].forEach(h => h());
