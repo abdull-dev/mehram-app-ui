@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { Bone, DarkBone } from '../ui/Skeleton';
 import type {
   ProfileCompletion,
   ProfileSectionKey,
@@ -42,6 +43,9 @@ const ONBOARDING_SCREENS = [
   'WhoIsFor', 'F6', 'F7', 'F8', 'F10',
   'F11', 'F12', 'F13', 'F14', 'F15', 'F16', 'F17', 'F18',
 ];
+
+/** Bone widths for the skeleton rows — see the comment at their use site. */
+const SKELETON_LABEL_W = [104, 92, 78, 116, 84, 132, 96];
 
 const SECTIONS = [
   { label: 'Basic identity',      doneFrom: 1, required: true  }, // past WhoIsFor
@@ -186,6 +190,17 @@ interface ProfileIncompleteBlockProps {
    * request has not landed.
    */
   completion?: ProfileCompletion;
+  /**
+   * The section report is still in flight.
+   *
+   * Distinct from `!completion`, which also covers the request having failed.
+   * Rendering the `resumeScreen` guess while the real answer is on its way is
+   * what made the first section appear done and then un-tick itself a moment
+   * later: the marker sits past a section as soon as onboarding walked through
+   * it, whether or not anything was saved. A skeleton says "still loading"
+   * without asserting something the server is about to contradict.
+   */
+  loading?: boolean;
 }
 
 export function ProfileIncompleteBlock({
@@ -193,8 +208,14 @@ export function ProfileIncompleteBlock({
   resumeScreen = 'WhoIsFor',
   userName = '',
   completion,
+  loading = false,
 }: ProfileIncompleteBlockProps) {
   const insets = useSafeAreaInsets();
+
+  // Only before the first answer. A background refresh keeps the real rows on
+  // screen — swapping them back to bones on every Home focus would flicker
+  // worse than the bug this replaces.
+  const showSkeleton = loading && !completion;
 
   const steps = completion
     ? stepsFromCompletion(completion)
@@ -208,7 +229,9 @@ export function ProfileIncompleteBlock({
 
   // All sections complete — nothing to show; caller's onboardingComplete
   // flag may lag behind (e.g. DB write in flight), so guard here too.
-  if (doneCount === total) return null;
+  // Not while loading: `steps` is the fallback guess then, and a guess that
+  // happens to read as complete would blank the screen instead of waiting.
+  if (!showSkeleton && doneCount === total) return null;
 
   return (
     <View style={styles.root}>
@@ -255,14 +278,29 @@ export function ProfileIncompleteBlock({
 
           {/* progress bar */}
           <View style={styles.hbar}>
-            <View style={[styles.hbarFill, { width: `${pct}%` as any }]} />
+            {!showSkeleton && (
+              <View style={[styles.hbarFill, { width: `${pct}%` as any }]} />
+            )}
           </View>
-          <Text style={styles.hnote}>{doneCount} of {total} sections complete</Text>
+          {showSkeleton
+            ? <DarkBone w={132} h={11} radius={4} style={styles.hnoteBone} />
+            : <Text style={styles.hnote}>{doneCount} of {total} sections complete</Text>}
         </View>
 
         {/* ── Steps card ────────────────────────────────────────────── */}
         <View style={styles.stepsCard}>
-          {steps.map((step, i) => (
+          {showSkeleton
+            ? SECTIONS.map((_, i) => (
+                <View key={i} style={styles.st}>
+                  <Bone w={30} h={30} radius={15} />
+                  <View style={styles.stBody}>
+                    {/* Staggered widths so the rows read as a list of
+                        different labels rather than a striped block. */}
+                    <Bone w={SKELETON_LABEL_W[i % SKELETON_LABEL_W.length]} h={13} radius={5} />
+                  </View>
+                </View>
+              ))
+            : steps.map((step, i) => (
             <View key={i} style={styles.st}>
 
               {/* circle indicator */}
@@ -402,6 +440,8 @@ const styles = StyleSheet.create({
     color: '#B5A9E4',
     marginTop: 8,
   },
+  // Same offset as `hnote` so the row does not shift when the count lands.
+  hnoteBone: { marginTop: 8 },
 
   // ── Steps card — .card{background:#fff;border-radius:26px;box-shadow:0 3px 14px rgba(40,30,80,.055)}
   // inner padding from HTML: style="padding:6px 19px 12px"

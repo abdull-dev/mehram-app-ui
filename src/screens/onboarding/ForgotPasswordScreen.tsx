@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { e164Problem } from '../../utils/phone';
 import {
   forgotPassword,
   resetPassword,
@@ -106,10 +107,9 @@ export function ForgotPasswordScreen({
       return null;
     }
     if (!target) return 'Enter your phone number.';
-    if (!/^\+[1-9]\d{7,14}$/.test(target)) {
-      return 'Use the international format, e.g. +923001234567.';
-    }
-    return null;
+    // The generic E.164 shape accepted numbers no country actually issues, so
+    // a typo here cost an SMS that could never arrive.
+    return e164Problem(target);
   }
 
   async function sendCode(isResend = false) {

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { MEMBERSHIP_PRICE_FALLBACK } from '../../api/billing';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -148,6 +149,16 @@ function ListItem({ icon, bg, title, subtitle, first, onPress }: ListItemProps) 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface MembershipScreenProps {
   onBack?: () => void;
+  /**
+   * Google Play's own localised price.
+   *
+   * This screen had the price written into it as a literal, with no way for the
+   * store's answer to reach it — so it quoted PKR 4,500 whatever the user was
+   * actually charged, including in another currency. It is reached from the
+   * paywall's "What do I get?", where quoting a different number from the page
+   * the user just came from is the visible half of that.
+   */
+  priceLabel?: string | null;
   /** Omitted while no receipt endpoint exists — the row hides itself. */
   onEmailReceipt?: () => void;
   onRequestRefund?: () => void | Promise<void>;
@@ -159,6 +170,7 @@ interface MembershipScreenProps {
 // ─── screen ───────────────────────────────────────────────────────────────────
 export function MembershipScreen({
   onBack,
+  priceLabel,
   onEmailReceipt,
   onRequestRefund,
   refundNotice,
@@ -185,7 +197,7 @@ export function MembershipScreen({
         {/* Main membership card */}
         <View style={styles.card}>
           <View style={styles.amountWrap}>
-            <Text style={styles.amount}>PKR 4,500</Text>
+            <Text style={styles.amount}>{priceLabel ?? MEMBERSHIP_PRICE_FALLBACK}</Text>
             <Text style={styles.amountSub}>Paid in full · no renewal</Text>
           </View>
           <View style={styles.rows}>

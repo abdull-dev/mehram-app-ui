@@ -24,7 +24,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
-import { City } from 'country-state-city';
+import { useCityNames } from '../../hooks/useCities';
+import { Bone } from '../../components/ui/Skeleton';
 import { Colors } from '../../theme/colors';
 
 // ─── gradients ────────────────────────────────────────────────────────────────
@@ -249,19 +250,33 @@ interface CityPickerProps {
   onDone: (cities: string[]) => void;
 }
 
+/** Stand-in for the tail of the city list while the dataset loads. */
+function CityRowsSkeleton() {
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel="Loading cities">
+      <Text style={styles.pickerSection}>All Pakistan cities</Text>
+      {[132, 96, 148, 110, 124, 88].map((w, i) => (
+        <View key={i} style={styles.cityRow}>
+          <Bone w={w} h={14} radius={7} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function CityPickerModal({ visible, selected, includeOverseas, onClose, onDone }: CityPickerProps) {
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<string[]>(selected);
   const [query, setQuery] = useState('');
 
-  // All PK cities from country-state-city, minus popular ones (shown separately)
-  const allPkCities = useMemo(() => {
-    const raw = City.getCitiesOfCountry('PK') ?? [];
-    return raw
-      .map(c => c.name)
-      .filter(n => !POPULAR_PK_CITIES.includes(n))
-      .sort();
-  }, []);
+  // All PK cities minus the popular ones, which are shown separately.
+  // Only while the picker is open: the city dataset is 8MB and arrives in one
+  // blocking chunk, and this modal stays mounted while closed.
+  const { names, loading: citiesLoading } = useCityNames('PK', visible);
+  const allPkCities = useMemo(
+    () => names.filter(n => !POPULAR_PK_CITIES.includes(n)),
+    [names],
+  );
 
   function toggle(name: string) {
     setDraft(prev =>
@@ -352,6 +367,7 @@ function CityPickerModal({ visible, selected, includeOverseas, onClose, onDone }
             );
           }}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+          ListFooterComponent={citiesLoading ? <CityRowsSkeleton /> : undefined}
         />
 
         {/* Done button */}

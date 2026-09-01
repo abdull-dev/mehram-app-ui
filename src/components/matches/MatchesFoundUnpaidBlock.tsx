@@ -12,13 +12,22 @@
  *   │  Each one meets your criteria…   │
  *   └──────────────────────────────────┘
  *   ┌──────────────────────────────────┐
- *   │  What we found                   │
- *   │  9   in Lahore, 3 Karachi…       │
- *   │  11  Sunni (Hanafi)              │
- *   │  12  bachelor's degree or above  │
- *   │  8   have a wali registered      │
- *   │  24–29  age range                │
+ *   │  What's left                     │
+ *   │  1   Verify your profile         │  ← only while unverified
+ *   │  2   Become a member             │
  *   └──────────────────────────────────┘
+ *
+ * That card used to be five hardcoded stat rows — "9 in Lahore, 3 Karachi, 2
+ * overseas", "11 Sunni (Hanafi)", "12 bachelor's degree or above", "8 have a
+ * wali registered", "24-29 age range". Every figure was invented and none of
+ * them moved: the same five lines rendered for every user on every account,
+ * beside a `matchCount` that was real. There is no endpoint behind them either
+ * — `/matches/home-state` carries matchCount, city, completion, isPaid and
+ * verification, and `/matches/stats` returns matches/interests/chats — so
+ * nothing could be wired up to make them true.
+ *
+ * What replaces them is the part the user can act on, built from state the
+ * server actually reports.
  *   ┌──────────────────────────────────┐
  *   │  Unlock your introductions       │
  *   │  You'll receive up to three…     │
@@ -41,6 +50,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { MEMBERSHIP_PRICE_FALLBACK } from '../../api/billing';
 import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── gradients ────────────────────────────────────────────────────────────────
@@ -63,19 +73,58 @@ function ShieldIcon({ size = 14, color = '#9F94D0' }: { size?: number; color?: s
   );
 }
 
-// ─── stat row ─────────────────────────────────────────────────────────────────
-interface StatRowProps {
-  value: string;
-  label: string;
-  first?: boolean;
+function CheckIcon({ size = 13, color = '#fff' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M20 6L9 17l-5-5" stroke={color} strokeWidth={3}
+        strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
 }
 
-function StatRow({ value, label, first = false }: StatRowProps) {
+function ChevronIcon({ color = Colors.ink3 }: { color?: string }) {
   return (
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+      <Path d="M9 6l6 6-6 6" stroke={color} strokeWidth={2}
+        strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** One outstanding step. `n` is its position, or a tick once it is done. */
+function StepRow({
+  n,
+  label,
+  detail,
+  first = false,
+  done = false,
+  onPress,
+}: {
+  n: number;
+  label: string;
+  detail?: string;
+  first?: boolean;
+  done?: boolean;
+  onPress?: () => void;
+}) {
+  const body = (
     <View style={[styles.statRow, !first && styles.statRowBorder]}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <View style={[styles.stepDot, done ? styles.stepDotDone : styles.stepDotNext]}>
+        {done ? <CheckIcon /> : <Text style={styles.stepNum}>{n}</Text>}
+      </View>
+      <View style={styles.stepBody}>
+        <Text style={styles.stepLabel}>{label}</Text>
+        {detail ? <Text style={styles.stepDetail}>{detail}</Text> : null}
+      </View>
+      {onPress && !done ? <ChevronIcon /> : null}
     </View>
+  );
+  return onPress && !done ? (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      {body}
+    </Pressable>
+  ) : (
+    body
   );
 }
 
@@ -88,13 +137,27 @@ interface MatchesFoundUnpaidBlockProps {
   userName?: string;
   /** Google Play's localised price; falls back to the static figure. */
   priceLabel?: string | null;
+  /**
+   * Whether identity verification has been approved.
+   *
+   * This card is reachable unverified — the server's WALI_REQUIRED state falls
+   * through to it whenever the account is unpaid and has matches, and it does
+   * not imply verification. Unverified, the old copy claimed the search was
+   * complete and offered membership as the only thing standing in the way,
+   * which was two steps short of true.
+   */
+  verified?: boolean;
+  /** Opens the verification flow from the step row. */
+  onStartVerification?: () => void;
 }
 
 export function MatchesFoundUnpaidBlock({
-  matchCount = 14,
+  matchCount = 0,
   onBecomeAMember,
   userName = '',
   priceLabel,
+  verified = true,
+  onStartVerification,
 }: MatchesFoundUnpaidBlockProps) {
   const insets = useSafeAreaInsets();
 
@@ -130,31 +193,52 @@ export function MatchesFoundUnpaidBlock({
           pointerEvents="none"
         />
 
-          {/* Green pulse dot + label */}
+          {/* Dot + label. Amber, not green, while something is still outstanding:
+              a green "Search Complete" over an unverified account reads as
+              "nothing left to do" when in fact nothing can be delivered yet. */}
           <View style={styles.heroTop}>
-            <View style={styles.greenpulse} />
-            <Text style={styles.heroLabel}>Search Complete</Text>
+            <View style={verified ? styles.greenpulse : styles.amberpulse} />
+            <Text style={styles.heroLabel}>
+              {verified ? 'Search Complete' : 'Verification Needed'}
+            </Text>
           </View>
 
+          {/* The count is the one figure here the server actually reports. */}
           <Text style={styles.heroHeading}>
-            We found {matchCount}{'\n'}suitable profiles
+            We found {matchCount}{'\n'}suitable {matchCount === 1 ? 'profile' : 'profiles'}
           </Text>
 
           <Text style={styles.heroPara}>
-            Each one meets your criteria, and you meet theirs.
+            {verified
+              ? 'Each one meets your criteria, and you meet theirs.'
+              : 'Each one meets your criteria. Verify your profile to be introduced to them.'}
           </Text>
         </View>
 
-        {/* ── What we found card ────────────────────────────────────── */}
-        <View style={styles.foundCard}>
-          <Text style={styles.foundTitle}>What we found</Text>
+        {/* ── What's left card ──────────────────────────────────────────
+            Only while unverified. Verified, the sole remaining step is
+            membership — and the card below already states it with the price,
+            the guarantee and the CTA, so a one-row list above it is the same
+            sentence twice. */}
+        {!verified && (
+          <View style={styles.foundCard}>
+            <Text style={styles.foundTitle}>What's left</Text>
 
-          <StatRow first value="9" label="in Lahore, 3 Karachi, 2 overseas" />
-          <StatRow value="11" label="Sunni (Hanafi)" />
-          <StatRow value="12" label="bachelor's degree or above" />
-          <StatRow value="8" label="have a wali registered" />
-          <StatRow value="24–29" label="age range" />
-        </View>
+            <StepRow
+              first
+              n={1}
+              label="Verify your profile"
+              detail="Confirms you are a real person before anyone is introduced."
+              onPress={onStartVerification}
+            />
+            <StepRow
+              n={2}
+              label="Become a member"
+              detail={`${priceLabel ?? MEMBERSHIP_PRICE_FALLBACK} — one payment, no renewal.`}
+              onPress={onBecomeAMember}
+            />
+          </View>
+        )}
 
         {/* ── Payment card ──────────────────────────────────────────── */}
         <View style={styles.payCard}>
@@ -178,7 +262,7 @@ export function MatchesFoundUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>{priceLabel ?? 'PKR 4,500'}</Text>
+            <Text style={styles.payPrice}>{priceLabel ?? MEMBERSHIP_PRICE_FALLBACK}</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 
@@ -257,6 +341,19 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  // The unverified counterpart of the dot above.
+  amberpulse: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#F5B23D',
+    shadowColor: '#F5B23D',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+
   heroLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -314,19 +411,41 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.line,
   },
 
-  statValue: {
-    fontSize: 17,
+
+
+  // ── step rows ──────────────────────────────────────────────────────────────
+  // Same row geometry as StatRow above, so the two read as one card style.
+  stepDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
+  stepDotNext: { backgroundColor: Colors.roseD },
+  stepDotDone: { backgroundColor: Colors.mint },
+
+  stepNum: {
+    fontSize: 13,
     fontWeight: '700',
-    color: Colors.ink,
-    letterSpacing: -0.3,
-    minWidth: 42,
+    color: '#fff',
   },
 
-  statLabel: {
-    fontSize: 13,
+  stepBody: { flex: 1 },
+
+  stepLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.ink,
+    letterSpacing: -0.1,
+  },
+
+  stepDetail: {
+    fontSize: 12.5,
     color: Colors.ink2,
-    flex: 1,
-    lineHeight: 19,
+    lineHeight: 18,
+    marginTop: 2,
   },
 
   // ── Payment card ──────────────────────────────────────────────────────────

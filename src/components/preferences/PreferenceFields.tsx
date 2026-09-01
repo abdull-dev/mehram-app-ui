@@ -29,7 +29,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
-import { City } from 'country-state-city';
+import { useCityNames } from '../../hooks/useCities';
 import { Colors } from '../../theme/colors';
 import { formatHeight } from '../../utils/height';
 import type {
@@ -397,6 +397,20 @@ function ToggleRow({
 }
 
 // ─── City picker modal ────────────────────────────────────────────────────────
+/** Stand-in for the tail of the city list while the dataset loads. */
+function CityRowsSkeleton() {
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel="Loading cities">
+      <Text style={styles.pickerSection}>All Pakistan cities</Text>
+      {[132, 96, 148, 110, 124, 88].map((w, i) => (
+        <View key={i} style={styles.cityRow}>
+          <Bone w={w} h={14} radius={7} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 interface CityPickerProps {
   visible: boolean;
   selected: string[];
@@ -419,13 +433,15 @@ function CityPickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const allPkCities = useMemo(() => {
-    const raw = City.getCitiesOfCountry('PK') ?? [];
-    return raw
-      .map(c => c.name)
-      .filter(n => !POPULAR_PK_CITIES.includes(n))
-      .sort();
-  }, []);
+  // Only while the picker is open, and never during render: the city dataset is
+  // 8MB and arrives in one blocking chunk. This modal stays mounted while
+  // closed, so loading it eagerly froze whichever screen rendered the form —
+  // long enough for the preferences step to swallow a tap on Continue.
+  const { names, loading: citiesLoading } = useCityNames('PK', visible);
+  const allPkCities = useMemo(
+    () => names.filter(n => !POPULAR_PK_CITIES.includes(n)),
+    [names],
+  );
 
   function toggle(name: string) {
     setDraft(prev =>
@@ -503,6 +519,11 @@ function CityPickerModal({
             );
           }}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+          ListFooterComponent={
+            // Popular cities are a static list and show at once; the full list
+            // follows, so the wait belongs at the bottom of it.
+            citiesLoading ? <CityRowsSkeleton /> : undefined
+          }
         />
         <View style={[styles.pickerFooter, { paddingBottom: insets.bottom + 16 }]}>
           <Pressable

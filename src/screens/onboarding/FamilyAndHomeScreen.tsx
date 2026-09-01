@@ -28,6 +28,9 @@
  *   │                                 │
  *   │  OWN A CAR                      │
  *   │  [Yes ✓]  [No]                  │
+ *   │                                 │
+ *   │  FAMILY TYPE                    │
+ *   │  [Joint family ✓] [Nuclear…]    │
  *   ├─────────────────────────────────┤
  *   │  [        Continue        ]     │
  *   └─────────────────────────────────┘
@@ -92,7 +95,31 @@ function riseStyle(anim: Animated.Value) {
 // ─── option arrays (referenced by both the pre-populate effect and the save handler)
 const HOUSING_OPTIONS      = ['Owned house', 'Owned flat', 'Rented', 'Family home'];
 const MARRIAGE_OPTIONS     = ['Joint family', 'Separate home', 'Not decided'];
-const FAMILY_TYPE_OPTIONS  = ['Nuclear', 'Extended', 'Joint'];
+
+/**
+ * Household setup, in the terms Pakistani families actually use.
+ *
+ * "Extended" used to sit between these two and meant nothing here: in Pakistan
+ * the distinction families draw is joint or separate — a household shared with
+ * parents and brothers' families, or one that is not — and "extended" is a
+ * Western sociology term for the same joint arrangement. It also could not be
+ * saved: the server's FamilyType is NUCLEAR or JOINT, so "Extended" was stored
+ * as JOINT and the chip silently moved to "Joint" when the form was reopened.
+ *
+ * Joint leads because it is the more common arrangement here, matching the
+ * default of "After marriage" directly above.
+ */
+export const FAMILY_TYPE_OPTIONS = ['Joint family', 'Nuclear family'];
+
+const FAMILY_TYPE_HINT =
+  'Joint — parents, brothers and their families in one household. ' +
+  'Nuclear — parents and unmarried children only.';
+
+/** Which chip a saved FamilyType corresponds to. */
+const FAMILY_TYPE_FROM_API: Record<string, string> = {
+  JOINT: 'Joint family',
+  NUCLEAR: 'Nuclear family',
+};
 
 // ─── component ────────────────────────────────────────────────────────────────
 export interface FamilyAndHomeData {
@@ -131,7 +158,7 @@ export function FamilyAndHomeScreen({
   // ── form state ──────────────────────────────────────────────────────────────
   const [housing, setHousing] = useState(0);       // Owned house
   const [afterMarriage, setAfterMarriage] = useState(0); // Joint family
-  const [familyType, setFamilyType] = useState(0); // Nuclear
+  const [familyType, setFamilyType] = useState(0); // Joint family
   const [brothers, setBrothers] = useState('');
   const [sisters, setSisters]   = useState('');
   const [fatherOcc, setFatherOcc] = useState('');
@@ -195,11 +222,7 @@ export function FamilyAndHomeScreen({
         setOwnsCar(fb.hasVehicle ? 0 : 1);
       }
       if (fb.familyType) {
-        const fromApi: Record<string, string> = {
-          NUCLEAR: 'Nuclear',
-          JOINT: 'Joint',
-        };
-        const label = fromApi[fb.familyType] ?? fb.familyType;
+        const label = FAMILY_TYPE_FROM_API[fb.familyType] ?? fb.familyType;
         const idx = FAMILY_TYPE_OPTIONS.indexOf(label);
         if (idx !== -1) setFamilyType(idx);
       }
@@ -336,6 +359,7 @@ export function FamilyAndHomeScreen({
               options={FAMILY_TYPE_OPTIONS}
               value={familyType}
               onChange={setFamilyType}
+              hint={FAMILY_TYPE_HINT}
             />
           </Animated.View>
         </ScrollView>

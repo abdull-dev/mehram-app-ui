@@ -25,6 +25,8 @@ import {
   submitFaceVerification,
   submitCnicVerification,
 } from './src/api/verification';
+import { LOGO_SOURCE } from './src/assets/logo';
+import { INITIAL_SAFE_AREA_METRICS } from './src/lib/safeAreaMetrics';
 import { resolvePhotoUrl } from './src/api/config';
 import { getWaliMe, removeWard, getWardIntroductions, getWardDiscovery, getWardProposals, getWardReceivedProposals, sendWardProposal, updateWaliDetails, toKinship, approveProposal, declineProposal } from './src/api/wali';
 import type { WardProposal, WardReceivedProposal } from './src/api/wali';
@@ -42,6 +44,7 @@ import {
   getUnfinishedPurchases,
   initIap,
   isAlreadyOwned,
+  isStoreError,
   isUserCancelled,
   type StorePurchaseRecord,
 } from './src/lib/iap';
@@ -98,6 +101,10 @@ function byNewestMessage(
  * were already being missed at all four.
  */
 async function signOutAndClearCaches(): Promise<void> {
+  // Before `logout()`: unregistering is an authenticated call, and once the
+  // tokens are gone the row cannot be removed — leaving this handset receiving
+  // the previous user's proposals until FCM happens to rotate its token.
+  await unregisterPushToken();
   try {
     await logout();
   } catch {
@@ -110,6 +117,14 @@ async function signOutAndClearCaches(): Promise<void> {
 const WALI_LOCAL_PROPOSALS_KEY = '@mehram_wali_local_proposals';
 import { useProposalsRealtime } from './src/hooks/useProposalsRealtime';
 import { useChatListRealtime } from './src/hooks/useChatListRealtime';
+import {
+  registerPushToken,
+  subscribeToForegroundMessages,
+  subscribeToNotificationTaps,
+  subscribeToTokenRefresh,
+  unregisterPushToken,
+  type PushData,
+} from './src/lib/push';
 import { useNotificationsRealtime } from './src/hooks/useNotificationsRealtime';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WelcomeScreen } from './src/screens/onboarding/WelcomeScreen';
@@ -296,8 +311,14 @@ function ScreenTransition({ direction, children }: TransitionProps) {
 }
 
 // ─── app ──────────────────────────────────────────────────────────────────────
-export default function App() {
-  const [screen, setScreen]     = useState<Screen>('F1');
+/**
+ * `initialScreen` lets the web build open on a specific screen — the marketing
+ * site's "Log in" and "Sign up" buttons land on the sign-in and create-account
+ * role pickers rather than on the welcome carousel. Nothing passes it on iOS or
+ * Android, where the app always starts at the beginning.
+ */
+export default function App({ initialScreen }: { initialScreen?: Screen } = {}) {
+  const [screen, setScreen]     = useState<Screen>(initialScreen ?? 'F1');
   const [activeTab, setActiveTab] = useState<'home' | 'proposals' | 'chats' | 'family'>('home');
   const [phone, setPhone]           = useState('');
   const [phoneE164, setPhoneE164]   = useState('');
@@ -567,6 +588,14 @@ export default function App() {
   const [profileCompletion, setProfileCompletion] = useState<
     ProfileCompletion | undefined
   >(undefined);
+  /**
+   * The section report is being fetched.
+   *
+   * `profileCompletion === undefined` cannot carry this on its own: it is also
+   * what a failed request leaves behind, and the two need opposite treatment —
+   * wait for the first, fall back to `resumeScreen` for the second.
+   */
+  const [profileCompletionLoading, setProfileCompletionLoading] = useState(false);
   /** Address the verification status has already been fetched for, so a
    *  refetch does not put the rows back behind a skeleton. */
   const loadedStatusForRef = useRef('');
@@ -825,6 +854,16 @@ export default function App() {
     try {
       const { state, data } = await getHomeState();
 
+      /**
+       * Paid, as the server reports it.
+       *
+       * Read once here, at the single point that resolves the home state,
+       * rather than at each card: the branches below all consult it, and
+       * overriding one and not another is how a screen ends up claiming a
+       * membership another screen denies.
+       */
+      const isPaid = data.isPaid;
+
       // Refreshed on the same signal as everything else here, so the badge
       // tracks answered requests without its own fetch or subscription.
       setPhotoRequestsBadge(data.incomingPhotoRequests ?? 0);
@@ -857,12 +896,15 @@ export default function App() {
         case 'RESUBMIT_REQUIRED':
         case 'UNDER_REVIEW_UNPAID':
         case 'UNDER_REVIEW_PAID':
-          if (data.isPaid) flags.underReviewPaid = true;
+          if (isPaid) flags.underReviewPaid = true;
           else flags.underReviewUnpaid = true;
           break;
 
         case 'MATCHES_FOUND_UNPAID':
-          flags.proposalsReadyUnpaid = true;
+          // The paywall card, unless this device is standing in for a payment —
+          // in which case the state it would have reached is the search itself.
+          if (isPaid) flags.introductionAvailable = true;
+          else flags.proposalsReadyUnpaid = true;
           break;
 
         // Verified and searching, but nobody to show right now.
@@ -892,11 +934,20 @@ export default function App() {
           flags.profileIncomplete = true;
           break;
 
-        // Verified and paid, but nobody is guarding: discovery excludes them
-        // and the server refuses their proposals, so showing a live search
-        // would describe one they are not part of.
+        // Verified, but nobody is guarding: discovery excludes them and the
+        // server refuses their proposals, so showing a live search would
+        // describe one they are not part of.
+        //
+        // Only for a paid account. The card tells the user their membership is
+        // active and that a wali is the one thing left — for someone who has not
+        // paid, the first half is false and the second is the wrong ask: the
+        // membership is what stands between them and an introduction, and adding
+        // a wali would not change that. Unpaid falls to the same two cards as
+        // every other unpaid state, chosen the same way.
         case 'WALI_REQUIRED':
-          flags.waliRequired = true;
+          if (isPaid) flags.waliRequired = true;
+          else if (data.matchCount > 0) flags.proposalsReadyUnpaid = true;
+          else flags.underReviewUnpaid = true;
           break;
 
         // Account-level states the home screen has no card for. Showing the
@@ -904,7 +955,7 @@ export default function App() {
         case 'SUSPENDED':
         case 'DELETION_PENDING':
         default:
-          if (data.isPaid) flags.underReviewPaid = true;
+          if (isPaid) flags.underReviewPaid = true;
           else flags.underReviewUnpaid = true;
           break;
       }
@@ -940,7 +991,7 @@ export default function App() {
           : undefined,
       );
       setVerificationApproved(data.verification.status === 'APPROVED');
-      setIsPaidMember(data.isPaid);
+      setIsPaidMember(isPaid);
       setMatchCount(data.matchCount);
       setPaymentFailed(flags.paymentFailed);
       setUnderReviewUnpaid(flags.underReviewUnpaid);
@@ -966,13 +1017,17 @@ export default function App() {
       // server says the profile is short. A failure here leaves the card on
       // its `resumeScreen` fallback rather than blanking the screen.
       if (flags.profileIncomplete) {
+        setProfileCompletionLoading(true);
         try {
           setProfileCompletion(await getProfileCompletion());
         } catch {
           setProfileCompletion(undefined);
+        } finally {
+          setProfileCompletionLoading(false);
         }
       } else {
         setProfileCompletion(undefined);
+        setProfileCompletionLoading(false);
       }
       setHomeStateLoaded(true);
     } catch {
@@ -994,6 +1049,10 @@ export default function App() {
   // sign-in would show the old user's card for a moment.
   useEffect(() => {
     setHomeStateLoaded(false);
+    // The section report belongs to the signed-in user, so a new one starts
+    // with no answer and a request on the way — not with the last user's.
+    setProfileCompletion(undefined);
+    setProfileCompletionLoading(true);
   }, [userId]);
 
   /**
@@ -1170,6 +1229,92 @@ export default function App() {
   // The bell badge, live: the server broadcasts the moment a notification row
   // is created, so it never sits stale behind a manual refresh.
   useNotificationsRealtime(userId, refreshNotificationCount);
+
+  /**
+   * A tap on a push, from either state that produces one.
+   *
+   * Routed off the payload the server attaches in `notifications.listener.ts`,
+   * whose keys are per-type: MESSAGE_RECEIVED carries `matchId` (not a
+   * conversation id — the chat list is what maps one to the other), while a
+   * proposal event carries `matchId` or `fromUserId` and only needs the tab.
+   */
+  const openFromPush = useCallback((data: PushData) => {
+    switch (data.type) {
+      case 'MESSAGE_RECEIVED': {
+        const chat = data.matchId
+          ? chatsRef.current.find(c => c.matchId === data.matchId)
+          : undefined;
+        if (chat) {
+          setActiveChatId(chat.id);
+          navigate('ChatThread');
+        } else {
+          // Tapped from a cold start, before the chat list exists. Remember it
+          // and let the effect below open the thread once the list lands —
+          // dropping the user on the list screen would make the notification
+          // feel like it had lost the message it was announcing.
+          if (data.matchId) pendingPushMatchId.current = data.matchId;
+          setActiveTab('chats');
+          navigate('Chats');
+        }
+        break;
+      }
+      case 'MATCH_CREATED':
+      case 'INTEREST_RECEIVED':
+        setActiveTab('proposals');
+        navigate('Home');
+        break;
+      case 'WALI_APPROVAL_NEEDED':
+      case 'WALI_APPROVAL_GRANTED':
+        setActiveTab('family');
+        navigate('Home');
+        break;
+      default:
+        navigate('NotificationFeed');
+    }
+    // Whatever it was, it has been seen — keep the bell honest.
+    refreshNotificationCount();
+  // `navigate` is a hoisted function declaration, so it is safe to call from
+  // here even though it is defined further down the component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshNotificationCount]);
+
+  /** A matchId from a push that arrived before the chat list did. */
+  const pendingPushMatchId = useRef<string | null>(null);
+  /** The current chat list, for callbacks that must not re-subscribe on it. */
+  const chatsRef = useRef<ChatSummary[]>([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+
+  useEffect(() => {
+    const matchId = pendingPushMatchId.current;
+    if (!matchId || chats.length === 0) return;
+    const chat = chats.find(c => c.matchId === matchId);
+    if (!chat) return;
+    pendingPushMatchId.current = null;
+    setActiveChatId(chat.id);
+    navigate('ChatThread');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chats]);
+
+  /**
+   * Push registration.
+   *
+   * Keyed on `userId` so the token is attached to whoever is signed in: the
+   * server upserts on the token, so signing in as someone else on the same
+   * handset re-points the row rather than leaving two owners.
+   */
+  useEffect(() => {
+    if (!userId) return;
+    registerPushToken();
+    const unsubs = [
+      subscribeToTokenRefresh(),
+      // Android raises no tray notification while the app is foregrounded, so
+      // the payload comes straight here. The Supabase channel is already
+      // refreshing the screen itself; this only keeps the bell in step.
+      subscribeToForegroundMessages(() => refreshNotificationCount()),
+      subscribeToNotificationTaps(openFromPush),
+    ];
+    return () => unsubs.forEach(fn => fn());
+  }, [userId, refreshNotificationCount, openFromPush]);
 
   // Wali: re-fetch ward proposals whenever any proposal changes (sent, withdrawn, stage change).
   useProposalsRealtime(userId, () => {
@@ -1506,7 +1651,8 @@ export default function App() {
   // Skipping the request when there is no token avoids a noisy 401 on
   // every fresh install / logged-out launch.
   useEffect(() => {
-    Promise.all([getAccessToken(), getPendingEmail(), getPendingPhone()]).then(async ([token, pending, pendingPhone]) => {
+    Promise.all([getAccessToken(), getPendingEmail(), getPendingPhone()]).then(async ([token, pendingStored, pendingPhone]) => {
+      let pending = pendingStored;
       if (pending) {
         setPendingEmail(pending);
         if (pendingPhone) setPhoneE164(pendingPhone);
@@ -1514,16 +1660,33 @@ export default function App() {
         // again on a fresh install leaves getPendingPhone() empty, and the
         // verify screen hides the phone row when it has no number at all — so
         // ask the server, which is the only place that actually knows.
+        //
+        // The same answer also decides whether this branch should run at all.
+        // The pending key means "someone still has to verify something", but
+        // only the email path ever cleared it — verify the phone last and it
+        // outlived the thing it was tracking, sending a fully verified account
+        // back to this screen on every cold start. The server's flags are the
+        // truth; a key that disagrees with them is stale, so drop it and
+        // restore normally.
         if (token) {
           try {
             const me = await getMe();
             if (me.profile.phone) setPhoneE164(me.profile.phone);
             if (me.user.email) setUserEmail(me.user.email);
+            const emailPending = !!me.user.email && !me.user.emailVerified;
+            const phonePending = !!me.profile.phone && !me.user.phoneVerified;
+            if (!emailPending && !phonePending) {
+              await clearPendingEmail();
+              setPendingEmail('');
+              pending = '';
+            }
           } catch {}
         }
-        setScreen('AccountVerification');
-        setAppReady(true);
-        return;
+        if (pending) {
+          setScreen('AccountVerification');
+          setAppReady(true);
+          return;
+        }
       }
       if (!token) { setAppReady(true); return; }
 
@@ -2257,6 +2420,12 @@ export default function App() {
             }}
             onVerified={() => {
               setPendingEmail('');
+              // State only is not enough: the restore effect reads the stored
+              // key, so leaving it behind is what put a verified user back on
+              // this screen at the next launch. Verifying the email clears it
+              // (AccountVerificationScreen.doVerifyEmail), verifying the phone
+              // never did — clear it here so every exit path agrees.
+              clearPendingEmail().catch(() => {});
               // Returned, not fired-and-forgotten: the screen awaits it to keep
               // the Continue button spinning until this resolves and navigates.
               // After verification, determine where to resume based on the user's state.
@@ -2843,6 +3012,9 @@ export default function App() {
             paying={paying}
             error={payError}
             priceLabel={storePrice}
+            // The server's own count, so the heading claims a real number or
+            // none. It was the hardcoded string "142 people".
+            matchCount={matchCount}
             {...onboardingExit()}
             onBack={onboardingBack('F16')}
             onPay={async () => {
@@ -2854,11 +3026,18 @@ export default function App() {
               payInFlight.current = true;
               try {
                 // Google Play is the only store with a verifier server-side, so
-                // iOS cannot complete a purchase yet — fail here rather than
-                // making a round trip for a "not supported yet" 400.
+                // nothing else can complete a purchase yet.
+                //
+                // This used to set `paymentFailed` and send the user to Home,
+                // where the payment-failed card asked them to retry a payment
+                // and check their card — for a purchase that was never
+                // attempted and cannot be on this platform. The screen says so
+                // instead, in place, and leaves them where they are.
                 if (!STORE_PURCHASES_SUPPORTED) {
-                  setPaymentFailed(true);
-                  navigate('Home');
+                  setPayError(
+                    'Membership cannot be purchased on this device yet. ' +
+                      'It is available in the Android app.',
+                  );
                   return;
                 }
 
@@ -2891,13 +3070,22 @@ export default function App() {
                 // the restore pass on next foreground recovers it. So say the
                 // membership did not activate, never that the payment failed.
                 //
-                // Only ApiError carries a message the server meant for a user.
-                // Anything else is a library string or one of our own developer
-                // guards, which must not be shown.
+                // Both of these carry a message written for the user: ApiError
+                // one the server meant for them, StoreError one `iap.ts` worked
+                // out from the store's own code. Only the third case is a
+                // library string or a developer guard, which must not be shown.
+                //
+                // The generic sentence used to answer for all three, which is
+                // how a payment still being processed, and one that may already
+                // have been charged, were both reported as "try again" — the
+                // one instruction that risks paying twice.
                 setPayError(
                   err instanceof ApiError
                     ? err.message
-                    : 'Could not complete the purchase. Please try again.',
+                    : isStoreError(err)
+                      ? err.userMessage
+                      : 'The membership did not activate. If you were charged, ' +
+                        'reopen the app in a moment and it will be restored.',
                 );
               } finally {
                 payInFlight.current = false;
@@ -3288,6 +3476,7 @@ export default function App() {
             underReviewUnpaid={underReviewUnpaid}
             underReviewPaid={underReviewPaid}
             proposalsReadyUnpaid={proposalsReadyUnpaid}
+            verificationApproved={verificationApproved}
             priceLabel={storePrice}
             matchCount={matchCount}
             introductionAvailable={introductionAvailable}
@@ -3459,6 +3648,7 @@ export default function App() {
               navigate('F16');
             }}
             profileCompletion={profileCompletion}
+            profileCompletionLoading={profileCompletionLoading}
             onContinueOnboarding={target =>
               navigate(target ? (target as Screen) : resumeScreen)
             }
@@ -3471,6 +3661,7 @@ export default function App() {
               navigate('F17');
             }}
             waliRequired={waliRequired}
+            isPaidMember={isPaidMember}
             // F15 is the wali invite step, the same screen onboarding uses.
             onAddWali={() => navigate('F15')}
             onImproveBiodata={() => navigate('F8')}
@@ -3735,6 +3926,9 @@ export default function App() {
         return (
           <MembershipScreen
             onBack={() => navigate('Settings')}
+            // The store's price, so this page and the paywall that links to it
+            // cannot quote different numbers.
+            priceLabel={storePrice}
             // No receipt endpoint exists, so this control is not offered
             // rather than shown and doing nothing. Support handles receipts.
             onRequestRefund={async () => {
@@ -3875,16 +4069,16 @@ export default function App() {
    */
   if (!appReady) {
     return (
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={INITIAL_SAFE_AREA_METRICS ?? undefined}>
         <View style={styles.boot}>
-          <Image source={require('./src/assets/logo.png')} style={styles.bootLogo} />
+          <Image source={LOGO_SOURCE} style={styles.bootLogo} />
         </View>
       </SafeAreaProvider>
     );
   }
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={INITIAL_SAFE_AREA_METRICS ?? undefined}>
       <View style={styles.root}>
         <ScreenTransition key={screen} direction={directionRef.current}>
           {renderScreen()}

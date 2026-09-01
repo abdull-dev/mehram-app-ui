@@ -33,8 +33,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  PermissionsAndroid,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -44,10 +42,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { City } from 'country-state-city';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
-import Geolocation from '@react-native-community/geolocation';
-import { distanceKm } from '../../utils/location';
+import { findNearestCityInCountry } from '../../utils/cityData';
+import { useCityNames } from '../../hooks/useCities';
+import { Bone } from '../../components/ui/Skeleton';
+import { LocationFailure, requestLocation } from '../../utils/location';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { NavBar } from '../../components/onboarding/NavBar';
@@ -85,7 +84,22 @@ type CityItem = { type: 'city'; name: string };
 type ListItem = HeaderItem | CityItem;
 
 // ─── Location state ───────────────────────────────────────────────────────────
-type LocationStatus = 'idle' | 'loading' | 'success' | 'denied';
+/**
+ * `denied` is not one state but three: the fix can be refused, unavailable, or
+ * simply slow, and only the first is anything to do with Settings.
+ */
+type LocationStatus = 'idle' | 'loading' | 'success' | LocationFailure;
+
+const LOCATION_FAILURES: LocationStatus[] = ['permission', 'unavailable', 'timeout'];
+
+function locationFailureLabel(status: LocationStatus): string {
+  switch (status) {
+    case 'permission':  return 'Location is off for Wisal. Enable it in Settings, then tap to retry.';
+    case 'unavailable': return 'No location fix yet. Turn on Location, then tap to retry.';
+    default:            return 'That took too long. Tap to try again.';
+  }
+}
+
 interface Coords { latitude: number; longitude: number }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -126,6 +140,30 @@ function formatCoords(coords: Coords): string {
   return `${lat}° ${ns},  ${lng}° ${ew}`;
 }
 
+// ─── Loading state ────────────────────────────────────────────────────────────
+
+/** Widths vary so the placeholder reads as a list of names, not a loading bar. */
+const SKELETON_WIDTHS = ['58%', '41%', '67%', '49%', '62%', '36%', '54%', '45%'];
+
+/**
+ * Stands in for the city list while the dataset loads. Same row rhythm as the
+ * real list, so nothing shifts when the names arrive.
+ */
+function CityListSkeleton() {
+  return (
+    <View
+      style={styles.skeleton}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading cities">
+      {SKELETON_WIDTHS.map((width, i) => (
+        <View key={i} style={styles.skeletonRow}>
+          <Bone w={width} h={13} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export function CityScreen({
   countryCode,
@@ -150,11 +188,10 @@ export function CityScreen({
   // Derive a short placeholder label
   const shortName = countryShort ?? countryName.split(' ').pop() ?? countryName;
 
-  // All city names for this country
-  const allCities = useMemo<string[]>(() => {
-    const cities = City.getCitiesOfCountry(countryCode) ?? [];
-    return [...new Set(cities.map(c => c.name))].sort((a, b) => a.localeCompare(b));
-  }, [countryCode]);
+  // City names for this country. The dataset behind them is 8MB and loads in
+  // one blocking chunk the first time any screen asks, so this screen waits for
+  // it behind a skeleton rather than freezing on its first render.
+  const { names: allCities, loading: citiesLoading } = useCityNames(countryCode);
 
   const popularNames = useMemo<string[]>(() => {
     const citySet = new Set(allCities);
@@ -190,8 +227,13 @@ export function CityScreen({
     if (!initialCoords) return;
     setCoords(initialCoords);
     setLocationStatus('success');
-    const nearest = findNearestCity(initialCoords);
-    if (nearest) setSelectedCity(nearest);
+    let live = true;
+    findNearestCity(initialCoords).then(nearest => {
+      if (live && nearest) setSelectedCity(nearest);
+    });
+    return () => {
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally only runs once on mount
 
@@ -215,21 +257,8 @@ export function CityScreen({
 
   // ── Nearest city from GPS coords ──────────────────────────────────────────
   const findNearestCity = useCallback(
-    (gpsCoords: Coords): string | null => {
-      const cities = City.getCitiesOfCountry(countryCode) ?? [];
-      let nearest: { name: string; dist: number } | null = null;
-      for (const city of cities) {
-        if (!city.latitude || !city.longitude) continue;
-        const lat = parseFloat(city.latitude);
-        const lng = parseFloat(city.longitude);
-        if (isNaN(lat) || isNaN(lng)) continue;
-        const dist = distanceKm(gpsCoords, { latitude: lat, longitude: lng });
-        if (!nearest || dist < nearest.dist) {
-          nearest = { name: city.name, dist };
-        }
-      }
-      return nearest?.name ?? null;
-    },
+    async (gpsCoords: Coords): Promise<string | null> =>
+      (await findNearestCityInCountry(gpsCoords, countryCode))?.name ?? null,
     [countryCode],
   );
 
@@ -237,43 +266,20 @@ export function CityScreen({
   const handleUseLocation = useCallback(async () => {
     setLocationStatus('loading');
 
-    try {
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Access',
-            message: 'Wisal needs your location to show your city on the map.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Deny',
-          },
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          setLocationStatus('denied');
-          return;
-        }
-      }
-
-      Geolocation.getCurrentPosition(
-        position => {
-          const gpsCoords = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          setCoords(gpsCoords);
-          setLocationStatus('success');
-          // Auto-select the nearest city in the chosen country
-          const nearest = findNearestCity(gpsCoords);
-          if (nearest) setSelectedCity(nearest);
-        },
-        () => {
-          setLocationStatus('denied');
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-      );
-    } catch {
-      setLocationStatus('denied');
+    // Permission, retries and the reason for any failure all live in
+    // `requestLocation`: a single high-accuracy attempt reports the provider as
+    // unavailable the moment it subscribes indoors, which read here as a denial.
+    const result = await requestLocation();
+    if (!result.ok) {
+      setLocationStatus(result.reason);
+      return;
     }
+
+    setCoords(result.coords);
+    setLocationStatus('success');
+    // Auto-select the nearest city in the chosen country
+    const nearest = await findNearestCity(result.coords);
+    if (nearest) setSelectedCity(nearest);
   }, [findNearestCity]);
 
   const renderItem = useCallback(
@@ -378,9 +384,15 @@ export function CityScreen({
       );
     }
 
-    if (locationStatus === 'denied') {
+    if (LOCATION_FAILURES.includes(locationStatus)) {
       return (
-        <View style={[styles.locationBtn, styles.locationBtnDenied]}>
+        <Pressable
+          onPress={handleUseLocation}
+          style={({ pressed }) => [
+            styles.locationBtn,
+            styles.locationBtnDenied,
+            pressed && styles.locationBtnPressed,
+          ]}>
           <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
             <Path
               d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
@@ -388,9 +400,9 @@ export function CityScreen({
             />
           </Svg>
           <Text style={styles.locationBtnDeniedText}>
-            Location unavailable. Enable in Settings.
+            {locationFailureLabel(locationStatus)}
           </Text>
-        </View>
+        </Pressable>
       );
     }
 
@@ -499,7 +511,9 @@ export function CityScreen({
               </View>
               <View style={styles.searchDivider} />
 
-              {listData.length === 0 ? (
+              {citiesLoading ? (
+                <CityListSkeleton />
+              ) : listData.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText}>
                     {`Nothing matches "${search}".\nTry another spelling.`}
@@ -797,6 +811,16 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: Colors.ink3,
+  },
+
+  // Loading placeholder — rows match .sit's 13px padding either side.
+  skeleton: {
+    paddingTop: 6,
+  },
+  skeletonRow: {
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    justifyContent: 'center',
   },
 
   cityRow: {

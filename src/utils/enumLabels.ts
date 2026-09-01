@@ -117,12 +117,14 @@ export const EMPLOYMENT_LABELS: Labels = {
   UNEMPLOYED: 'Not employed',
 };
 
-/** `FamilyType`. */
+/**
+ * `FamilyType`. The enum has these two members and no more, which is why F11
+ * offers exactly these two chips — an "Extended" option there was saved as
+ * JOINT and came back as "Joint family".
+ */
 export const FAMILY_TYPE_LABELS: Labels = {
-  NUCLEAR: 'Nuclear family',
   JOINT: 'Joint family',
-  // Not a current member; the client's own form still offers it.
-  EXTENDED: 'Extended family',
+  NUCLEAR: 'Nuclear family',
 };
 
 /** `Gender`. */

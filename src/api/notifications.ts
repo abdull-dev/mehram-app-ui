@@ -99,3 +99,43 @@ export async function updateNotificationPreferences(
     body: JSON.stringify(patch),
   });
 }
+
+// ─── device tokens ────────────────────────────────────────────────────────────
+
+/**
+ * Register this device's FCM token so the server can push to it.
+ *
+ * Until this existed the server sent every push into an empty token list:
+ * `FcmService.sendToUser` looked up `device_tokens` for the user, found no
+ * rows, and returned having delivered nothing — silently, so there was no
+ * error anywhere to notice. Supabase Realtime covered the app-is-open case,
+ * which is why in-app badges worked and the notification tray stayed empty.
+ *
+ * Upserts on `token`, so calling it again with the same token is free and
+ * re-pointing a reinstalled device at the new user is automatic.
+ */
+export async function registerDeviceToken(
+  token: string,
+  platform: 'ios' | 'android',
+): Promise<void> {
+  await apiRequest<void>('/notifications/device-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+/**
+ * Drop this device's token — on sign-out, so the next person to use the phone
+ * does not receive the previous user's proposals.
+ */
+export async function unregisterDeviceToken(token: string): Promise<void> {
+  await apiRequest<void>('/notifications/device-tokens', {
+    method: 'DELETE',
+    body: JSON.stringify({ token }),
+  });
+}
+
+/** Dev helper — asks the server to push to this user's own devices. */
+export async function sendTestPush(): Promise<void> {
+  await apiRequest<void>('/notifications/test-push', { method: 'POST' });
+}

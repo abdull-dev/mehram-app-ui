@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Mehram</title>
+    <meta name="description" content="Marriage introductions that go through your family." />
+    <meta name="theme-color" content="#FBF6F3" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ─── Tokens, matching the marketing site ───────────────────────────── */
+      :root {
+        --cream: #fbf6f3;
+        --plum: #2a1a2e;
+        --ink2: #5c5568;
+        --ink3: #9a93a8;
+        --pink: #e8388f;
+        --viod: #7c5ae0;
+        color-scheme: light;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--cream);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+        font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+          sans-serif;
+      }
+
+      /* ─── The web shell ─────────────────────────────────────────────────── */
+      /*
+        The app's screens are laid out for a phone. Stretched across a desktop
+        window that reads as a broken page — 1400px-wide text inputs, a button
+        the width of the screen, and a column of content stranded on the left.
+        So on a wide viewport the app keeps the measure it was designed for and
+        the window around it becomes the page: branded ground, and a header that
+        says this is a web app rather than an emulator.
+
+        Below the breakpoint none of this applies and the app fills the viewport
+        exactly as it does on a device.
+      */
+      .shell {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      .shell-bar {
+        display: none;
+      }
+
+      .shell-stage,
+      .shell-frame {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+
+      /* react-native-web's root container is `flex: 1`, which does nothing
+         inside a block parent — the whole app then collapses to zero height and
+         every screen is clipped away to nothing. */
+      #root {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      @media (min-width: 760px) {
+        body {
+          /* The same two washes of colour the marketing site opens with. */
+          background:
+            radial-gradient(
+              circle at 88% -12%,
+              #efe6fb 0%,
+              rgba(239, 230, 251, 0) 52%
+            ),
+            radial-gradient(
+              circle at 4% 108%,
+              #fbe3ee 0%,
+              rgba(251, 227, 238, 0) 52%
+            ),
+            var(--cream);
+        }
+
+        .shell-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          height: 66px;
+          padding: 0 30px;
+          flex: 0 0 auto;
+        }
+
+        .shell-logo {
+          font-family: "Pacifico", cursive;
+          font-size: 25px;
+          line-height: 1.4;
+          color: var(--pink);
+          text-decoration: none;
+        }
+
+        .shell-link {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--ink2);
+          text-decoration: none;
+          padding: 8px 14px;
+          border-radius: 12px;
+          transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        .shell-link:hover {
+          background: rgba(124, 90, 224, 0.08);
+          color: var(--plum);
+        }
+
+        .shell-stage {
+          align-items: center;
+          justify-content: center;
+          padding: 0 24px 30px;
+        }
+
+        /*
+          The measure the screens were drawn for. Wider than a phone so nothing
+          feels cramped, narrow enough that a row of text still reads as one
+          line rather than a stretched band.
+        */
+        .shell-frame {
+          flex: 0 0 auto;
+          width: 460px;
+          max-width: 100%;
+          height: min(920px, 100%);
+          border-radius: 28px;
+          overflow: hidden;
+          /* The app's own ground, not white — a screen that does not paint to
+             its edges would otherwise show a seam inside the card. */
+          background: #f6f5fa;
+          box-shadow:
+            0 28px 70px rgba(60, 30, 90, 0.16),
+            0 2px 10px rgba(60, 30, 90, 0.05);
+        }
+      }
+
+      /* ─── Details ───────────────────────────────────────────────────────── */
+
+      /* RNW maps ScrollView onto overflow: scroll. Hiding the bar keeps the
+         screens reading as app screens rather than as web pages. */
+      ::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
+      * {
+        scrollbar-width: none;
+      }
+
+      /* Keyboard focus still has to be visible, but Chrome's default blue ring
+         inside a violet design reads as a rendering fault. Same job, house
+         colour. */
+      :focus-visible {
+        outline: 2px solid var(--viod);
+        outline-offset: 2px;
+      }
+      input:focus,
+      textarea:focus {
+        outline: none;
+      }
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--viod);
+        outline-offset: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="shell-bar">
+        <a class="shell-logo" href="/">Mehram</a>
+        <a class="shell-link" href="/">Back to site</a>
+      </header>
+      <main class="shell-stage">
+        <div class="shell-frame">
+          <div id="root"></div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/web/main.tsx"></script>
+  </body>
+</html>

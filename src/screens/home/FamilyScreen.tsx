@@ -32,6 +32,7 @@ import {
   type WaliMember,
 } from '../../api/wali';
 
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { WaliResignedScreen }     from './WaliResignedScreen';
 import { WaliUnresponsiveScreen } from './WaliUnresponsiveScreen';
 import { IsWaliForScreen }        from './IsWaliForScreen';
@@ -62,6 +63,17 @@ export type WaliState = 'active' | 'resigned' | 'unresponsive' | 'isWaliFor' | '
 
 export interface FamilyScreenProps {
   waliState?: WaliState;
+  /**
+   * Whether the membership is paid for.
+   *
+   * Inviting a wali is part of membership: the invitation is withheld until it
+   * is paid for, and the card explains that rather than failing at the request.
+   */
+  isPaidMember?: boolean;
+  /** Take an unpaid user to the payment step. */
+  onBecomeAMember?: () => void;
+  /** Membership price, e.g. "PKR 4,500". Omitted rather than guessed at. */
+  priceLabel?: string | null;
   onBack?: () => void;
   onAskWaliAgain?: () => void;
   onChooseAnotherWali?: () => void;
@@ -144,6 +156,91 @@ function formatJoinDate(isoDate: string): string {
     'July','August','September','October','November','December',
   ];
   return `joined ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+// ─── Invitation locked (unpaid) ───────────────────────────────────────────────
+
+function LockIcon({ color }: { color: string }) {
+  return (
+    <Svg width={19} height={19} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x={4} y={11} width={16} height={10} rx={2} />
+      <Path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </Svg>
+  );
+}
+
+/**
+ * Stands in for the invite form on an unpaid account.
+ *
+ * The form itself is not rendered at all, rather than shown and refused: the
+ * server rejects the invitation, and a button that fails is a worse answer than
+ * one that says what it costs.
+ */
+function WaliLockedCard({
+  onBack,
+  onBecomeAMember,
+  priceLabel,
+}: {
+  onBack?: () => void;
+  onBecomeAMember?: () => void;
+  priceLabel?: string | null;
+}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" />
+
+      <View style={styles.topBar}>
+        <Pressable style={styles.backBtn} onPress={onBack} hitSlop={10}>
+          <ChevLeft />
+        </Pressable>
+        <Text style={styles.topBarTitle}>Your Wali</Text>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom + 32, 40) }]}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.card}>
+          <View style={styles.emptyWrap}>
+            <View style={[styles.emptyIcon, { backgroundColor: C.goldSoft }]}>
+              <LockIcon color={C.goldInk} />
+            </View>
+            <Text style={styles.emptyTitle}>Invitations open with membership</Text>
+            <Text style={styles.emptyBody}>
+              Your wali reviews proposals on your behalf. Becoming a member is
+              what starts that — and the invitation is ready the moment it is.
+            </Text>
+          </View>
+
+          {/* Padded footer, not direct children of the card.
+              The button sat flush against all three card edges: the card sets
+              `overflow: 'hidden'` with a 24px radius, so the button's own 15px
+              corners were clipped square at the bottom and its full-bleed width
+              broke the inset every other element on the card keeps. */}
+          <View style={styles.lockedFooter}>
+            {priceLabel ? (
+              <View style={styles.lockedPriceRow}>
+                <Text style={styles.lockedPrice}>{priceLabel}</Text>
+                <Text style={styles.lockedPriceSub}>one payment, no renewal</Text>
+              </View>
+            ) : null}
+
+            <Pressable
+              onPress={onBecomeAMember}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnRose,
+                { opacity: pressed ? 0.85 : 1, marginTop: 18 },
+              ]}>
+              <Text style={[styles.btnText, { color: '#fff' }]}>Become a member</Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
 }
 
 // ─── No-wali invite card ──────────────────────────────────────────────────────
@@ -300,6 +397,9 @@ export function clearFamilyScreenCache() {
 // ─── FamilyScreen ─────────────────────────────────────────────────────────────
 export function FamilyScreen({
   waliState,
+  isPaidMember = false,
+  onBecomeAMember,
+  priceLabel,
   onBack,
   onAskWaliAgain,
   onChooseAnotherWali,
@@ -311,6 +411,19 @@ export function FamilyScreen({
   const [loading, setLoading]     = useState(_cachedMember === undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [member, setMember]       = useState<WaliMember | null>(_cachedMember ?? null);
+  /**
+   * The remove confirmation, and the request behind it.
+   *
+   * "Change wali" used to remove the linked guardian the moment it was pressed
+   * — one tap, no warning, and the only way back was a fresh invitation the
+   * wali had to accept again. It also swallowed the failure: the local state was
+   * cleared whether the DELETE succeeded or not, so a failed removal showed the
+   * invite form while the wali was still linked on the server, and the next
+   * refresh put them back.
+   */
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving]           = useState(false);
+  const [removeError, setRemoveError]     = useState<string | null>(null);
 
   // Fetch on mount (and after change-wali)
   const loadWali = useCallback(async () => {
@@ -343,15 +456,35 @@ export function FamilyScreen({
     loadWali();
   }, [waliState, loadWali]);
 
-  // Change wali: remove current wali then show invite screen
-  async function handleChangeWali() {
+  // Change wali: confirm first — this unlinks a person, and only a new
+  // invitation they accept can undo it.
+  function handleChangeWali() {
     if (!member) return;
+    setRemoveError(null);
+    setConfirmRemove(true);
+  }
+
+  async function handleConfirmRemove() {
+    if (!member || removing) return;
+    setRemoving(true);
+    setRemoveError(null);
     try {
       await removeWali(member.membershipId);
-    } catch {
-      // Proceed optimistically — the membership may already be gone
+    } catch (err) {
+      // Reported in the dialog, which stays open. Clearing the wali locally on
+      // a failed DELETE showed the invite form for a wali who was still
+      // linked, until the next refresh contradicted it.
+      setRemoveError(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not remove your wali. Please check your connection.',
+      );
+      setRemoving(false);
+      return;
     }
     _cachedMember = null;
+    setRemoving(false);
+    setConfirmRemove(false);
     setMember(null);
   }
 
@@ -419,23 +552,66 @@ export function FamilyScreen({
     );
   }
 
-  // ── no wali → invite screen ─────────────────────────────────────────────────
+  // ── no wali → invite screen, or what it costs ───────────────────────────────
   if (!member) {
+    if (!isPaidMember) {
+      return (
+        <WaliLockedCard
+          onBack={onBack}
+          onBecomeAMember={onBecomeAMember}
+          priceLabel={priceLabel}
+        />
+      );
+    }
     return <NoWaliCard onBack={onBack} onWaliLinked={loadWali} />;
   }
 
   // ── wali linked → wali card ─────────────────────────────────────────────────
   const name = member.wali.fullName;
+  const firstName = name.trim().split(/\s+/)[0] || name;
+  const awaiting = member.proposalsAwaitingReview;
+
   return (
-    <WaliUnresponsiveScreen
-      waliName={name}
-      waliInitials={getInitials(name)}
-      waliRelationship={member.relationship}
-      joinedLabel={formatJoinDate(member.joinedAt)}
-      proposalsAwaitingReview={member.proposalsAwaitingReview}
-      onBack={onBack}
-      onChangeWali={handleChangeWali}
-    />
+    <>
+      <WaliUnresponsiveScreen
+        waliName={name}
+        waliInitials={getInitials(name)}
+        waliRelationship={member.relationship}
+        joinedLabel={formatJoinDate(member.joinedAt)}
+        proposalsAwaitingReview={awaiting}
+        onBack={onBack}
+        // Changing wali removes the current one and reopens the invite, which an
+        // unpaid account cannot finish — it would strip their guardian and leave
+        // them with the paywall. No handler, and the button is not offered.
+        onChangeWali={isPaidMember ? handleChangeWali : undefined}
+      />
+
+      <ConfirmDialog
+        visible={confirmRemove}
+        title={`Remove ${firstName} as your wali?`}
+        body={`${firstName} reviews every proposal before it reaches you. Without a wali your profile cannot take part.`}
+        consequences={[
+          'Your profile leaves discovery — nobody new can see it, and you cannot send proposals.',
+          // Only when there is something to lose. Naming a count of zero
+          // invents a consequence, and the user then discounts the rest.
+          ...(awaiting > 0
+            ? [
+                `${awaiting} proposal${awaiting === 1 ? '' : 's'} waiting for ${firstName} will no longer be reviewed.`,
+              ]
+            : []),
+          `${firstName} loses access straight away. Only a new invitation they accept can undo this.`,
+        ]}
+        confirmLabel="Remove wali"
+        cancelLabel={`Keep ${firstName}`}
+        busy={removing}
+        error={removeError}
+        onConfirm={handleConfirmRemove}
+        onCancel={() => {
+          setConfirmRemove(false);
+          setRemoveError(null);
+        }}
+      />
+    </>
   );
 }
 
@@ -639,6 +815,33 @@ const styles = StyleSheet.create({
   },
   btnWhatsapp: {
     backgroundColor: '#25D366',
+  },
+  btnRose: {
+    backgroundColor: C.rose,
+  },
+  // Horizontal inset matches `emptyWrap`'s padding so the button lines up with
+  // the text above it; the bottom padding is what keeps its corners off the
+  // card's clipped edge.
+  lockedFooter: {
+    paddingHorizontal: 28,
+    paddingBottom: 24,
+  },
+  lockedPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  lockedPrice: {
+    fontSize: 21,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: C.ink,
+  },
+  lockedPriceSub: {
+    fontSize: 12,
+    color: C.ink3,
   },
   btnOutline: {
     borderWidth: 1.5,

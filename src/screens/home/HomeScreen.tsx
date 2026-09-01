@@ -103,9 +103,22 @@ interface HomeScreenProps {
   underReviewPaid?: boolean;
   /** Verified and paid, but no wali — not discoverable and cannot propose. */
   waliRequired?: boolean;
+  /**
+   * Whether the membership is paid for, from the home state.
+   *
+   * Gates the wali card, which states outright that the membership is active
+   * and that a guardian is the only thing missing. The server's WALI_REQUIRED
+   * does not itself imply payment, so an unpaid account was shown a card
+   * claiming it had paid — and asked for a wali instead of the membership that
+   * was actually blocking it. Unpaid, the caller resolves that state to one of
+   * the membership prompts instead.
+   */
+  isPaidMember?: boolean;
   onAddWali?: () => void;
   /** The server's section-by-section profile completion, when loaded. */
   profileCompletion?: ProfileCompletion;
+  /** The section report is still loading — H6 shows bones, not a guess. */
+  profileCompletionLoading?: boolean;
   /**
    * Whether the home-state fetch has answered at least once.
    *
@@ -121,6 +134,8 @@ interface HomeScreenProps {
   verificationPending?: boolean;
   /** Some verification types submitted, but not all. */
   verificationPartial?: boolean;
+  /** Identity verification approved — H12 is reachable without it. */
+  verificationApproved?: boolean;
   onStartVerification?: () => void;
   /** Verified, proposals available, payment not yet made — shows H12 */
   proposalsReadyUnpaid?: boolean;
@@ -252,11 +267,14 @@ export function HomeScreen({
   underReviewUnpaid = false,
   underReviewPaid = false,
   waliRequired = false,
+  isPaidMember = false,
   homeStateLoaded = true,
   onAddWali,
   profileCompletion,
+  profileCompletionLoading = false,
   verificationPending = true,
   verificationPartial = false,
+  verificationApproved = false,
   onStartVerification,
   proposalsReadyUnpaid = false,
   priceLabel,
@@ -445,9 +463,16 @@ export function HomeScreen({
   // move it past every profile section, so a profile the server still called
   // incomplete satisfied both this test and the block's own all-done guard,
   // and home fell through to a page with nothing on it but the burger button.
+  //
+  // While the report is still loading there is no answer to give, and the
+  // `resumeScreen` fallback is a guess that reads as "further along than the
+  // server agrees" — deciding on it here swapped H6 for another block for a
+  // moment, then swapped back. Nothing is outstanding-free until we know.
   const nothingOutstanding = profileCompletion
     ? allServerSectionsDone(profileCompletion)
-    : allSectionsDone(resumeScreen);
+    : profileCompletionLoading
+      ? false
+      : allSectionsDone(resumeScreen);
 
   if (profileIncomplete && !nothingOutstanding) {
     pageContent = (
@@ -460,6 +485,7 @@ export function HomeScreen({
           userName={userName}
           resumeScreen={resumeScreen}
           completion={profileCompletion}
+          loading={profileCompletionLoading}
           onContinue={onContinueOnboarding}
         />
       </>
@@ -494,7 +520,7 @@ export function HomeScreen({
         onAction={onUploadCnic}
       />
     );
-  } else if (homeStateLoaded && waliRequired) {
+  } else if (homeStateLoaded && waliRequired && isPaidMember) {
     pageContent = (
       <>
         <WaliRequiredBlock userName={userName} onAddWali={onAddWali} />
@@ -541,6 +567,8 @@ export function HomeScreen({
           matchCount={matchCount}
           onBecomeAMember={onBecomeAMember}
           priceLabel={priceLabel}
+          verified={verificationApproved}
+          onStartVerification={onStartVerification}
         />
         {filterOverlay}
         {bellOverlay}
@@ -623,6 +651,11 @@ export function HomeScreen({
             state and never received them. Dropped rather than left as a silent
             no-op that reads like wiring. */}
         <FamilyScreen
+          // Inviting a wali is part of membership, so the tab shows what it
+          // costs rather than a form the server will refuse.
+          isPaidMember={isPaidMember}
+          onBecomeAMember={onBecomeAMember}
+          priceLabel={priceLabel}
           onBack={() => onTabChange?.('home')}
           onAskWaliAgain={onAskWaliAgain}
           onChooseAnotherWali={onChooseAnotherWali}

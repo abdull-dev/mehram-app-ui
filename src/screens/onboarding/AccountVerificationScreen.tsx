@@ -37,6 +37,7 @@ import {
   verifyEmailOtp,
   resendEmailOtp,
 } from '../../api/auth';
+import { e164Problem } from '../../utils/phone';
 import { clearPendingEmail } from '../../storage/authStorage';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Polyline } from 'react-native-svg';
@@ -312,11 +313,16 @@ export function AccountVerificationScreen({
   async function saveEdit() {
     if (savingContact || !editingField) return;
     const value = draft.trim();
-    if (editingField === 'phone' && !/^\+\d{8,15}$/.test(value)) {
-      setContactError('Enter the full number, e.g. +923001234567.');
-      return;
+    if (editingField === 'phone') {
+      // Was `/^\+\d{8,15}$/`, which also accepted a leading +0 and any
+      // length in that window regardless of country.
+      const problem = e164Problem(value);
+      if (problem) {
+        setContactError(problem);
+        return;
+      }
     }
-    if (editingField === 'email' && !/^\S+@\S+\.\S+$/.test(value)) {
+    if (editingField === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
       setContactError('Enter a valid email address.');
       return;
     }

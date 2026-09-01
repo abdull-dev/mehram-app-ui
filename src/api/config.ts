@@ -29,7 +29,18 @@ const DEV_HOST = '192.168.1.3:3000';
 const DEV_ORIGIN =
   Platform.OS === 'android' ? `http://${DEV_HOST}` : 'http://localhost:3000';
 
-const ORIGIN = __DEV__ ? DEV_ORIGIN : HOSTED_ORIGIN;
+/**
+ * The web build talks to its own origin and lets the host proxy `/v1` and
+ * `/uploads` through to the API.
+ *
+ * It cannot do what the native builds do. A browser refuses to let an HTTPS
+ * page fetch `http://`, and unlike Android there is no cleartext exemption to
+ * grant — so pointing the web app straight at the hosted API would fail every
+ * request with no way around it. A same-origin path also removes CORS from the
+ * picture entirely. See vite.config.ts for the dev proxy.
+ */
+const ORIGIN =
+  Platform.OS === 'web' ? '' : __DEV__ ? DEV_ORIGIN : HOSTED_ORIGIN;
 
 export const API_BASE_URL = `${ORIGIN}/v1`;
 

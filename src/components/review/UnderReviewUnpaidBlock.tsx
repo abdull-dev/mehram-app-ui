@@ -44,6 +44,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Polyline, Circle } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { MEMBERSHIP_PRICE_FALLBACK } from '../../api/billing';
 import { DailyDuaCard } from '../ui/DailyDuaCard';
 import { WhileYouWaitCard } from '../ui/WhileYouWaitCard';
 import { GRADIENT_FILL } from '../../theme/layout';
@@ -360,7 +361,7 @@ export function UnderReviewUnpaidBlock({
 
           {/* Price row */}
           <View style={styles.payPriceRow}>
-            <Text style={styles.payPrice}>{priceLabel ?? 'PKR 4,500'}</Text>
+            <Text style={styles.payPrice}>{priceLabel ?? MEMBERSHIP_PRICE_FALLBACK}</Text>
             <Text style={styles.payPriceSub}>one payment, no renewal</Text>
           </View>
 

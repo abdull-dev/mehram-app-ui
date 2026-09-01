@@ -37,7 +37,7 @@ import {
 } from 'react-native';
 import { registerUser } from '../../api/auth';
 import { savePendingEmail, savePendingPhone } from '../../storage/authStorage';
-import { COUNTRIES, Country, nationalPart, splitE164, toE164 } from '../../utils/phone';
+import { COUNTRIES, Country, nationalNumberProblem, nationalPart, phoneRuleFor, splitE164, toE164 } from '../../utils/phone';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
@@ -161,21 +161,23 @@ export function PhoneScreen({
 
   function validate(): boolean {
     const e: typeof errors = {};
-    const digits = phone.replace(/\D/g, '');
-    if (!phone.trim()) {
-      e.phone = 'Please enter your mobile number.';
-    } else if (digits.length < 5) {
-      e.phone = 'Please enter a valid mobile number.';
-    }
+    // Checked against the country the user picked, not against a single
+    // length that had to be loose enough for all 22 of them.
+    const phoneProblem = nationalNumberProblem(country.code, phone);
+    if (phoneProblem) e.phone = phoneProblem;
     if (!email.trim()) {
       e.email = 'Please enter your email address.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
       e.email = 'Please enter a valid email address.';
     }
     if (!password) {
       e.password = 'Please create a password.';
     } else if (password.length < 8) {
       e.password = 'Password must be at least 8 characters.';
+    } else if (password.length > 72) {
+      // The server's own cap (RegisterDto @MaxLength(72)). Without it a longer
+      // password failed as an opaque 400 after the round-trip.
+      e.password = 'Password must be 72 characters or fewer.';
     }
     if (!confirmPassword) {
       e.confirmPassword = 'Please confirm your password.';
@@ -379,7 +381,7 @@ export function PhoneScreen({
                   if (errors.phone) setErrors(e => ({ ...e, phone: undefined }));
                 }}
                 keyboardType="phone-pad"
-                placeholder="Phone number"
+                placeholder={phoneRuleFor(country.code)?.example ?? 'Phone number'}
                 placeholderTextColor={Colors.ink3}
                 returnKeyType="next"
                 onSubmitEditing={() => emailRef.current?.focus()}

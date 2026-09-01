@@ -7,16 +7,23 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "web": "vite",
+    "web:build": "vite build",
+    "web:preview": "vite preview"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.1.2",
     "@react-native-community/geolocation": "^3.4.0",
+    "@react-native-firebase/app": "^26.3.3",
+    "@react-native-firebase/messaging": "^26.3.3",
+    "@react-native/assets-registry": "^0.87.1",
     "@react-native/new-app-screen": "0.87.1",
     "@supabase/supabase-js": "^2.112.4",
     "countries-list": "^3.4.1",
     "country-state-city": "^3.2.1",
     "react": "19.2.3",
+    "react-dom": "^19.2.3",
     "react-native": "0.87.1",
     "react-native-iap": "^16.5.0",
     "react-native-image-picker": "^8.2.1",
@@ -26,10 +33,12 @@
     "react-native-nitro-modules": "^0.36.5",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-svg": "^15.15.5",
-    "react-native-url-polyfill": "^4.0.0"
+    "react-native-url-polyfill": "^4.0.0",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@babel/plugin-transform-dynamic-import": "^7.29.7",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
     "@react-native-community/cli": "20.2.0",
@@ -43,11 +52,13 @@
     "@types/jest": "^29.5.13",
     "@types/react": "^19.2.0",
     "@types/react-test-renderer": "^19.1.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2"
   },
   "engines": {
     "node": ">= 22.11.0"

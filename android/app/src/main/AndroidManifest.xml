@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -11,6 +12,14 @@
       Receipts are verified by POST /billing/verify-purchase.
     -->
     <uses-permission android:name="com.android.vending.BILLING" />
+
+    <!--
+      Push notifications. Required from Android 13 (API 33) on, and requested at
+      runtime — declaring it alone shows nothing. Without it FCM delivers the
+      message and the OS drops it silently, which looks identical to not being
+      sent. See registerPushToken() in src/lib/push.ts.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
       android:name=".MainApplication"
@@ -26,6 +35,22 @@
       <meta-data
         android:name="com.google.android.geo.API_KEY"
         android:value="YOUR_GOOGLE_MAPS_API_KEY" />
+
+      <!--
+        Channel every push lands in unless the payload names another. Declared
+        here so a notification arriving while the app is killed still has a
+        channel: FCM creates its own unnamed one otherwise, which shows up in
+        Android settings as "Miscellaneous" and cannot be relabelled later.
+      -->
+      <!--
+        tools:replace because react-native-firebase_messaging declares this same
+        meta-data with an empty value; without it the manifest merger fails
+        rather than picking a winner.
+      -->
+      <meta-data
+        android:name="com.google.firebase.messaging.default_notification_channel_id"
+        android:value="@string/default_notification_channel_id"
+        tools:replace="android:value" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

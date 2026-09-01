@@ -46,6 +46,22 @@ const COL_VISIBLE = 5; // rows visible in the wheel
 function daysInMonth(month: number, year: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
+
+/**
+ * Whole years since `dob`, counted the way the server counts them
+ * (`is-date-of-birth.validator.ts`).
+ *
+ * The year list alone is not the check it looks like: it starts at
+ * THIS_YEAR - 18, so on any day before their birthday a 17-year-old could pick
+ * the earliest year and still be 17. The API rejects that with a 400 the form
+ * cannot explain, so the same arithmetic has to run here.
+ */
+function ageOn(day: number, month: number, year: number, now: Date): number {
+  let age = now.getFullYear() - year;
+  const monthDelta = now.getMonth() - month;
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < day)) age--;
+  return age;
+}
 function formatDob(day: number, month: number, year: number): string {
   return `${day} ${MONTHS[month]} ${year}`;
 }
@@ -316,7 +332,11 @@ export function EssentialsScreen({
     const e: typeof errors = {};
     if (!name.trim())        e.name       = 'Please enter your full name.';
     if (!gender)             e.gender     = 'Please select your gender.';
-    if (!dobSet)             e.dob        = 'Please enter your date of birth.';
+    if (!dobSet) {
+      e.dob = 'Please enter your date of birth.';
+    } else if (ageOn(DAYS[dobDay], dobMonth, YEARS[dobYear], new Date()) < 18) {
+      e.dob = 'You must be at least 18 to join.';
+    }
     if (!maritalStatus)      e.marital    = 'Please select your marital status.';
     if (!sect)               e.sect       = 'Please select your sect.';
     if (!occupation.trim())  e.occupation = 'Please enter your occupation.';

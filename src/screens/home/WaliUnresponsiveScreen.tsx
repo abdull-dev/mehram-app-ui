@@ -145,14 +145,17 @@ export function WaliUnresponsiveScreen({
             />
           </View>
 
-          {/* Buttons */}
-          <View style={styles.acts}>
-            <Pressable
-              onPress={onChangeWali}
-              style={({ pressed }) => [styles.btn, styles.btnG, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.btnText, { color: '#5F5E70' }]}>Change wali</Text>
-            </Pressable>
-          </View>
+          {/* Buttons. Offered only when there is somewhere for the press to go:
+              without a handler this rendered a button that did nothing. */}
+          {onChangeWali ? (
+            <View style={styles.acts}>
+              <Pressable
+                onPress={onChangeWali}
+                style={({ pressed }) => [styles.btn, styles.btnG, pressed && { opacity: 0.8 }]}>
+                <Text style={[styles.btnText, { color: '#5F5E70' }]}>Change wali</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <Banner

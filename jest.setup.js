@@ -18,7 +18,31 @@ jest.mock(
   () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+// Push notifications, mocked at our own wrapper for the same two reasons as
+// `iap` below: @react-native-firebase reaches for a native module that does not
+// exist under Jest, and mocking the wrapper means this file does not change if
+// the library underneath it does. App.tsx registers for push on mount.
+jest.mock('./src/lib/push', () => ({
+  requestPushPermission: jest.fn().mockResolvedValue(false),
+  registerPushToken: jest.fn().mockResolvedValue(null),
+  unregisterPushToken: jest.fn().mockResolvedValue(undefined),
+  subscribeToTokenRefresh: jest.fn(() => () => {}),
+  subscribeToForegroundMessages: jest.fn(() => () => {}),
+  subscribeToNotificationTaps: jest.fn(() => () => {}),
+}));
+
 jest.mock('./src/lib/iap', () => ({
+  // Mirrors the real module, which classifies store failures so the paywall can
+  // show the reason instead of one generic "try again".
+  StoreError: class StoreError extends Error {
+    constructor(userMessage, retryable) {
+      super(userMessage);
+      this.name = 'StoreError';
+      this.userMessage = userMessage;
+      this.retryable = retryable;
+    }
+  },
+  isStoreError: jest.fn(err => err?.name === 'StoreError'),
   initIap: jest.fn().mockResolvedValue(false),
   isAlreadyOwned: jest.fn().mockReturnValue(false),
   getMembershipPrice: jest.fn().mockResolvedValue(null),
@@ -40,6 +64,11 @@ jest.mock('@react-native-community/geolocation', () => ({
     ),
     requestAuthorization: jest.fn(),
     setRNConfiguration: jest.fn(),
+    // The staged retry in src/utils/location.ts falls back to a watch when the
+    // one-shot calls fail, so the mock has to answer these too.
+    watchPosition: jest.fn(() => 1),
+    clearWatch: jest.fn(),
+    stopObserving: jest.fn(),
   },
 }));
 

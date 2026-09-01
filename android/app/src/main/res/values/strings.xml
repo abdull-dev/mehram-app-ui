@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">mehram</string>
+    <!-- Referenced by the default_notification_channel_id meta-data in the manifest. -->
+    <string name="default_notification_channel_id">mehram_default</string>
 </resources>

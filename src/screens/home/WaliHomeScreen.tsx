@@ -198,6 +198,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { formatHeight } from '../../utils/height';
+import { ApiError } from '../../api/client';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { buildProposalSteps, isResolvedStage } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
@@ -1166,17 +1168,28 @@ function FamilyTab({
   dependentName,
   waliName,
   profile,
+  proposalsAwaitingReview = 0,
   onViewProfile,
   onRemoveDependent,
 }: {
   dependentName: string;
   waliName: string;
   profile?: WaliDependentProfile;
+  /** Named in the remove warning: these are what removal abandons. */
+  proposalsAwaitingReview?: number;
   onViewProfile?: () => void;
   onRemoveDependent?: (membershipId: string) => Promise<void>;
 }) {
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [removing, setRemoving] = useState(false);
+  /**
+   * Why the removal failed, shown inside the dialog.
+   *
+   * The dialog used to close from `finally`, so a request that threw looked
+   * exactly like one that succeeded — the dependent was still linked and
+   * nothing said so.
+   */
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const firstName = dependentName
     ? (dependentName.includes(' ') ? dependentName.split(' ')[0] : dependentName)
@@ -1197,12 +1210,20 @@ function FamilyTab({
   async function handleConfirmRemove() {
     if (!profile?.membershipId || !onRemoveDependent) return;
     setRemoving(true);
+    setRemoveError(null);
     try {
       await onRemoveDependent(profile.membershipId);
-    } finally {
+    } catch (err) {
+      setRemoveError(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not remove them. Please check your connection.',
+      );
       setRemoving(false);
-      setShowRemoveDialog(false);
+      return;
     }
+    setRemoving(false);
+    setShowRemoveDialog(false);
   }
 
   return (
@@ -1360,48 +1381,29 @@ function FamilyTab({
         </>
       )}
 
-      {/* Remove dependent confirmation dialog */}
-      <Modal
+      <ConfirmDialog
         visible={showRemoveDialog}
-        transparent
-        animationType="fade"
-        onRequestClose={() => { if (!removing) setShowRemoveDialog(false); }}>
-        <View style={styles.dialogOverlay}>
-          <View style={styles.dialogCard}>
-            {/* Warning icon */}
-            <View style={styles.dialogIconWrap}>
-              <Svg width={28} height={28} viewBox="0 0 24 24" fill="none"
-                stroke={C.rose} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <Path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <Path d="M12 9v4M12 17h.01" />
-              </Svg>
-            </View>
-
-            <Text style={styles.dialogTitle}>Remove {firstName}?</Text>
-            <Text style={styles.dialogBody}>
-              This will permanently unlink {firstName} from your guardian account.
-              {'\n\n'}They will need to send a new invitation if they want to add a wali again.
-            </Text>
-
-            <View style={styles.dialogBtns}>
-              <Pressable
-                onPress={() => setShowRemoveDialog(false)}
-                disabled={removing}
-                style={({ pressed }) => [styles.dialogBtnCancel, pressed && { opacity: 0.7 }]}>
-                <Text style={styles.dialogBtnCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmRemove}
-                disabled={removing}
-                style={({ pressed }) => [styles.dialogBtnRemove, pressed && { opacity: 0.85 }]}>
-                {removing
-                  ? <ActivityIndicator color={C.white} size="small" />
-                  : <Text style={styles.dialogBtnRemoveText}>Remove</Text>}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title={`Remove ${firstName}?`}
+        body={`You review every proposal before it reaches ${firstName}. Removing them ends that.`}
+        consequences={[
+          `${firstName}'s profile leaves discovery until another wali accepts an invitation from them.`,
+          ...(proposalsAwaitingReview > 0
+            ? [
+                `${proposalsAwaitingReview} proposal${proposalsAwaitingReview === 1 ? '' : 's'} in your queue will no longer be reviewed.`,
+              ]
+            : []),
+          `You lose access to their account straight away. Only a new invitation from ${firstName} can undo this.`,
+        ]}
+        confirmLabel="Remove"
+        cancelLabel={`Keep ${firstName}`}
+        busy={removing}
+        error={removeError}
+        onConfirm={handleConfirmRemove}
+        onCancel={() => {
+          setShowRemoveDialog(false);
+          setRemoveError(null);
+        }}
+      />
     </>
   );
 }
@@ -1569,6 +1571,7 @@ export function WaliHomeScreen({
             dependentName={dependentName}
             waliName={waliName}
             profile={dependentProfile}
+            proposalsAwaitingReview={proposalCount}
             onViewProfile={onViewDependentProfile}
             onRemoveDependent={onRemoveDependent}
           />
@@ -2389,81 +2392,6 @@ const styles = StyleSheet.create({
   },
 
   // ── Remove confirmation dialog ──
-  dialogOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(10,8,30,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 28,
-  },
-  dialogCard: {
-    backgroundColor: C.white,
-    borderRadius: 24,
-    padding: 28,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: 'rgba(40,30,80,1)',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-  },
-  dialogIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: C.roseSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  dialogTitle: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: C.ink,
-    letterSpacing: -0.4,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  dialogBody: {
-    fontSize: 13.5,
-    color: C.ink2,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  dialogBtns: {
-    flexDirection: 'row',
-    gap: 10,
-    width: '100%',
-  },
-  dialogBtnCancel: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: C.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dialogBtnCancelText: {
-    fontSize: 14.5,
-    fontWeight: '700',
-    color: C.ink2,
-  },
-  dialogBtnRemove: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: C.rose,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dialogBtnRemoveText: {
-    fontSize: 14.5,
-    fontWeight: '700',
-    color: C.white,
-  },
 
   incompleteRow: {
     flexDirection: 'row',

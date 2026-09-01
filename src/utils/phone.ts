@@ -118,3 +118,127 @@ export function splitE164(e164: string): { country: Country; national: string } 
   if (!best) return { ...fallback, national: digits };
   return { country: best, national: digits.slice(dialDigits(best.code).length) };
 }
+
+/**
+ * Per-country rules for the national part of a mobile number.
+ *
+ * The old check was `digits.length < 5` — one loose rule for every country, so
+ * a Pakistani number could be submitted eight digits short and only fail later,
+ * at the SMS that never arrived. The server is barely stricter (E.164's generic
+ * `+[1-9]\d{7,14}`), and it cannot be: it has no country context by the time it
+ * sees the number. This screen does, because the user picked the flag.
+ *
+ * `lengths` is the national significant number — what is left after the dial
+ * code and the trunk '0' are stripped, which is exactly what {@link
+ * nationalPart} returns. `prefix` narrows it to mobile ranges: every number
+ * entered here has to receive an OTP, so a valid landline is still the wrong
+ * number.
+ *
+ * Keyed by `Country.code` so "+1 CA" and "+1" can differ if they ever need to.
+ */
+export interface PhoneRule {
+  /** Allowed national-number lengths, ascending. */
+  lengths: number[];
+  /** The national number must match this to be a mobile. */
+  prefix: RegExp;
+  /** How `prefix` reads in an error message, e.g. "3" or "6 or 7". */
+  prefixLabel: string;
+  /** A real, valid national number — placeholder text and error examples. */
+  example: string;
+}
+
+export const PHONE_RULES: Record<string, PhoneRule> = {
+  '+92':   { lengths: [10],     prefix: /^3/,      prefixLabel: '3',        example: '3001234567' },
+  '+971':  { lengths: [9],      prefix: /^5/,      prefixLabel: '5',        example: '501234567' },
+  '+966':  { lengths: [9],      prefix: /^5/,      prefixLabel: '5',        example: '512345678' },
+  '+44':   { lengths: [10],     prefix: /^7/,      prefixLabel: '7',        example: '7700900123' },
+  '+1':    { lengths: [10],     prefix: /^[2-9]/,  prefixLabel: '2-9',      example: '2015550123' },
+  '+1 CA': { lengths: [10],     prefix: /^[2-9]/,  prefixLabel: '2-9',      example: '4165550123' },
+  '+61':   { lengths: [9],      prefix: /^4/,      prefixLabel: '4',        example: '412345678' },
+  '+974':  { lengths: [8],      prefix: /^[3567]/, prefixLabel: '3, 5, 6 or 7', example: '33123456' },
+  '+968':  { lengths: [8],      prefix: /^[79]/,   prefixLabel: '7 or 9',   example: '91234567' },
+  '+965':  { lengths: [8],      prefix: /^[569]/,  prefixLabel: '5, 6 or 9', example: '51234567' },
+  '+973':  { lengths: [8],      prefix: /^3/,      prefixLabel: '3',        example: '36123456' },
+  '+60':   { lengths: [9, 10],  prefix: /^1/,      prefixLabel: '1',        example: '123456789' },
+  '+49':   { lengths: [10, 11], prefix: /^1[5-7]/, prefixLabel: '15, 16 or 17', example: '15112345678' },
+  '+47':   { lengths: [8],      prefix: /^[49]/,   prefixLabel: '4 or 9',   example: '40612345' },
+  '+45':   { lengths: [8],      prefix: /^[2-9]/,  prefixLabel: '2-9',      example: '20123456' },
+  '+39':   { lengths: [9, 10],  prefix: /^3/,      prefixLabel: '3',        example: '3123456789' },
+  '+34':   { lengths: [9],      prefix: /^[67]/,   prefixLabel: '6 or 7',   example: '612345678' },
+  '+90':   { lengths: [10],     prefix: /^5/,      prefixLabel: '5',        example: '5301234567' },
+  '+27':   { lengths: [9],      prefix: /^[6-8]/,  prefixLabel: '6, 7 or 8', example: '711234567' },
+  '+64':   { lengths: [8, 9, 10], prefix: /^2/,    prefixLabel: '2',        example: '211234567' },
+  '+353':  { lengths: [9],      prefix: /^8/,      prefixLabel: '8',        example: '851234567' },
+  '+33':   { lengths: [9],      prefix: /^[67]/,   prefixLabel: '6 or 7',   example: '612345678' },
+};
+
+/** The rule for a chip code, or null when the country has none. */
+export function phoneRuleFor(code: string): PhoneRule | null {
+  return PHONE_RULES[code] ?? null;
+}
+
+/** "8", "9 or 10", "8, 9 or 10" — lengths as an English list. */
+function joinLengths(lengths: number[]): string {
+  if (lengths.length === 1) return String(lengths[0]);
+  return `${lengths.slice(0, -1).join(', ')} or ${lengths[lengths.length - 1]}`;
+}
+
+/** The country's name, for error copy. Falls back to the dial code. */
+function countryName(code: string): string {
+  return COUNTRIES.find(c => c.code === code)?.name ?? code;
+}
+
+/**
+ * Why `entered` is not a valid mobile number for `code`, or null if it is.
+ *
+ * Takes what the user typed, not a cleaned number: it normalises through
+ * {@link nationalPart} first, so a number pasted as +923001234567, 03001234567
+ * or 3001234567 all validate identically — the same normalisation
+ * {@link toE164} applies before submitting.
+ */
+export function nationalNumberProblem(
+  code: string,
+  entered: string,
+): string | null {
+  const national = nationalPart(code, entered);
+  if (!national) return 'Please enter your mobile number.';
+
+  const rule = phoneRuleFor(code);
+  if (!rule) {
+    // Unknown country — fall back to the server's own E.164 bounds so the app
+    // never rejects a number the API would have taken.
+    const total = dialDigits(code).length + national.length;
+    return total >= 8 && total <= 15
+      ? null
+      : 'Please enter a valid mobile number.';
+  }
+
+  const name = countryName(code);
+  if (!rule.lengths.includes(national.length)) {
+    return `${name} mobile numbers are ${joinLengths(rule.lengths)} digits. Example: ${rule.example}.`;
+  }
+  if (!rule.prefix.test(national)) {
+    return `${name} mobile numbers start with ${rule.prefixLabel}. Example: ${rule.example}.`;
+  }
+  return null;
+}
+
+/**
+ * The same check for a number that arrives already in E.164 — the "change
+ * number" field and the forgot-password form, where there is no country chip
+ * to read. Unrecognised country codes fall back to the generic E.164 rule.
+ */
+export function e164Problem(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Please enter your mobile number.';
+  if (!/^\+[1-9]\d{6,14}$/.test(trimmed)) {
+    return 'Use the international format, e.g. +923001234567.';
+  }
+  const { country, national } = splitE164(trimmed);
+  // splitE164 falls back to COUNTRIES[0] when nothing matched, and reports the
+  // whole number as national. Treat that as "country unknown" rather than as
+  // Pakistan, or a French number would be told it must start with 3.
+  const matched = `+${dialDigits(country.code)}`;
+  if (!trimmed.startsWith(matched)) return null;
+  return nationalNumberProblem(country.code, national);
+}

@@ -28,6 +28,21 @@ export const STORE_PURCHASES_SUPPORTED = Platform.OS === 'android';
 export const MEMBERSHIP_PRODUCT_ID = 'mehram_membership';
 
 /**
+ * What to show when the store's own price cannot be read.
+ *
+ * **Must match the price of `MEMBERSHIP_PRODUCT_ID` in Play Console.** This is
+ * the figure a user is quoted before being charged, so a stale value here
+ * misquotes the price — and it was previously written out as a literal in four
+ * separate screens, which is four places to miss on the day the price changes.
+ *
+ * Google's `displayPrice` is always preferred where it is available: it is
+ * localised, and it is the number the user is actually charged. This is only for
+ * the case where the store could not be reached at all — where showing nothing
+ * would be worse, since the screen exists to state a price.
+ */
+export const MEMBERSHIP_PRICE_FALLBACK = 'PKR 4,500';
+
+/**
  * A purchase to verify: who sold it, and the proof they issued for it.
  *
  * Provider and payload are one discriminated argument rather than two, because

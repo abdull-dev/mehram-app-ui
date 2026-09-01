@@ -1,0 +1,22 @@
+{
+  // The browser build. Same app source, checked with the DOM library available
+  // so the shims that stand in for native modules can use browser APIs.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vite/client"],
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "web/**/*.ts",
+    "web/**/*.tsx",
+    "src/**/*.web.ts",
+    "src/**/*.web.tsx",
+    "vite.config.mts"
+  ],
+  "exclude": ["**/node_modules"]
+}

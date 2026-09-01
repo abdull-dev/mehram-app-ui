@@ -355,15 +355,15 @@ export function WhoIsForScreen({ onBack, onContinue }: WhoIsForScreenProps) {
               selected={selection === 'self'}
               onPress={() => setSelection('self')}
               icon={<UserIcon color={selection === 'self' ? '#fff' : Colors.vioD} />}
-              title="I am a seeker"
-              subtitle="I am looking for a rishta"
+              title="I am looking for a rishta"
+              subtitle="You receive introductions, and your wali reviews them."
             />
             <SelectionCard
               selected={selection === 'wali'}
               onPress={() => setSelection('wali')}
               icon={<FamilyIcon color={selection === 'wali' ? '#fff' : Colors.vioD} />}
               title="I am a wali"
-              subtitle="I was invited by my dependent"
+              subtitle="You review proposals for someone who invited you."
             />
           </Animated.View>
 

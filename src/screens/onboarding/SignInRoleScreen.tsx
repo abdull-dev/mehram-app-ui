@@ -193,15 +193,15 @@ export function SignInRoleScreen({ onBack, onContinue }: SignInRoleScreenProps) 
               selected={role === 'self'}
               onPress={() => setRole('self')}
               icon={<UserIcon color={role === 'self' ? '#fff' : Colors.vioD} />}
-              title="I am a seeker"
-              subtitle="I am looking for a rishta"
+              title="I am looking for a rishta"
+              subtitle="You receive introductions, and your wali reviews them."
             />
             <RoleCard
               selected={role === 'wali'}
               onPress={() => setRole('wali')}
               icon={<FamilyIcon color={role === 'wali' ? '#fff' : Colors.vioD} />}
               title="I am a wali"
-              subtitle="I was invited by my dependent"
+              subtitle="You review proposals for someone who invited you."
             />
           </Animated.View>
         </View>

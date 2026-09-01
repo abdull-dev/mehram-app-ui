@@ -33,6 +33,48 @@ import { MEMBERSHIP_PRODUCT_ID } from '../api/billing';
  */
 export type StorePurchaseRecord = Purchase;
 
+/**
+ * A store failure with something worth telling the user.
+ *
+ * The paywall used to render one sentence — "Could not complete the purchase.
+ * Please try again." — for every non-`ApiError` thrown out of here, which threw
+ * away the three cases this file works out precisely and where the generic
+ * advice is actively wrong:
+ *
+ *   - A deferred payment is *being processed*. Retrying starts a second
+ *     purchase attempt for money the user has already committed.
+ *   - A purchase Play never confirmed may have been charged. "Try again" invites
+ *     a double payment where the honest answer is that a restore will catch it.
+ *   - A device with no Play Billing cannot buy anything, ever. Retrying is the
+ *     one thing guaranteed not to work.
+ *
+ * `retryable` says whether pressing the button again could plausibly change the
+ * outcome, so the caller can offer a retry only where one makes sense.
+ */
+export class StoreError extends Error {
+  constructor(
+    /** Shown to the user verbatim. Written for them, not for a log. */
+    readonly userMessage: string,
+    readonly retryable: boolean,
+    /**
+     * The store's own code, carried through.
+     *
+     * Not decoration: `isUserCancelled` and `isAlreadyOwned` read it, and the
+     * caller checks both *before* showing any message. Dropping it here would
+     * make backing out of Play's sheet render an error, and would send a user
+     * who already owns the membership to a retry instead of a restore.
+     */
+    readonly code?: string,
+  ) {
+    super(userMessage);
+    this.name = 'StoreError';
+  }
+}
+
+export function isStoreError(error: unknown): error is StoreError {
+  return error instanceof StoreError;
+}
+
 /** Play Billing is Android-only; every entry point no-ops elsewhere. */
 const SUPPORTED = Platform.OS === 'android';
 
@@ -146,7 +188,17 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
   // Not a formality: if the launch-time connection failed, `requestPurchase`
   // throws a raw "not prepared" error instead of retrying.
   if (!(await ensureConnected())) {
-    throw new Error('Google Play is unavailable on this device right now');
+    throw new StoreError(
+      SUPPORTED
+        ? 'Google Play is not responding on this device. Check that the Play ' +
+            'Store is up to date, then try again.'
+        : 'In-app purchase is not available on this device.',
+      // Where Play exists at all this is usually transient — the Store mid-
+      // update, or Play Services restarting. Where it does not, nothing the
+      // user does here will help.
+      SUPPORTED,
+      SUPPORTED ? ErrorCode.NotPrepared : ErrorCode.IapNotAvailable,
+    );
   }
 
   // Tokens Play is already holding before this flow starts. The purchase
@@ -183,9 +235,14 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
 
     const timer = setTimeout(() => {
       fail(
-        new Error(
+        new StoreError(
           'Google Play did not confirm the purchase. If you were charged, ' +
             'reopen the app and your membership will be restored.',
+          // Not retryable: the money may already have moved, and the restore
+          // pass is what recovers it. Another purchase attempt is the wrong
+          // next step.
+          false,
+          ErrorCode.ServiceTimeout,
         ),
       );
     }, PURCHASE_TIMEOUT_MS);
@@ -203,8 +260,11 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
       // server return an opaque "could not be verified".
       if (purchase.purchaseState === 'pending') {
         fail(
-          new Error(
-            'Your payment is still being processed. You will get access once it completes.',
+          new StoreError(
+            'Your payment is still being processed. You will get access as ' +
+              'soon as it completes — there is nothing more to do.',
+            false,
+            ErrorCode.DeferredPayment,
           ),
         );
         return;
@@ -215,7 +275,7 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
 
     const errorSub = purchaseErrorListener((error: PurchaseError) => {
       noteConnectionState(error);
-      fail(toPurchaseError(error));
+      fail(classifyForDisplay(error));
     });
 
     requestPurchase({
@@ -228,7 +288,10 @@ export async function buyMembership(appUserId: string): Promise<Purchase> {
       type: 'in-app',
     }).catch((error: unknown) => {
       noteConnectionState(error);
-      fail(error instanceof Error ? error : new Error(String(error)));
+      // `requestPurchase` rejects instead of emitting when Play refuses the
+      // request outright — a missing product or a misconfigured build shows up
+      // here, not in the listener above.
+      fail(classifyForDisplay(error));
     });
   });
 }
@@ -336,16 +399,119 @@ export function isAlreadyOwned(error: unknown): boolean {
   return codeOf(error) === ErrorCode.AlreadyOwned;
 }
 
+/**
+ * Turn a store error code into something the user — or, in a dev build, the
+ * developer — can act on.
+ *
+ * Every code except cancel and already-owned used to arrive at the paywall as
+ * one sentence, which is why "still cannot pay" had no next step: the three
+ * setup failures below are indistinguishable from a flat network blip once the
+ * code is thrown away, and they need completely different fixes.
+ *
+ * `retryable` is false wherever pressing the button again cannot change the
+ * outcome — a missing product or a misconfigured build stays missing.
+ */
+function classify(error: unknown): StoreError {
+  const code = codeOf(error);
+
+  switch (code) {
+    // Play cannot see the product. In practice: the id does not match Play
+    // Console, the product is not Active, or this build is not on a track Play
+    // will serve products for.
+    case ErrorCode.ItemUnavailable:
+    case ErrorCode.SkuNotFound:
+    case ErrorCode.QueryProduct:
+    case ErrorCode.SkuOfferMismatch:
+      return new StoreError(
+        'This build cannot take payments yet — Google Play does not recognise ' +
+          'the membership product.',
+        false,
+        code,
+      );
+
+    // Play's catch-all for a mismatch between the app and the Console entry:
+    // signing key, package name, or a product that belongs to another app.
+    case ErrorCode.DeveloperError:
+      return new StoreError(
+        'This build is not set up for payments. Install the app from Google ' +
+          'Play to buy a membership.',
+        false,
+        code,
+      );
+
+    // No Play Billing on the device at all — an emulator without Play
+    // Services, a sideloaded APK, or a Play Store too old to serve billing.
+    case ErrorCode.BillingUnavailable:
+    case ErrorCode.IapNotAvailable:
+    case ErrorCode.FeatureNotSupported:
+    case ErrorCode.ActivityUnavailable:
+      return new StoreError(
+        'Google Play billing is not available on this device, so a membership ' +
+          'cannot be bought here.',
+        false,
+        code,
+      );
+
+    // The money has not moved and Google will refuse the token, so this is not
+    // a purchase to retry — it completes on its own.
+    case ErrorCode.DeferredPayment:
+    case ErrorCode.Pending:
+      return new StoreError(
+        'Your payment is still being processed. You will get access as soon ' +
+          'as it completes — there is nothing more to do.',
+        false,
+        code,
+      );
+
+    // Play is there but did not answer. These genuinely do pass.
+    case ErrorCode.NetworkError:
+    case ErrorCode.ServiceError:
+    case ErrorCode.ServiceTimeout:
+    case ErrorCode.ServiceDisconnected:
+    case ErrorCode.ConnectionClosed:
+    case ErrorCode.RemoteError:
+    case ErrorCode.InitConnection:
+    case ErrorCode.NotPrepared:
+    case ErrorCode.Interrupted:
+      return new StoreError(
+        'Google Play did not respond. Check your connection and try again.',
+        true,
+        code,
+      );
+
+    default:
+      return new StoreError(
+        'The membership did not activate. If you were charged, reopen the app ' +
+          'in a moment and it will be restored.',
+        true,
+        code,
+      );
+  }
+}
+
+/**
+ * The same, with the raw code attached in a dev build.
+ *
+ * The classified sentences above are written for a user and deliberately do not
+ * name Play's code — but during development that code is the whole diagnosis,
+ * and reading it off a device's logcat while testing a purchase flow is slow.
+ * `__DEV__` is false in every release build, so this never reaches a user.
+ */
+function classifyForDisplay(error: unknown): StoreError {
+  const classified = classify(error);
+  if (!__DEV__) return classified;
+
+  const code = codeOf(error) ?? 'no-code';
+  const detail = (error as { message?: string } | null)?.message;
+  return new StoreError(
+    `${classified.userMessage}\n\n[dev] ${code}${detail ? `: ${detail}` : ''}`,
+    classified.retryable,
+    classified.code,
+  );
+}
+
 function codeOf(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : undefined;
 }
 
-/** A PurchaseError carrying its code, so the predicates above still work. */
-function toPurchaseError(error: PurchaseError): Error {
-  const wrapped = new Error(
-    error.message || 'The purchase could not be completed',
-  );
-  (wrapped as Error & { code?: string }).code = error.code;
-  return wrapped;
-}

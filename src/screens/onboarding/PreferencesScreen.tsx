@@ -271,7 +271,11 @@ export function PreferencesScreen({
             // placeholder values would save the defaults over whatever the user
             // had actually chosen.
             variant={loading ? 'disabled' : 'primary'}
-            loading={continueLoading}
+            // Shown as busy, not merely dead. A greyed-out button with no
+            // explanation reads as a broken screen when the read is slow — the
+            // spinner says the same "not yet" that the skeleton above does.
+            loading={continueLoading || loading}
+            loadingLabel={loading ? 'Loading your preferences…' : undefined}
             onPress={loading ? undefined : () => onContinue?.(values)}
           />
         </View>

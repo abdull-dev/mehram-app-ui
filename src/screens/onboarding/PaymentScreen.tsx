@@ -42,6 +42,7 @@ import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
 import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
+import { MEMBERSHIP_PRICE_FALLBACK } from '../../api/billing';
 import { GRADIENT_FILL } from '../../theme/layout';
 
 // ─── animation helpers ────────────────────────────────────────────────────────
@@ -129,9 +130,36 @@ interface PaymentScreenProps {
    * blank — but the store's price is the one the user is actually charged.
    */
   priceLabel?: string | null;
+  /**
+   * How many candidates the server actually found for this user
+   * (`matchCount` from `/matches/home-state`).
+   *
+   * The heading was the literal string "142 people are waiting", shown to
+   * every user on the screen that asks them to pay. Nothing produced that
+   * number — a fabricated count is not a rounding error here, it is a claim
+   * about demand used to sell a membership. With a real count the heading uses
+   * it; with none it says what is true without one, rather than inventing a
+   * figure to fill the space.
+   */
+  matchCount?: number | null;
 }
 
-export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhatDoIGet, paying = false, error, priceLabel }: PaymentScreenProps) {
+/**
+ * The heading, from the real candidate count.
+ *
+ * Only claims a number the server gave us, and only when it is worth saying:
+ * "1 person is waiting" undersells a membership that is not sold on today's
+ * pool, and "0 people are waiting" argues against buying. Both fall back to
+ * the count-free line, which is the honest version of what this screen is for.
+ */
+export function headingFor(matchCount?: number | null): string {
+  if (matchCount != null && matchCount > 1) {
+    return `${matchCount} people\nare waiting`;
+  }
+  return 'Your introductions\nstart here';
+}
+
+export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhatDoIGet, paying = false, error, priceLabel, matchCount }: PaymentScreenProps) {
   const insets = useSafeAreaInsets();
 
   // Staggered entrance: d1, d2, d3, d4
@@ -214,7 +242,7 @@ export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhat
             <View style={styles.kicker}>
               <Text style={styles.kickerText}>Last step</Text>
             </View>
-            <Text style={styles.heading}>142 people{'\n'}are waiting</Text>
+            <Text style={styles.heading}>{headingFor(matchCount)}</Text>
             <Text style={styles.subtitle}>
               Membership unlocks your introductions. Three a day, chosen
               against your criteria.
@@ -235,7 +263,7 @@ export function PaymentScreen({ onBack, onClose, onLogout, onPay, onSkip, onWhat
             />
               {/* Real store price from billing; the literal is the fallback
                   while the product query is still in flight. */}
-              <Text style={styles.priceAmount}>{priceLabel ?? 'PKR 4,500'}</Text>
+              <Text style={styles.priceAmount}>{priceLabel ?? MEMBERSHIP_PRICE_FALLBACK}</Text>
               <Text style={styles.priceLabel}>One payment. No renewal, ever.</Text>
             </View>
           </Animated.View>
@@ -457,6 +485,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     flexShrink: 0,
   },
+  // Deliberately unlike every real control on this screen: dashed, muted, and
+  // no gradient, so it reads as scaffolding rather than an offer.
   // Matches EditProfileScreen's inline error convention.
   errorText: {
     fontSize: 12.5,
