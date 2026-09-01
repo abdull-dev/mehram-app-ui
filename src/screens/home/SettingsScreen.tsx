@@ -3,9 +3,16 @@
  *
  * Main settings/menu screen. Shows profile summary, search settings,
  * account options, help/legal links, and account-leaving actions.
+ *
+ * The profile card and the row subtitles used to be the prototype's sample text
+ * — "Mian Haseeb", "MH", "Lahore · Member since August", a wali called "Imran
+ * Mian", "6 profiles match right now". They were prop defaults and inline
+ * literals, so they rendered for every real user as if they were that user's
+ * details. Everything shown here now comes from the profile, the family status
+ * or the caller, and anything unknown is left out rather than filled in.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -17,6 +24,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import {
+  PHOTO_PRIVACY_OPTIONS,
+  getMyProfile,
+  type MyProfile,
+} from '../../api/profile';
+import { getFamilyStatus, type WaliMember } from '../../api/wali';
+import { getMe, type MeResponse } from '../../api/auth';
+import { Bone } from '../../components/ui/Skeleton';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -64,6 +79,17 @@ function CheckIcon() {
     <Svg width={17} height={17} viewBox="0 0 24 24" fill="none"
       stroke={C.mint} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
       <Path d="M5 12.5l5 5 9-10" />
+    </Svg>
+  );
+}
+
+/** Avatar stand-in while the name is still loading, or absent entirely. */
+function PersonIcon() {
+  return (
+    <Svg width={34} height={34} viewBox="0 0 24 24" fill="none"
+      stroke={C.indInk} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx={12} cy={8} r={3.6} />
+      <Path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6" />
     </Svg>
   );
 }
@@ -125,10 +151,19 @@ interface ListItemProps {
   first?: boolean;
   danger?: boolean;
   loading?: boolean;
+  /**
+   * The subtitle is still being fetched — show a bone in its place.
+   *
+   * Distinct from `loading`, which means the row's own action is running and
+   * puts a spinner where the chevron goes.
+   */
+  subtitlePending?: boolean;
   onPress?: () => void;
 }
 
-function ListItem({ iconName, iconBg, title, subtitle, value, first, danger, loading, onPress }: ListItemProps) {
+function ListItem({
+  iconName, iconBg, title, subtitle, value, first, danger, loading, subtitlePending, onPress,
+}: ListItemProps) {
   const { bg, icon } = BG_MAP[iconBg];
   return (
     <Pressable
@@ -139,7 +174,11 @@ function ListItem({ iconName, iconBg, title, subtitle, value, first, danger, loa
       </View>
       <View style={styles.lib}>
         <Text style={[styles.lit, danger && styles.litDanger]}>{title}</Text>
-        {!!subtitle && <Text style={styles.lis}>{subtitle}</Text>}
+        {subtitlePending ? (
+          <Bone w={140} h={11} radius={5} style={styles.boneSubtitle} />
+        ) : (
+          !!subtitle && <Text style={styles.lis}>{subtitle}</Text>
+        )}
       </View>
       {!!value && <Text style={styles.liv}>{value}</Text>}
       {loading
@@ -169,15 +208,60 @@ interface SettingsScreenProps {
   onPrivacyPolicy?: () => void;
   onTermsOfService?: () => void;
   onRefundPolicy?: () => void;
-  onFoundMyMatch?: () => void;
-  onDownloadData?: () => void;
   onSignOut?: () => Promise<void>;
-  onDeleteAccount?: () => void;
+  /**
+   * The user's full name, when the caller already knows it. Left undefined, the
+   * screen uses the name on the fetched profile.
+   */
   userName?: string;
-  userCity?: string;
+  /** True only when verification came back APPROVED — drives the tick. */
+  verified?: boolean;
+  /** Profiles currently matching the user's preferences, from the home state. */
+  matchCount?: number;
+  /** Whether the membership has been paid for. */
+  isPaidMember?: boolean;
+}
+
+/** Up to two initials for the avatar, or null when there is no name to use. */
+function initialsOf(fullName?: string | null): string | null {
+  const parts = (fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts.slice(0, 2).map(w => w[0]!.toUpperCase()).join('');
+}
+
+/** "Member since August 2026" — month and year, so it does not go stale. */
+function memberSince(iso?: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return `Member since ${date.toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  })}`;
 }
 
 // ─── screen ───────────────────────────────────────────────────────────────────
+/**
+ * Module-level cache, so reopening Settings shows the previous answer at once
+ * instead of a screen of skeletons on every visit.
+ *
+ * The screen still refetches in the background on each open; the cache only
+ * decides whether the user waits to see anything. Cleared on sign-out by
+ * `resetSettingsCache` — it holds a name and an email, and the next account to
+ * sign in on this device must not see them.
+ */
+let _cachedProfile: MyProfile | null = null;
+let _cachedAccount: MeResponse | null = null;
+let _cachedWali: WaliMember | null = null;
+let _settingsLoaded = false;
+
+export function resetSettingsCache(): void {
+  _cachedProfile = null;
+  _cachedAccount = null;
+  _cachedWali = null;
+  _settingsLoaded = false;
+}
+
 export function SettingsScreen({
   onBack,
   onViewBiodata,
@@ -193,15 +277,86 @@ export function SettingsScreen({
   onPrivacyPolicy,
   onTermsOfService,
   onRefundPolicy,
-  onFoundMyMatch,
-  onDownloadData,
   onSignOut,
-  onDeleteAccount,
-  userName = 'Mian Haseeb',
-  userCity = 'Lahore',
+  userName,
+  verified = false,
+  matchCount,
+  isPaidMember,
 }: SettingsScreenProps) {
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
+
+  // Fetched here rather than threaded down from App: the name, city, join date
+  // and photo-privacy mode are all on the profile, and nothing above this screen
+  // was holding them.
+  const [profile, setProfile] = useState<MyProfile | null>(_cachedProfile);
+  const [account, setAccount] = useState<MeResponse | null>(_cachedAccount);
+  const [wali, setWali] = useState<WaliMember | null>(_cachedWali);
+  // Skeletons are for a first visit only. On a revisit the cached values are
+  // already on screen, and flashing bones over them reads as data being lost.
+  const [loading, setLoading] = useState(!_settingsLoaded);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      getMyProfile().catch(() => null),
+      // The name and email come from here. `/profile/me` declares `fullName`
+      // but does not return one — which is why the card rendered a city and no
+      // name — and it carries no email at all.
+      getMe().catch(() => null),
+      // A user with no wali is the normal answer here, not a failure.
+      getFamilyStatus().catch(() => null),
+    ]).then(([me, auth, family]) => {
+      if (cancelled) return;
+      _cachedProfile = me;
+      _cachedAccount = auth;
+      _cachedWali = family;
+      _settingsLoaded = true;
+      setProfile(me);
+      setAccount(auth);
+      setWali(family);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const fullName =
+    userName?.trim() ||
+    account?.profile.fullName?.trim() ||
+    profile?.fullName?.trim() ||
+    '';
+  const email = account?.user.email?.trim();
+  const initials = initialsOf(fullName);
+  const since = memberSince(profile?.onboardingCompletedAt);
+  const city = profile?.city?.trim();
+  // Each half is dropped when unknown, so a missing city cannot leave a stray
+  // separator behind.
+  const metaLine = [city, since].filter(Boolean).join(' · ');
+
+  const privacyMode = profile?.privacySettings?.photoVisibilityMode;
+  const privacySubtitle = privacyMode
+    ? `Photos: ${
+        PHOTO_PRIVACY_OPTIONS.find(o => o.mode === privacyMode)?.chipLabel ?? privacyMode
+      }`
+    : undefined;
+
+  const waliSubtitle = loading
+    ? undefined
+    : wali
+      ? `${wali.wali.fullName} · active`
+      : 'Not added yet';
+
+  const preferencesSubtitle =
+    matchCount != null && matchCount > 0
+      ? `${matchCount} ${matchCount === 1 ? 'profile matches' : 'profiles match'} right now`
+      : undefined;
+
+  const membershipSubtitle =
+    isPaidMember == null
+      ? undefined
+      : isPaidMember
+        ? 'Active · one-time payment'
+        : 'Not a member yet';
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -222,14 +377,35 @@ export function SettingsScreen({
         {/* Profile card */}
         <View style={styles.card}>
           <View style={styles.prof}>
+            {/* While the fetch is in flight the real layout would collapse to a
+                bare avatar and then jump as the name, email and city arrive.
+                Bones hold the same shape so the card only fills in. */}
             <View style={styles.pav}>
-              <Text style={styles.pavText}>MH</Text>
+              {loading ? null : initials ? (
+                <Text style={styles.pavText}>{initials}</Text>
+              ) : (
+                <PersonIcon />
+              )}
             </View>
-            <View style={styles.pnRow}>
-              <Text style={styles.pn}>{userName}</Text>
-              <CheckIcon />
-            </View>
-            <Text style={styles.ps}>{userCity} · Member since August</Text>
+            {loading ? (
+              <>
+                <Bone w={168} h={21} radius={7} style={styles.boneName} />
+                <Bone w={196} h={13} radius={6} style={styles.boneEmail} />
+                <Bone w={110} h={13} radius={6} style={styles.boneMeta} />
+              </>
+            ) : (
+              <>
+                {!!fullName && (
+                  <View style={styles.pnRow}>
+                    <Text style={styles.pn}>{fullName}</Text>
+                    {/* Only a profile the server actually approved gets the tick. */}
+                    {verified && <CheckIcon />}
+                  </View>
+                )}
+                {!!email && <Text style={styles.pe}>{email}</Text>}
+                {!!metaLine && <Text style={styles.ps}>{metaLine}</Text>}
+              </>
+            )}
           </View>
           <View style={styles.acts}>
             <Pressable
@@ -242,14 +418,14 @@ export function SettingsScreen({
 
         <SectionHeader label="Your search" />
         <View style={[styles.card, styles.cardOverflow]}>
-          <ListItem first iconName="heart" iconBg="rose"   title="Partner preferences" subtitle="6 profiles match right now" onPress={onPartnerPreferences} />
-          <ListItem       iconName="fam"   iconBg="indigo" title="Your wali"            subtitle="Imran Mian · active"         onPress={onWali} />
-          <ListItem       iconName="lock"  iconBg="indigo" title="Privacy and photos"   subtitle="Photos: nobody without approval" onPress={onPrivacy} />
+          <ListItem first iconName="heart" iconBg="rose"   title="Partner preferences" subtitle={preferencesSubtitle} onPress={onPartnerPreferences} />
+          <ListItem       iconName="fam"   iconBg="indigo" title="Your wali"            subtitle={waliSubtitle}    subtitlePending={loading} onPress={onWali} />
+          <ListItem       iconName="lock"  iconBg="indigo" title="Privacy and photos"   subtitle={privacySubtitle} subtitlePending={loading} onPress={onPrivacy} />
         </View>
 
         <SectionHeader label="Account" />
         <View style={[styles.card, styles.cardOverflow]}>
-          <ListItem first iconName="card"  iconBg="mint"   title="Membership"       subtitle="Paid 26 August · no renewal" onPress={onMembership} />
+          <ListItem first iconName="card"  iconBg="mint"   title="Membership"       subtitle={membershipSubtitle} onPress={onMembership} />
           <ListItem       iconName="bell"  iconBg="gold"   title="Notifications"                                           onPress={onNotifications} />
         </View>
 
@@ -263,10 +439,10 @@ export function SettingsScreen({
 
         <SectionHeader label="Leaving" />
         <View style={[styles.card, styles.cardOverflow]}>
-          <ListItem first iconName="ring"  iconBg="mint" title="I found my match"    subtitle="Archive your profile and tell us" onPress={onFoundMyMatch} />
-          <ListItem       iconName="down"  iconBg="grey" title="Download my data"                                                onPress={onDownloadData} />
-          <ListItem       iconName="out"   iconBg="grey" title="Sign out"   loading={signingOut}  onPress={async () => { setSigningOut(true); try { await onSignOut?.(); } finally { setSigningOut(false); } }} />
-          <ListItem       iconName="trash" iconBg="rose" title="Delete account" danger                                           onPress={onDeleteAccount} />
+          {/* Sign out is the only row here now: "I found my match", "Download
+              my data" and "Delete account" were removed along with their
+              screens and endpoints. */}
+          <ListItem first iconName="out" iconBg="grey" title="Sign out" loading={signingOut} onPress={async () => { setSigningOut(true); try { await onSignOut?.(); } finally { setSigningOut(false); } }} />
         </View>
 
       </ScrollView>
@@ -375,6 +551,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: C.ink,
   },
+  pe: {
+    fontSize: 13,
+    color: C.ink2,
+    marginTop: 4,
+  },
+  // Margins mirror pn / pe / ps so the card does not resize when the real text
+  // replaces the bones.
+  boneName: { marginTop: 3 },
+  boneEmail: { marginTop: 7 },
+  boneMeta: { marginTop: 6 },
+  boneSubtitle: { marginTop: 5 },
   ps: {
     fontSize: 13,
     color: C.ink3,

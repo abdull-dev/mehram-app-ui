@@ -150,7 +150,6 @@ interface WaliSettingsScreenProps {
   onPrivacyPolicy?: () => void;
   onTermsOfService?: () => void;
   onSignOut?: () => Promise<void>;
-  onDeleteAccount?: () => void;
   waliName?: string;
   waliEmail?: string;
   dependentName?: string;
@@ -165,7 +164,6 @@ export function WaliSettingsScreen({
   onPrivacyPolicy,
   onTermsOfService,
   onSignOut,
-  onDeleteAccount,
   waliName = 'Wali',
   waliEmail,
   dependentName,
@@ -233,7 +231,6 @@ export function WaliSettingsScreen({
               try { await onSignOut?.(); } finally { setSigningOut(false); }
             }}
           />
-          <ListItem iconName="trash" iconBg="rose" title="Delete account" danger onPress={onDeleteAccount} />
         </View>
 
       </ScrollView>
