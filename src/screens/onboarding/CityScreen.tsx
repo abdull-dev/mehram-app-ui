@@ -108,6 +108,12 @@ interface CityScreenProps {
   /** Called with the chosen city name (and GPS coords if available) when the user taps Continue */
   onContinue?: (city: string, coords?: Coords) => void;
   onSave?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   continueLoading?: boolean;
 }
 
@@ -129,6 +135,8 @@ export function CityScreen({
   onBack,
   onContinue,
   onSave,
+  onClose,
+  onLogout,
   continueLoading,
 }: CityScreenProps) {
   const insets = useSafeAreaInsets();
@@ -437,16 +445,13 @@ export function CityScreen({
         ]}>
 
         {/* ── NavBar ───────────────────────────────────────────────────── */}
-        <NavBar progress={34} onBack={onBack} skipLabel="Save" onSkip={onSave} />
+        <NavBar progress={34} onBack={onBack} skipLabel="Save" onSkip={onSave} onClose={onClose} onLogout={onLogout} />
 
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <View style={styles.body}>
 
           {/* Question block */}
           <View style={styles.question}>
-            <View style={styles.stepPill}>
-              <Text style={styles.stepPillText}>Step 3 of 5</Text>
-            </View>
             <Text style={styles.questionTitle}>Which city?</Text>
             <Text style={styles.questionSub}>
               Shown as a city only. Never your area.
@@ -572,22 +577,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingBottom: 2,
     flexShrink: 0,
-  },
-
-  stepPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.vioSoft,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 9,
-    marginBottom: 10,
-  },
-  stepPillText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: Colors.vioInk,
   },
 
   questionTitle: {

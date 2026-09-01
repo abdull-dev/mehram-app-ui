@@ -15,6 +15,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors, GradientColors } from '../../theme/colors';
+import { OnboardingExit } from './OnboardingExit';
 
 interface NavBarProps {
   /** 0–100 */
@@ -23,29 +24,44 @@ interface NavBarProps {
   /** Label shown on the right (e.g. "Save", "Skip"). Omit to hide. */
   actionLabel?: string;
   onAction?: () => void;
+  /**
+   * Leave the flow entirely, shown as an ✕ on the right.
+   *
+   * Set when the screen was entered from Home rather than walked to during
+   * signup: it is then the first step of its own trip, so there is nowhere to go
+   * *back* to but there does have to be a way out. Takes the place of both the
+   * back button and the action label — a screen the user opened deliberately
+   * needs one clear exit, not three controls.
+   */
+  onClose?: () => void;
+  /** Abandon the signup, shown as "Log out". See `OnboardingExit`. */
+  onLogout?: () => void;
 }
 
-export function NavBar({ progress, onBack, actionLabel, onAction }: NavBarProps) {
+export function NavBar({ progress, onBack, actionLabel, onAction, onClose, onLogout }: NavBarProps) {
   const pct = `${Math.min(100, Math.max(0, progress))}%`;
 
   return (
     <View style={styles.nb}>
-      {/* Back button */}
-      <Pressable
-        onPress={onBack}
-        style={({ pressed }) => [styles.back, { transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
-        <Svg
-          width={17}
-          height={17}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={Colors.vioInk}
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round">
-          <Path d="M15 18l-6-6 6-6" />
-        </Svg>
-      </Pressable>
+      {/* Back button. Omitted with no handler — it used to render regardless,
+          so a screen with nowhere behind it showed a button that did nothing. */}
+      {!!onBack && !onClose && !onLogout && (
+        <Pressable
+          onPress={onBack}
+          style={({ pressed }) => [styles.back, { transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
+          <Svg
+            width={17}
+            height={17}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={Colors.vioInk}
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round">
+            <Path d="M15 18l-6-6 6-6" />
+          </Svg>
+        </Pressable>
+      )}
 
       {/* Progress track */}
       <View style={styles.track}>
@@ -58,8 +74,10 @@ export function NavBar({ progress, onBack, actionLabel, onAction }: NavBarProps)
         />
       </View>
 
-      {/* Optional right action */}
-      {actionLabel ? (
+      {/* The exit when there is one, otherwise the action label. */}
+      {onClose || onLogout ? (
+        <OnboardingExit onClose={onClose} onLogout={onLogout} />
+      ) : actionLabel ? (
         <Pressable
           onPress={onAction}
           style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
@@ -109,6 +127,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 5,
   },
+
 
   // .skip — 12.5 700, vioD
   action: {

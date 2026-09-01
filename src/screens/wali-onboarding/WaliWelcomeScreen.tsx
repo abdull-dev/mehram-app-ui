@@ -155,6 +155,11 @@ const orb = StyleSheet.create({
 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface WaliWelcomeScreenProps {
+  /**
+   * The ward's name, when it is known. This screen runs before the invite code
+   * is redeemed, so usually it is not — the copy is worded for both cases
+   * rather than defaulting to a stand-in name.
+   */
   dependentName?: string;
   onContinue?: () => void;
   onLearnMore?: () => void;
@@ -162,11 +167,13 @@ interface WaliWelcomeScreenProps {
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliWelcomeScreen({
-  dependentName = 'Sana',
+  dependentName,
   onContinue,
   onLearnMore,
 }: WaliWelcomeScreenProps) {
   const insets = useSafeAreaInsets();
+
+  const ward = dependentName?.trim() || null;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 12 }]}>
@@ -175,12 +182,15 @@ export function WaliWelcomeScreen({
         <OrbitHero />
 
         <Text style={styles.heading}>
-          {dependentName} has asked{'\n'}you to be her wali
+          {ward
+            ? `${ward} has asked\nyou to be their wali`
+            : 'You have been asked\nto be a wali'}
         </Text>
 
         <Text style={styles.para}>
-          She is using Mehram to find a rishta. Proposals will come to you before they reach
-          her, and you will be able to read every conversation.
+          {ward ? `${ward} is` : 'They are'} using Mehram to find a rishta. Proposals will
+          come to you before they reach {ward ? ward : 'them'}, and you will be able to read
+          every conversation.
         </Text>
       </View>
 

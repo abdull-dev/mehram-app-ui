@@ -26,6 +26,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 import {
   uploadPhoto,
@@ -33,6 +34,7 @@ import {
   getMyProfile,
   updatePhotoPrivacy,
   PHOTO_PRIVACY_OPTIONS,
+  DEFAULT_PHOTO_PRIVACY,
   type PhotoVisibilityMode,
 } from '../../api/profile';
 import { resolvePhotoUrl } from '../../api/config';
@@ -106,11 +108,20 @@ const EMPTY_SLOT: SlotState = { uri: null, photoId: null, uploading: false, erro
 // ─── component ────────────────────────────────────────────────────────────────
 interface PhotosScreenProps {
   onBack?: () => void;
+  /**
+   * Leave the flow and return to Home, shown as an ✕.
+   *
+   * Set only when this screen was entered from Home to finish a profile
+   * section, where it is the first step of its own trip.
+   */
+  onClose?: () => void;
+  /** Abandon the signup, shown as "Log out". */
+  onLogout?: () => void;
   onContinue?: () => void;
   continueLoading?: boolean;
 }
 
-export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScreenProps) {
+export function PhotosScreen({ onBack, onClose, onLogout, onContinue, continueLoading }: PhotosScreenProps) {
   const insets = useSafeAreaInsets();
 
   const [slots, setSlots] = useState<[SlotState, SlotState, SlotState]>([
@@ -126,12 +137,24 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
    * that default as if it were a decision. Who can see your photos is not a
    * question to answer on the user's behalf.
    */
-  const [privacyMode, setPrivacyMode] = useState<PhotoVisibilityMode | null>(null);
+  /**
+   * Always one of the offered options — never unset.
+   *
+   * It started as `null`, so the step opened with nothing selected and Continue
+   * disabled until the user picked. Two different states produced that: a fresh
+   * profile with nothing stored, and a man's profile, where the server's default
+   * is OPEN — a mode this list does not offer, so no chip matched it and none
+   * appeared selected even though a value existed.
+   */
+  const [privacyMode, setPrivacyMode] = useState<PhotoVisibilityMode>(
+    DEFAULT_PHOTO_PRIVACY,
+  );
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
   const hasPhoto = slots[0].uri !== null && !slots[0].uploading;
   // Both are required: a photo to show, and an explicit choice about who sees it.
-  const hasRequired = hasPhoto && privacyMode !== null;
+  // A visibility is always set now, so the photo is the only thing to wait for.
+  const hasRequired = hasPhoto;
 
   function setSlot(index: 0 | 1 | 2, patch: Partial<SlotState>) {
     setSlots(prev => {
@@ -154,8 +177,14 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
       PUBLIC: 3,
     };
     getMyProfile().then(profile => {
+      // Only adopt a stored value this screen can actually show. OPEN is a real
+      // mode but not one of the choices here, and selecting nothing to represent
+      // it is worse than falling back to the strictest — which is also what
+      // Continue would then save.
       const saved = profile.privacySettings?.photoVisibilityMode;
-      if (saved) setPrivacyMode(saved);
+      if (saved && PHOTO_PRIVACY_OPTIONS.some(o => o.mode === saved)) {
+        setPrivacyMode(saved);
+      }
       if (!profile.photos?.length) return;
       setSlots(prev => {
         const next: [SlotState, SlotState, SlotState] = [
@@ -187,7 +216,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
 
     const result = await launchImageLibrary({
       mediaType: 'photo',
-      quality: 0.85,
+      // Typed as a PhotoQuality literal union, so a bare number is rejected.
+      quality: 0.8 as const,
       selectionLimit: 1,
     });
 
@@ -251,7 +281,7 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
         <View style={styles.navbar}>
           {/* Omitted when there is nothing behind this screen: entering the
               flow straight from Home makes this its first step. */}
-          {onBack ? (
+          {!!onBack && (
             <Pressable onPress={onBack}
               style={({ pressed }) => [styles.backBtn, {
                 opacity: pressed ? 0.8 : 1,
@@ -259,8 +289,6 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
               }]}>
               <BackIcon />
             </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
           )}
           <View style={styles.progressTrack}>
             <LinearGradient
@@ -270,6 +298,9 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
               style={styles.progressFill}
             />
           </View>
+          {/* Entered from Home, so there is nowhere to go back to — but there
+              does have to be a way out. */}
+          <OnboardingExit onClose={onClose} onLogout={onLogout} />
         </View>
 
         {/* ── Scrollable body ──────────────────────────────────────── */}
@@ -280,7 +311,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
           keyboardShouldPersistTaps="handled">
 
           {/* Header */}
-          <Animated.View style={[styles.questionBlock, riseStyle(header.anim)]}>
+          <Animated.View style={[styles.questionBlock, riseStyle(header.anim)]}
+            needsOffscreenAlphaCompositing>
             <View style={styles.sectionPill}>
               <Text style={styles.sectionPillText}>YOUR PHOTOS</Text>
             </View>
@@ -291,7 +323,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
           </Animated.View>
 
           {/* ── Photo slots ─────────────────────────────────────── */}
-          <Animated.View style={[styles.slotsRow, riseStyle(slotsAnim.anim)]}>
+          <Animated.View style={[styles.slotsRow, riseStyle(slotsAnim.anim)]}
+            needsOffscreenAlphaCompositing>
             <PhotoSlot
               required
               slot={slots[0]}
@@ -311,7 +344,8 @@ export function PhotosScreen({ onBack, onContinue, continueLoading }: PhotosScre
           </Animated.View>
 
           {/* ── Privacy chips ────────────────────────────────────── */}
-          <Animated.View style={[styles.fieldBlock, riseStyle(chips.anim)]}>
+          <Animated.View style={[styles.fieldBlock, riseStyle(chips.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.fieldLabel}>WHO CAN SEE THEM</Text>
             <View style={styles.chipsWrap}>
               {PHOTO_PRIVACY_OPTIONS.map(option => (
@@ -491,7 +525,6 @@ const styles = StyleSheet.create({
   // Holds the back button's place in the row when there is nothing behind this
   // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
   // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38, height: 38, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.92)',
@@ -553,7 +586,8 @@ const styles = StyleSheet.create({
 
   // Upload / error overlays
   uploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    // `StyleSheet.absoluteFillObject` no longer exists in this RN version.
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center', justifyContent: 'center',
   },

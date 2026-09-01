@@ -43,7 +43,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { warmCities } from '../../utils/cityData';
+import { warmCities, warmCityDataset } from '../../utils/cityData';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -51,6 +51,7 @@ import { getCountryDataList, getEmojiFlag } from 'countries-list';
 import { captureCurrentLocation, reverseGeocodeCountry } from '../../utils/location';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -148,15 +149,6 @@ function riseStyle(anim: Animated.Value) {
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
-function BackIcon() {
-  return (
-    <Svg width={17} height={17} viewBox="0 0 24 24" fill="none"
-      stroke={Colors.vioInk} strokeWidth={2.5}
-      strokeLinecap="round" strokeLinejoin="round">
-      <Path d="M15 18l-6-6 6-6" />
-    </Svg>
-  );
-}
 
 function SearchIcon() {
   return (
@@ -175,9 +167,17 @@ interface CountryScreenProps {
   /** Called when the user taps "Continue" with the selected country */
   onContinue?: (country: { iso2: string; name: string; emoji: string }) => void;
   /** Called when the user taps the back arrow */
-  onBack?: () => void;
   /** Called when the user taps "Save" (top-right skip) */
-  onSave?: () => void;
+  /**
+   * Leave the flow.
+   *
+   * Two different exits, because the screen has two entry points. Reached from
+   * Home to finish a profile, there is somewhere to return to — `onClose` shows
+   * an X. Reached during signup there is not: the only way out is to abandon the
+   * account, so `onLogout` shows "Log out" instead. Exactly one is passed.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   /** Fired as soon as GPS coords are obtained — lets the parent pre-seed CityScreen */
   onLocationDetected?: (coords: { latitude: number; longitude: number }) => void;
   continueLoading?: boolean;
@@ -185,7 +185,10 @@ interface CountryScreenProps {
 
 type LocStatus = 'idle' | 'loading' | 'detected' | 'denied';
 
-export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, continueLoading }: CountryScreenProps) {
+/** Long enough for the entrance animation to finish before the parse blocks. */
+const WARM_DELAY_MS = 600;
+
+export function CountryScreen({ onContinue, onClose, onLogout, onLocationDetected, continueLoading }: CountryScreenProps) {
   const insets = useSafeAreaInsets();
   const [query, setQuery]       = useState('');
   const [selected, setSelected] = useState<CountryEntry | null>(null);
@@ -196,6 +199,18 @@ export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, 
   const listAnim = useFadeRise(150);
 
   const rows = useMemo(() => buildRows(query), [query]);
+
+  // Pay the city dataset's one-time parse here, not on selection. Reading this
+  // list takes the user seconds; the gap between picking a country and pressing
+  // Continue takes a few hundred milliseconds, and the parse used to still be
+  // running inside it — which stalled Continue's loader on a first sign-up.
+  // The delay clears the entrance animation, which the parse would otherwise
+  // stutter. (InteractionManager would be the natural fit but was removed from
+  // react-native core in 0.87.)
+  useEffect(() => {
+    const t = setTimeout(warmCityDataset, WARM_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleSelect = (c: CountryEntry) => {
     setSelected(c);
@@ -269,18 +284,9 @@ export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, 
 
         {/* ── Nav bar ──────────────────────────────────────────────────── */}
         <View style={styles.nb}>
-          {/* No handler means this screen is where the session resumed, so
-              there is nothing behind it. A visible control that does nothing is
-              worse than none, so the space is kept and the button omitted. */}
-          {onBack ? (
-            <Pressable
-              onPress={onBack}
-              style={({ pressed }) => [styles.back, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
-              <BackIcon />
-            </Pressable>
-          ) : (
-            <View style={styles.back} />
-          )}
+          {/* No back control on this step: the bar runs the full width instead.
+              Android's hardware back still works — the app's own history handles
+              it, so nothing here is the only way out. */}
 
           {/* Progress bar — 28% */}
           <View style={styles.prg}>
@@ -293,26 +299,23 @@ export function CountryScreen({ onContinue, onBack, onSave, onLocationDetected, 
             />
           </View>
 
-          <Pressable onPress={onSave} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-            <Text style={styles.skip}>Save</Text>
-          </Pressable>
+          <OnboardingExit onClose={onClose} onLogout={onLogout} />
         </View>
 
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <View style={styles.body}>
 
           {/* Question header — d1 */}
-          <Animated.View style={[styles.q, riseStyle(qAnim)]}>
-            <View style={styles.qk}>
-              <Text style={styles.qkText}>Step 3 of 5</Text>
-            </View>
+          <Animated.View style={[styles.q, riseStyle(qAnim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.qh}>
               Which country{'\n'}do you live in?
             </Text>
           </Animated.View>
 
           {/* Sheet (search + list) — d2 */}
-          <Animated.View style={[styles.sheetWrap, riseStyle(listAnim)]}>
+          <Animated.View style={[styles.sheetWrap, riseStyle(listAnim)]}
+            needsOffscreenAlphaCompositing>
             {/* Sheet container */}
             <View style={styles.sheet}>
 
@@ -461,20 +464,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     flexShrink: 0,
   },
-  back: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    shadowColor: '#3C2878',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
   prg: {
     flex: 1,
     height: 7,
@@ -505,21 +494,6 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
     paddingHorizontal: 2,
     flexShrink: 0,
-  },
-  qk: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.vioSoft,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 9,
-    marginBottom: 10,
-  },
-  qkText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: Colors.vioInk,
   },
   qh: {
     fontSize: 24,

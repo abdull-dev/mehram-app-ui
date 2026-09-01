@@ -51,6 +51,7 @@ function CheckCircle() {
 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface WaliSetupCompleteScreenProps {
+  /** The ward's name, from `GET /wali/me`. Copy reads without it when absent. */
   dependentName?: string;
   onGoHome?: () => void;
   onSeeDependent?: () => void; // kept for backwards-compat, unused
@@ -58,10 +59,12 @@ interface WaliSetupCompleteScreenProps {
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliSetupCompleteScreen({
-  dependentName = 'Sana',
+  dependentName,
   onGoHome,
 }: WaliSetupCompleteScreenProps) {
   const insets = useSafeAreaInsets();
+
+  const ward = dependentName?.trim() || null;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 12 }]}>
@@ -69,11 +72,13 @@ export function WaliSetupCompleteScreen({
       <View style={styles.welcome}>
         <CheckCircle />
 
-        <Text style={styles.heading}>You are {dependentName}'s wali</Text>
+        <Text style={styles.heading}>
+          {ward ? `You are ${ward}'s wali` : 'You are now a wali'}
+        </Text>
 
         <Text style={styles.para}>
-          She has been told. Proposals will come to you first, and we will notify you the
-          moment one arrives.
+          {ward ? `${ward} has` : 'They have'} been told. Proposals will come to you first,
+          and we will notify you the moment one arrives.
         </Text>
 
       </View>

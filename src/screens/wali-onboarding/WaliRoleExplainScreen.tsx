@@ -61,6 +61,7 @@ function CardRow({
 
 // ─── props ────────────────────────────────────────────────────────────────────
 interface WaliRoleExplainScreenProps {
+  /** The ward's name, from `GET /wali/me`. Copy reads without it when absent. */
   dependentName?: string;
   onAccept?: () => void;
   onDecline?: () => void;
@@ -69,12 +70,14 @@ interface WaliRoleExplainScreenProps {
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function WaliRoleExplainScreen({
-  dependentName = 'Sana',
+  dependentName,
   onAccept,
   onDecline,
   onBack,
 }: WaliRoleExplainScreenProps) {
   const insets = useSafeAreaInsets();
+
+  const ward = dependentName?.trim() || null;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 12 }]}>
@@ -122,12 +125,12 @@ export function WaliRoleExplainScreen({
           </View>
           <CardRow
             first
-            label={`Review proposals before ${dependentName} sees them`}
+            label={`Review proposals before ${ward ?? 'they'} see${ward ? 's' : ''} them`}
             value="Yes"
             valueColor={Colors.mintInk}
           />
           <CardRow
-            label="Decline a proposal on her behalf"
+            label={`Decline a proposal on ${ward ? `${ward}'s` : 'their'} behalf`}
             value="Yes"
             valueColor={Colors.mintInk}
           />

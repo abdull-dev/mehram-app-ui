@@ -25,8 +25,10 @@ import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 import { getMyProfile } from '../../api/profile';
+import { isPlaceholderName } from '../../utils/displayName';
 import { cmToFeetInches, feetInchesToCm, isHeightInRange } from '../../utils/height';
 
 // ─── date-picker constants ────────────────────────────────────────────────────
@@ -223,6 +225,24 @@ const EDUCATION_OPTIONS = [
 
 interface EssentialsScreenProps {
   onBack?: () => void;
+  /**
+   * Leave the flow and return to Home, shown as an ✕.
+   *
+   * Set only when this screen was entered from Home to finish a profile
+   * section, where it is the first step of its own trip.
+   */
+  onClose?: () => void;
+  /** Abandon the signup, shown as "Log out". */
+  onLogout?: () => void;
+  /**
+   * The account's email address, used only to recognise the placeholder name.
+   *
+   * Registration has no name field, so it stores the email's local part in
+   * `fullName`. Pre-filling from that put `wowarej751` in the Full name box, and
+   * tapping through kept it — which is how an email address ended up greeting
+   * the user on the home screen.
+   */
+  accountEmail?: string;
   onContinue?: (data: {
     name: string;
     gender: 'man' | 'woman';
@@ -236,7 +256,14 @@ interface EssentialsScreenProps {
   continueLoading?: boolean;
 }
 
-export function EssentialsScreen({ onBack, onContinue, continueLoading }: EssentialsScreenProps) {
+export function EssentialsScreen({
+  onBack,
+  onClose,
+  onLogout,
+  onContinue,
+  accountEmail,
+  continueLoading,
+}: EssentialsScreenProps) {
   const insets = useSafeAreaInsets();
 
   // ── form state — nothing pre-filled ──────────────────────────────────────────
@@ -278,7 +305,7 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
     name?: string; gender?: string; dob?: string; marital?: string; sect?: string;
     occupation?: string; education?: string; height?: string;
   }>({});
-  const nameRef = useRef<TextInput>(null);
+  const nameRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   // computed DOB string for display + submission
   const dobLabel = dobSet
     ? formatDob(DAYS[dobDay], dobMonth, YEARS[dobYear])
@@ -328,7 +355,10 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
   // ── pre-populate from API on mount ────────────────────────────────────────────
   useEffect(() => {
     getMyProfile().then(profile => {
-      if (profile.fullName) setName(profile.fullName);
+      // An empty box the user has to fill is better than one pre-filled with
+      // their email address, which reads as a name the app already knows.
+      const stored = profile.fullName?.trim();
+      if (stored && !isPlaceholderName(stored, accountEmail)) setName(stored);
       if (profile.gender === 'MALE') setGender('man');
       else if (profile.gender === 'FEMALE') setGender('woman');
       if (profile.dateOfBirth) {
@@ -402,18 +432,21 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
         {/* ── Nav bar ─────────────────────────────────────────────────────── */}
         <View style={styles.nb}>
           {/* Omitted when there is nothing behind this screen: entering the
-              flow straight from Home makes this its first step. */}
-          {onBack ? (
+              flow straight from Home makes this its first step. No spacer is
+              left in its place — the bar runs the full width instead of holding
+              a gap for a control that is not there. */}
+          {!!onBack && (
             <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, { transform: [{ scale: pressed ? 0.92 : 1 }] }]}>
               <BackIcon />
             </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
           )}
           <View style={styles.prgTrack}>
             <LinearGradient colors={[...GradientColors.primary]} locations={[...GradientColors.primaryLocations]}
               start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.prgFill} />
           </View>
+          {/* Entered from Home, so there is nowhere to go back to — but there
+              does have to be a way out. */}
+          <OnboardingExit onClose={onClose} onLogout={onLogout} />
         </View>
 
         {/* ── Scrollable body ──────────────────────────────────────────────── */}
@@ -421,15 +454,16 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* Header */}
-          <Animated.View style={riseStyle(hdr.anim)}>
+          <Animated.View style={riseStyle(hdr.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.q}>
-              <View style={styles.qkWrap}><Text style={styles.qk}>Step 4 of 5</Text></View>
               <Text style={styles.qh}>A little{'\n'}about you</Text>
             </View>
           </Animated.View>
 
           {/* NAME — d0 */}
-          <Animated.View style={riseStyle(d0.anim)}>
+          <Animated.View style={riseStyle(d0.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>Full name</Text>
               <View style={[styles.inp, errors.name ? styles.inpError : null]}>
@@ -451,7 +485,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* GENDER — d1 */}
-          <Animated.View style={riseStyle(d1.anim)}>
+          <Animated.View style={riseStyle(d1.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>You are</Text>
               <View style={styles.seg}>
@@ -465,7 +500,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* DATE OF BIRTH — d2 */}
-          <Animated.View style={riseStyle(d2.anim)}>
+          <Animated.View style={riseStyle(d2.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>Date of birth</Text>
               <Pressable
@@ -483,7 +519,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* MARITAL STATUS — d3 */}
-          <Animated.View style={riseStyle(d3.anim)}>
+          <Animated.View style={riseStyle(d3.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipsField
               label="Marital status"
               options={['Never married', 'Divorced', 'Widowed']}
@@ -495,7 +532,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* SECT — d4 */}
-          <Animated.View style={riseStyle(d4.anim)}>
+          <Animated.View style={riseStyle(d4.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipsField
               label="Sect"
               options={['Sunni', 'Shia', 'Ismaili', 'Other']}
@@ -506,7 +544,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* OCCUPATION — d5 */}
-          <Animated.View style={riseStyle(d5.anim)}>
+          <Animated.View style={riseStyle(d5.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>Occupation</Text>
               <View style={[styles.inp, errors.occupation ? styles.inpError : null]}>
@@ -525,7 +564,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* EDUCATION LEVEL — d6 */}
-          <Animated.View style={riseStyle(d6.anim)}>
+          <Animated.View style={riseStyle(d6.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>Education</Text>
               <View style={styles.chipwrap}>
@@ -543,7 +583,8 @@ export function EssentialsScreen({ onBack, onContinue, continueLoading }: Essent
           </Animated.View>
 
           {/* HEIGHT — d7 */}
-          <Animated.View style={riseStyle(d7.anim)}>
+          <Animated.View style={riseStyle(d7.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.field}>
               <Text style={styles.flab}>Height</Text>
               <View style={styles.heightRow}>
@@ -660,7 +701,6 @@ const styles = StyleSheet.create({
   // Holds the back button's place in the row when there is nothing behind this
   // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
   // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38, height: 38, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center',
@@ -670,11 +710,6 @@ const styles = StyleSheet.create({
   prgFill:  { width: '80%', height: '100%' },
 
   q: { paddingTop: 18, paddingHorizontal: 2, paddingBottom: 2 },
-  qkWrap: {
-    alignSelf: 'flex-start', backgroundColor: Colors.vioSoft,
-    borderRadius: 9, paddingHorizontal: 11, paddingVertical: 5, marginBottom: 10,
-  },
-  qk: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: Colors.vioInk },
   qh: { fontSize: 24, fontWeight: '800', letterSpacing: -0.7, lineHeight: 29, color: Colors.ink },
 
   scrollArea: { flex: 1 },

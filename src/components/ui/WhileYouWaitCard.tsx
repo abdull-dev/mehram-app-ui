@@ -5,11 +5,8 @@
  * Matches the HTML design exactly:
  *
  *   ┌─────────────────────────────────────────┐
- *   │  While you wait          2 of 5 done   │
+ *   │  While you wait          2 of 4 done   │
  *   │  ████████░░░░░░░░░░░░░░░  (progress)   │
- *   ├─────────────────────────────────────────┤
- *   │  [icon]  Confirm your wali      [pill] │
- *   │          Imran hasn't accepted…        │
  *   ├─────────────────────────────────────────┤
  *   │  [icon]  Improve your biodata      ›   │
  *   │          Two sections are still short. │
@@ -36,28 +33,6 @@ import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
 
 // ─── icons ────────────────────────────────────────────────────────────────────
-
-function FamilyIcon({ color }: { color: string }) {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle cx={9} cy={7} r={3.5} stroke={color} strokeWidth={2} />
-      <Path
-        d="M22 21v-2a4 4 0 0 0-3-3.87M17 3.13a4 4 0 0 1 0 7.75"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
 
 function PenIcon({ color }: { color: string }) {
   return (
@@ -196,26 +171,21 @@ function Item({ icon, iconBg, title, subtitle, done = false, pill, first = false
 // ─── component ────────────────────────────────────────────────────────────────
 
 export interface WhileYouWaitCardProps {
-  /** Number of completed items out of 5 */
+  /** Number of completed items out of the total below */
   doneCount?: number;
-  /** Wali name for the confirm-wali subtitle */
-  waliName?: string;
   /** Hide the already-done "Photos added" and "Biodata submitted" rows */
   hideDoneItems?: boolean;
-  onConfirmWali?: () => void;
   onImproveBiodata?: () => void;
   onReviewPreferences?: () => void;
 }
 
 export function WhileYouWaitCard({
   doneCount = 2,
-  waliName = 'your wali',
   hideDoneItems = false,
-  onConfirmWali,
   onImproveBiodata,
   onReviewPreferences,
 }: WhileYouWaitCardProps) {
-  const total = hideDoneItems ? 3 : 5;
+  const total = hideDoneItems ? 2 : 4;
   const progressPct = `${Math.round((doneCount / total) * 100)}%`;
 
   return (
@@ -231,19 +201,9 @@ export function WhileYouWaitCard({
         </View>
       </View>
 
-      {/* Confirm wali */}
-      <Item
-        first
-        icon={<FamilyIcon color="#332C66" />}
-        iconBg="#EEECF8"
-        title="Confirm your wali"
-        subtitle={`${waliName} hasn't accepted the invitation yet. Sent 2 days ago.`}
-        pill={{ label: 'Recommended', color: 'rose' }}
-        onPress={onConfirmWali}
-      />
-
       {/* Improve biodata */}
       <Item
+        first
         icon={<PenIcon color="#A31C48" />}
         iconBg="#FDECF2"
         title="Improve your biodata"

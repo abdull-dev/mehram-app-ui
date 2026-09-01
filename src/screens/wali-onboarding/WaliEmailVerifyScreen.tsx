@@ -37,7 +37,15 @@ import { Colors, GRAD } from '../../theme/colors';
  */
 const CODE_MIN = 6;
 const CODE_MAX = 10;
-const RESEND_SECONDS = 30;
+/**
+ * Matched to the server's own window rather than picked for feel.
+ *
+ * Supabase rate-limits email OTP sends per address, and its answer is the
+ * "Too many requests. Please wait a minute and try again." this screen shows.
+ * A shorter cooldown just re-enables the link before the send can succeed, so
+ * the tap costs the wali a rejection instead of a code.
+ */
+const RESEND_SECONDS = 60;
 
 // ─── icons ────────────────────────────────────────────────────────────────────
 function BackIcon() {
@@ -75,6 +83,18 @@ interface WaliEmailVerifyScreenProps {
   email: string;
   /** True once the server has accepted a send; flips the screen to code entry. */
   codeSent?: boolean;
+  /**
+   * When the resend cooldown should start counting from, in epoch ms — a new
+   * value on every send attempt the server has answered, whether it accepted the
+   * send or refused it as too soon.
+   *
+   * `codeSent` cannot drive this on its own: it is already true by the time a
+   * *resend* happens, so the effect watching it never fired again and the
+   * countdown never restarted. The link stayed live, and tapping it repeatedly is
+   * what earned the rate-limit error rather than a code. Named for the cooldown
+   * rather than for a send, because a refusal is just as good a reason to wait.
+   */
+  resendCooldownFrom?: number;
   onBack?: () => void;
   /** Return to the account screen to correct the address. */
   onChangeEmail?: () => void;
@@ -89,6 +109,7 @@ interface WaliEmailVerifyScreenProps {
 export function WaliEmailVerifyScreen({
   email,
   codeSent = false,
+  resendCooldownFrom,
   onBack,
   onChangeEmail,
   onSendCode,
@@ -107,13 +128,14 @@ export function WaliEmailVerifyScreen({
   const busy = sending || verifying;
   const canVerify = code.length >= CODE_MIN && !busy;
 
-  // Start the resend cooldown when a send lands, and focus the field so the
-  // wali can type (or paste) straight away.
+  // Restart the cooldown on every answered send attempt — `resendCooldownFrom`
+  // changes each time, where `codeSent` only changes on the first — and focus
+  // the field so the wali can type (or paste) straight away.
   useEffect(() => {
     if (!codeSent) return;
     setSecondsLeft(RESEND_SECONDS);
     inputRef.current?.focus();
-  }, [codeSent]);
+  }, [codeSent, resendCooldownFrom]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -196,7 +218,8 @@ export function WaliEmailVerifyScreen({
             <View style={styles.resendRow}>
               {secondsLeft > 0 ? (
                 <Text style={styles.resendMuted}>
-                  Resend in 0:{String(secondsLeft).padStart(2, '0')}
+                  Resend in {Math.floor(secondsLeft / 60)}:
+                  {String(secondsLeft % 60).padStart(2, '0')}
                 </Text>
               ) : (
                 <Pressable onPress={onSendCode} hitSlop={8} disabled={busy}>

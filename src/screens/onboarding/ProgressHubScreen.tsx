@@ -39,6 +39,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
+import { OnboardingExit } from '../../components/ui/OnboardingExit';
 import { Colors, GradientColors } from '../../theme/colors';
 
 // ── animation helpers ─────────────────────────────────────────────────────────
@@ -104,6 +105,12 @@ const SECTIONS: Section[] = [
 // ── props ─────────────────────────────────────────────────────────────────────
 interface ProgressHubScreenProps {
   onBack?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   onSave?: () => void;
   onContinue?: () => void;
   continueLoading?: boolean;
@@ -112,6 +119,8 @@ interface ProgressHubScreenProps {
 // ── component ─────────────────────────────────────────────────────────────────
 export function ProgressHubScreen({
   onBack,
+  onClose,
+  onLogout,
   onSave,
   onContinue,
   continueLoading,
@@ -185,7 +194,7 @@ export function ProgressHubScreen({
           {/* Back button (.back) */}
           {/* Omitted when there is nothing behind this screen: entering the
               flow straight from Home makes this its first step. */}
-          {onBack ? (
+          {!!onBack && !onClose && !onLogout && (
             <Pressable
               onPress={onBack}
               style={({ pressed }) => [
@@ -207,8 +216,6 @@ export function ProgressHubScreen({
                 <Path d="M15 18l-6-6 6-6" />
               </Svg>
             </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
           )}
 
           {/* Progress bar (.prg) — 52% fill */}
@@ -222,12 +229,16 @@ export function ProgressHubScreen({
             />
           </View>
 
-          {/* Save text link (.skip) */}
-          <Pressable
-            onPress={onSave}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-            <Text style={styles.skipText}>Save</Text>
-          </Pressable>
+          {/* The exit when there is one, otherwise the Save link. */}
+          {onClose || onLogout ? (
+            <OnboardingExit onClose={onClose} onLogout={onLogout} />
+          ) : (
+            <Pressable
+              onPress={onSave}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+              <Text style={styles.skipText}>Save</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Scrollable body ───────────────────────────────────────────── */}
@@ -237,7 +248,8 @@ export function ProgressHubScreen({
           showsVerticalScrollIndicator={false}>
 
           {/* Heading block (.q) — d1 (70 ms) */}
-          <Animated.View style={[styles.questionBlock, riseStyle(heading.anim)]}>
+          <Animated.View style={[styles.questionBlock, riseStyle(heading.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.heading}>Almost there</Text>
             <Text style={styles.subheading}>
               Three sections left. Each takes about a minute.
@@ -245,7 +257,8 @@ export function ProgressHubScreen({
           </Animated.View>
 
           {/* Section list — d2 (150 ms) */}
-          <Animated.View style={[styles.sectionList, riseStyle(list.anim)]}>
+          <Animated.View style={[styles.sectionList, riseStyle(list.anim)]}
+            needsOffscreenAlphaCompositing>
             {SECTIONS.map((section, index) => (
               <SectionRow
                 key={index}
@@ -369,7 +382,6 @@ const styles = StyleSheet.create({
   // Holds the back button's place in the row when there is nothing behind this
   // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
   // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
   backBtn: {
     width: 38,
     height: 38,

@@ -17,11 +17,13 @@ import {
   StyleProp,
   StyleSheet,
   Text,
+  TextStyle,
   View,
   ViewStyle,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { Colors, GradientColors } from '../../theme/colors';
+import { busyLabelFor } from '../../utils/busyLabel';
 
 export type ButtonVariant = 'primary' | 'outline' | 'disabled';
 
@@ -30,7 +32,26 @@ interface GradientButtonProps {
   variant?: ButtonVariant;
   onPress?: () => void;
   loading?: boolean;
+  /**
+   * What the button says while `loading`. Defaults to wording derived from
+   * `label` — see `busyLabelFor`. Set this for a dynamic or unusual label.
+   */
+  loadingLabel?: string;
   style?: StyleProp<ViewStyle>;
+}
+
+/** Spinner plus wording, so a busy button still says what it is doing. */
+function BusyContent({ text, color, textStyle }: {
+  text: string;
+  color: string;
+  textStyle: StyleProp<TextStyle>;
+}) {
+  return (
+    <View style={styles.busyRow}>
+      <ActivityIndicator size="small" color={color} />
+      <Text style={textStyle} numberOfLines={1}>{text}</Text>
+    </View>
+  );
 }
 
 export function GradientButton({
@@ -38,9 +59,11 @@ export function GradientButton({
   variant = 'primary',
   onPress,
   loading = false,
+  loadingLabel,
   style,
 }: GradientButtonProps) {
   const isDisabled = variant === 'disabled' || loading;
+  const busyText = loadingLabel ?? busyLabelFor(label);
 
   if (variant === 'primary') {
     return (
@@ -59,7 +82,7 @@ export function GradientButton({
           end={{ x: 1, y: 0.5 }}
           style={styles.btn}>
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <BusyContent text={busyText} color="#fff" textStyle={styles.primaryLabel} />
           ) : (
             <Text style={styles.primaryLabel}>{label}</Text>
           )}
@@ -84,7 +107,7 @@ export function GradientButton({
             ran — and on screens with two buttons the spinner appeared on the
             primary one instead. */}
         {loading ? (
-          <ActivityIndicator color={Colors.vioInk} />
+          <BusyContent text={busyText} color={Colors.vioInk} textStyle={styles.outlineLabel} />
         ) : (
           <Text style={styles.outlineLabel}>{label}</Text>
         )}
@@ -95,12 +118,22 @@ export function GradientButton({
   // disabled
   return (
     <View style={[styles.btn, styles.disabledBtn, style]}>
-      <Text style={styles.disabledLabel}>{loading ? 'Loading…' : label}</Text>
+      {loading ? (
+        <BusyContent text={busyText} color={Colors.vioInk} textStyle={styles.disabledLabel} />
+      ) : (
+        <Text style={styles.disabledLabel}>{label}</Text>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  busyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+
   // Outer wrapper for primary — carries the drop shadow so it sits
   // *outside* the gradient (LinearGradient can't have shadow on Android)
   shadow: {

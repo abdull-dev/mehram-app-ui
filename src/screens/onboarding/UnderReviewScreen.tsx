@@ -212,7 +212,8 @@ export function UnderReviewScreen({
           </Animated.Text>
 
           {/* "What happens next" info card — d3 */}
-          <Animated.View style={[styles.card, riseStyle(cardAnim)]}>
+          <Animated.View style={[styles.card, riseStyle(cardAnim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.cardLabel}>What happens next</Text>
             <Text style={styles.cardBody}>
               {verificationPending
@@ -222,7 +223,8 @@ export function UnderReviewScreen({
           </Animated.View>
 
           {!verificationPending && !!onStartVerification && (
-            <Animated.View style={[styles.card, riseStyle(cardAnim)]}>
+            <Animated.View style={[styles.card, riseStyle(cardAnim)]}
+              needsOffscreenAlphaCompositing>
               <GradientButton
                 label={
                   verificationPartial

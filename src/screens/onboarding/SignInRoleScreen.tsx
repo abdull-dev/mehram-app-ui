@@ -179,12 +179,16 @@ export function SignInRoleScreen({ onBack, onContinue }: SignInRoleScreenProps) 
 
         {/* Body */}
         <View style={styles.body}>
-          <Animated.View style={[styles.headingWrap, riseStyle(heading.anim)]}>
+          <Animated.View
+            style={[styles.headingWrap, riseStyle(heading.anim)]}
+            needsOffscreenAlphaCompositing>
             <Text style={styles.heading}>Sign in as</Text>
             <Text style={styles.subheading}>Choose how you use Mehram.</Text>
           </Animated.View>
 
-          <Animated.View style={[styles.cardsWrap, riseStyle(cards.anim)]}>
+          <Animated.View
+            style={[styles.cardsWrap, riseStyle(cards.anim)]}
+            needsOffscreenAlphaCompositing>
             <RoleCard
               selected={role === 'self'}
               onPress={() => setRole('self')}

@@ -70,7 +70,7 @@ interface WelcomeScreenProps {
 
 export function WelcomeScreen({ onContinue, onSignIn }: WelcomeScreenProps) {
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [sliderHeight, setSliderHeight] = useState(0);
   // Measured from the ScrollView's actual rendered width so pagingEnabled

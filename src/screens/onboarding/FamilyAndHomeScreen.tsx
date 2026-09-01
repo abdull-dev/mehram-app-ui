@@ -108,6 +108,12 @@ export interface FamilyAndHomeData {
 interface FamilyAndHomeScreenProps {
   onBack?: () => void;
   onSave?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home when this screen was opened from
+   * there, or "Log out" while walking the signup. Exactly one is set.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
   onContinue?: (data: FamilyAndHomeData) => void;
   continueLoading?: boolean;
 }
@@ -115,6 +121,8 @@ interface FamilyAndHomeScreenProps {
 export function FamilyAndHomeScreen({
   onBack,
   onSave,
+  onClose,
+  onLogout,
   onContinue,
   continueLoading,
 }: FamilyAndHomeScreenProps) {
@@ -219,6 +227,8 @@ export function FamilyAndHomeScreen({
           onBack={onBack}
           actionLabel="Save"
           onAction={onSave}
+          onClose={onClose}
+          onLogout={onLogout}
         />
 
         {/* ── Scrollable body ──────────────────────────────────────────── */}
@@ -229,7 +239,8 @@ export function FamilyAndHomeScreen({
           keyboardShouldPersistTaps="handled">
 
           {/* Section header — .q */}
-          <Animated.View style={riseStyle(hdr.anim)}>
+          <Animated.View style={riseStyle(hdr.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.qkWrap}>
               <Text style={styles.qkText}>Family and home</Text>
             </View>
@@ -240,7 +251,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d1 — Housing */}
-          <Animated.View style={riseStyle(d1.anim)}>
+          <Animated.View style={riseStyle(d1.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipSelect
               label="Housing"
               options={['Owned house', 'Owned flat', 'Rented', 'Family home']}
@@ -250,7 +262,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d2 — After marriage */}
-          <Animated.View style={riseStyle(d2.anim)}>
+          <Animated.View style={riseStyle(d2.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipSelect
               label="After marriage"
               options={['Joint family', 'Separate home', 'Not decided']}
@@ -260,7 +273,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d3 — Siblings */}
-          <Animated.View style={riseStyle(d3.anim)}>
+          <Animated.View style={riseStyle(d3.anim)}
+            needsOffscreenAlphaCompositing>
             <View style={styles.siblingsRow}>
               <View style={styles.siblingsField}>
                 <FormTextInput
@@ -287,7 +301,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d4 — Father & Mother occupations */}
-          <Animated.View style={riseStyle(d4.anim)}>
+          <Animated.View style={riseStyle(d4.anim)}
+            needsOffscreenAlphaCompositing>
             <FormTextInput
               label="Father's occupation"
               value={fatherOcc}
@@ -303,7 +318,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d5 — Own a car */}
-          <Animated.View style={riseStyle(d5.anim)}>
+          <Animated.View style={riseStyle(d5.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipSelect
               label="Own a car"
               options={['Yes', 'No']}
@@ -313,7 +329,8 @@ export function FamilyAndHomeScreen({
           </Animated.View>
 
           {/* d6 — Family type */}
-          <Animated.View style={riseStyle(d6.anim)}>
+          <Animated.View style={riseStyle(d6.anim)}
+            needsOffscreenAlphaCompositing>
             <ChipSelect
               label="Family type"
               options={FAMILY_TYPE_OPTIONS}

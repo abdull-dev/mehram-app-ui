@@ -1,54 +1,52 @@
 /**
- * WaliInviteScreen  (F15)
+ * WaliInviteScreen — invite a wali.
  *
- * Wali invitation step in the onboarding flow. Mirrors the HTML prototype
- * screen F15 exactly:
+ * Standalone, not an onboarding step. It used to sit at F15 between Photos and
+ * Verification, carrying a progress bar and stepping the flow on, so its two
+ * buttons behaved like "Continue": they created an invitation nobody was ever
+ * shown and then moved to the next screen. The invite is the whole point of the
+ * screen, so it now stays put and shows what it made — a WhatsApp share, or the
+ * code to read out — and closes back to Home when the user is done.
  *
  *   ┌─────────────────────────────────┐
- *   │  [←]  ████████████████░░  Later │  90% progress
+ *   │  [×]                            │
  *   ├─────────────────────────────────┤
  *   │  [YOUR WALI]                    │
  *   │  Who will review                │
  *   │  your proposals?                │
  *   │  Nine of your 142 matches only… │
- *   │                                 │
- *   │  THEIR NAME                     │
- *   │  ┌──────────────────────────┐   │
- *   │  │ Imran Mian               │   │
- *   │  └──────────────────────────┘   │
- *   │                                 │
- *   │  RELATIONSHIP                   │
- *   │  [▓Father▓] [Brother] [Uncle]   │
- *   │  [Grandfather] [Other]          │
+ *   │  ┌ INVITATION CODE ──────────┐  │  after "Read him a code instead"
+ *   │  │        482913             │  │
+ *   │  │       [Copy code]         │  │
+ *   │  └───────────────────────────┘  │
  *   ├─────────────────────────────────┤
  *   │  [Invite on WhatsApp]           │
  *   │  [Read him a code instead]      │
- *   │  Skip for now                   │
  *   └─────────────────────────────────┘
  *
- * Entrance: question block rises immediately (.an), name field at 70 ms
- * (.an.d1), chips at 150 ms (.an.d2) — matching the HTML prototype delays.
+ * Entrance: the question block rises immediately (.an).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Clipboard,
   Easing,
+  Linking,
   Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmbientBackground } from '../../components/ui/AmbientBackground';
 import { GradientButton } from '../../components/ui/GradientButton';
-import { Colors, GradientColors } from '../../theme/colors';
-import { createWaliInvite } from '../../api/wali';
+import { Colors } from '../../theme/colors';
+import { ApiError } from '../../api/client';
+import { createWaliInvite, type WaliInvite } from '../../api/wali';
 
 // ─── animation helpers (mirrors WelcomeScreen pattern) ───────────────────────
 const RISE_DURATION = 550;
@@ -74,46 +72,43 @@ function riseStyle(anim: Animated.Value) {
   };
 }
 
-// The guardian's kinship is not collected here — the wali states it during his
-// own onboarding (WaliDetailsScreen). The seeker only names him and sends the
+function CopyIcon() {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9 9h10v10H9zM5 15V5h10"
+        stroke={Colors.vioInk}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+// Neither the guardian's name nor his kinship is collected here — he states
+// both during his own onboarding (WaliDetailsScreen), so asking the seeker for
+// a name the invite never carried was pure friction. This screen only sends the
 // invite, which is always a WALI invitation.
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface WaliInviteScreenProps {
-  onBack?: () => void;
-  onLater?: () => void;
-  onInviteWhatsApp?: (name: string) => void;
-  onReadCode?: (name: string) => void;
-  onSkip?: () => void;
+  /** Dismisses the screen. There is no "next" — this is not a step. */
+  onClose?: () => void;
 }
 
-export function WaliInviteScreen({
-  onBack,
-  onLater,
-  onInviteWhatsApp,
-  onReadCode,
-  onSkip,
-}: WaliInviteScreenProps) {
+export function WaliInviteScreen({ onClose }: WaliInviteScreenProps) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState('');
-  const [nameFocused, setNameFocused] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
   // Which button is waiting. A single boolean drove the WhatsApp button's
   // spinner from either press, so tapping "Read him a code instead" showed
   // progress on the wrong button — and that button showed none at all.
   const [pending, setPending] = useState<'whatsapp' | 'code' | null>(null);
+  const [invite, setInvite] = useState<WaliInvite | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function requireName(): boolean {
-    if (!name.trim()) {
-      setNameError('Please enter your wali\'s name.');
-      return false;
-    }
-    return true;
-  }
-
-  // Staggered entrance: .an (0 ms) → .an.d1 (70 ms) → .an.d2 (150 ms)
+  // Entrance: .an (0 ms)
   const questionAnim = useFadeRise(0);
-  const fieldAnim = useFadeRise(70);
 
   useEffect(() => {
     const makeRise = ({ anim, delay }: ReturnType<typeof useFadeRise>) =>
@@ -125,12 +120,48 @@ export function WaliInviteScreen({
         useNativeDriver: true,
       });
 
-    Animated.parallel([
-      makeRise(questionAnim),
-      makeRise(fieldAnim),
-    ]).start();
+    makeRise(questionAnim).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // One invitation per visit, shared by both buttons, so sending the link and
+  // reading the code out do not hand the wali two different codes.
+  async function generateInvite(source: 'whatsapp' | 'code'): Promise<WaliInvite | null> {
+    if (pending) return null;
+    setPending(source);
+    setError(null);
+    try {
+      const result = await createWaliInvite();
+      setInvite(result);
+      return result;
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not create the invite. Check your connection and try again.',
+      );
+      return null;
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function handleWhatsApp() {
+    const inv = invite ?? (await generateInvite('whatsapp'));
+    if (inv?.inviteLink) Linking.openURL(inv.inviteLink).catch(() => {});
+  }
+
+  async function handleCode() {
+    if (invite) return;
+    await generateInvite('code');
+  }
+
+  function handleCopy() {
+    if (!invite) return;
+    Clipboard.setString(invite.invitationCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
     <View style={styles.root}>
@@ -146,49 +177,30 @@ export function WaliInviteScreen({
           },
         ]}>
 
-        {/* ── Nav bar: [←] ██████████░░ Later ───────────────────────────── */}
-        {/* Mirrors .nb — flex row, gap 12, padding 12px 0 4px              */}
+        {/* ── Nav bar: [×] ──────────────────────────────────────────────────
+            No progress bar and no back arrow: the screen is opened from Home on
+            its own, so there is no step behind it and none it advances to. */}
         <View style={styles.nb}>
-          {/* Omitted when there is nothing behind this screen: entering the
-              flow straight from Home makes this its first step. */}
-          {onBack ? (
-            <Pressable
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.backBtn,
-                { transform: [{ scale: pressed ? 0.92 : 1 }] },
-              ]}>
-              <Svg
-                width={17}
-                height={17}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={Colors.vioInk}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round">
-                <Path d="M15 18l-6-6 6-6" />
-              </Svg>
-            </Pressable>
-          ) : (
-            <View style={styles.backSpacer} />
-          )}
-
-          {/* Progress track — 90% filled */}
-          <View style={styles.progressTrack}>
-            <LinearGradient
-              colors={[...GradientColors.primary]}
-              locations={[...GradientColors.primaryLocations]}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.progressFill}
-            />
-          </View>
-
           <Pressable
-            onPress={onLater}
-            style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-            <Text style={styles.skipText}>Later</Text>
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            style={({ pressed }) => [
+              styles.closeBtn,
+              { transform: [{ scale: pressed ? 0.92 : 1 }] },
+            ]}>
+            <Svg
+              width={17}
+              height={17}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={Colors.vioInk}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round">
+              <Path d="M18 6L6 18M6 6l12 12" />
+            </Svg>
           </Pressable>
         </View>
 
@@ -200,7 +212,8 @@ export function WaliInviteScreen({
           keyboardShouldPersistTaps="handled">
 
           {/* Question block — .q .an (0 ms delay) */}
-          <Animated.View style={[styles.questionBlock, riseStyle(questionAnim.anim)]}>
+          <Animated.View style={[styles.questionBlock, riseStyle(questionAnim.anim)]}
+            needsOffscreenAlphaCompositing>
             {/* .qk — section label pill */}
             <View style={styles.qLabelPill}>
               <Text style={styles.qLabelText}>Your wali</Text>
@@ -214,27 +227,25 @@ export function WaliInviteScreen({
             </Text>
           </Animated.View>
 
-          {/* Name field — .field .an .d1 (70 ms) */}
-          <Animated.View style={[styles.field, riseStyle(fieldAnim.anim)]}>
-            <Text style={styles.fieldLabel}>Their name</Text>
-            <View style={[styles.inputWrap, nameFocused && styles.inputFocused, !!nameError && styles.inputError]}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Ibrahim Khan"
-                placeholderTextColor={Colors.ink3}
-                value={name}
-                onChangeText={v => {
-                  setName(v.replace(/[^a-zA-Z\s]/g, ''));
-                  if (nameError) setNameError(null);
-                }}
-                onFocus={() => setNameFocused(true)}
-                onBlur={() => setNameFocused(false)}
-                returnKeyType="done"
-                autoCapitalize="words"
-              />
+          {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+          {/* The code itself — what "Read him a code instead" promises. */}
+          {invite && (
+            <View style={styles.codeBox}>
+              <Text style={styles.codeBoxTitle}>Invitation code</Text>
+              <Text style={styles.codeValue}>{invite.invitationCode}</Text>
+              <Text style={styles.codeHint}>
+                Ask your wali to open Kindred, choose that he is a wali, and
+                enter this code.
+              </Text>
+              <Pressable
+                onPress={handleCopy}
+                style={({ pressed }) => [styles.copyBtn, pressed && { opacity: 0.7 }]}>
+                <CopyIcon />
+                <Text style={styles.copyBtnTxt}>{copied ? 'Copied!' : 'Copy code'}</Text>
+              </Pressable>
             </View>
-            {!!nameError && <Text style={styles.errorText}>{nameError}</Text>}
-          </Animated.View>
+          )}
 
         </ScrollView>
 
@@ -242,49 +253,27 @@ export function WaliInviteScreen({
         <View style={styles.footer}>
           {/* .btn-f — primary gradient */}
           <GradientButton
-            label={pending === 'whatsapp' ? 'Creating invite…' : 'Invite on WhatsApp'}
+            label="Invite on WhatsApp"
             loading={pending === 'whatsapp'}
-            onPress={async () => {
-              if (!requireName() || pending) return;
-              setPending('whatsapp');
-              try {
-                await createWaliInvite();
-                onInviteWhatsApp?.(name.trim());
-              } catch {
-                onInviteWhatsApp?.(name.trim());
-              } finally {
-                setPending(null);
-              }
-            }}
+            onPress={handleWhatsApp}
           />
           {/* .btn-o — outline, margin-top:9px (.btn+.btn) */}
           <View style={styles.footerGap} />
           <GradientButton
-            label={pending === 'code' ? 'Creating invite…' : 'Read him a code instead'}
+            label={
+              invite
+                ? 'Code shown above'
+                : pending === 'code'
+                  ? 'Creating invite…'
+                  : 'Read him a code instead'
+            }
             loading={pending === 'code'}
-            variant="outline"
-            onPress={async () => {
-              if (!requireName() || pending) return;
-              setPending('code');
-              try {
-                await createWaliInvite();
-                onReadCode?.(name.trim());
-              } catch {
-                onReadCode?.(name.trim());
-              } finally {
-                setPending(null);
-              }
-            }}
+            // Once the code is on screen there is nothing left to press: a
+            // second tap would mint a new invitation and silently invalidate
+            // the one the user may already have read out.
+            variant={invite ? 'disabled' : 'outline'}
+            onPress={handleCode}
           />
-          {/* .btn-t — plain text link */}
-          <Pressable
-            onPress={onSkip}
-            style={({ pressed }) => [
-              styles.textBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}>
-            <Text style={styles.textBtnLabel}>Skip for now</Text>
-          </Pressable>
         </View>
       </View>
     </View>
@@ -315,12 +304,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 
-  // .back — 38×38 white rounded square with shadow
-  // Holds the back button's place in the row when there is nothing behind this
-  // screen. Dimensions only: reusing `backBtn` left its chip and shadow behind
-  // as an empty white square where the button used to be.
-  backSpacer: { width: 38, height: 38, flexShrink: 0 },
-  backBtn: {
+  // Close chip — 38×38 white rounded square with shadow.
+  closeBtn: {
     width: 38,
     height: 38,
     borderRadius: 14,
@@ -333,29 +318,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 3,
-  },
-
-  // .prg — flex:1, 7px height track
-  progressTrack: {
-    flex: 1,
-    height: 7,
-    borderRadius: 5,
-    backgroundColor: 'rgba(155,123,240,0.16)',
-    overflow: 'hidden',
-  },
-
-  // .prg i — gradient fill at 90%
-  progressFill: {
-    height: '100%',
-    width: '90%',
-    borderRadius: 5,
-  },
-
-  // .skip
-  skipText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: Colors.vioD,
   },
 
   // ── Scroll area (.scrollarea) ──────────────────────────────────────────────
@@ -410,67 +372,64 @@ const styles = StyleSheet.create({
     lineHeight: 20, // 13 × 1.55 ≈ 20
   },
 
-  // ── Field (.field) ─────────────────────────────────────────────────────────
-  field: {
+  errorText: {
+    fontSize: 12.5,
+    color: '#D9304F',
     marginTop: 14,
+    marginHorizontal: 2,
+    lineHeight: 18,
   },
 
-  // .flab — 11px uppercase label
-  fieldLabel: {
+  // ── Invitation code (shown once created) ───────────────────────────────────
+  codeBox: {
+    marginTop: 20,
+    backgroundColor: Colors.vioSoft,
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+  },
+
+  codeBoxTitle: {
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
-    color: Colors.ink3,
+    color: Colors.vioInk,
     marginBottom: 8,
   },
 
-  // .inp — 54px input container
-  inputWrap: {
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    borderWidth: 1.6,
-    borderColor: 'rgba(155,123,240,0.2)',
+  codeValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 4,
+    color: Colors.vioInk,
+    marginBottom: 8,
+  },
+
+  codeHint: {
+    fontSize: 12.5,
+    color: Colors.vioInk,
+    opacity: 0.75,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+
+  copyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 15,
-    shadowColor: '#3C287A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#fff',
   },
 
-  // .inp.focus
-  inputFocused: {
-    borderColor: Colors.vio,
-    shadowColor: Colors.vio,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    elevation: 4,
+  copyBtnTxt: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Colors.vioInk,
   },
-
-  inputError: {
-    borderColor: '#D9304F',
-  },
-
-  errorText: {
-    fontSize: 11.5,
-    color: '#D9304F',
-    marginTop: 7,
-    lineHeight: 17,
-  },
-
-  textInput: {
-    flex: 1,
-    fontSize: 15,
-    color: Colors.ink,
-    padding: 0,
-    backgroundColor: 'transparent',
-  },
-
 
   // ── Footer (.foot) ─────────────────────────────────────────────────────────
   footer: {
@@ -481,19 +440,5 @@ const styles = StyleSheet.create({
   // .btn+.btn margin-top:9px
   footerGap: {
     height: 9,
-  },
-
-  // .btn-t
-  textBtn: {
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 9,
-  },
-
-  textBtnLabel: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.ink2,
   },
 });

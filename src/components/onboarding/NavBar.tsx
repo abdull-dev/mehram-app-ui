@@ -15,6 +15,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Colors, GradientColors } from '../../theme/colors';
+import { OnboardingExit } from '../ui/OnboardingExit';
 
 interface NavBarProps {
   /** 0–100 percentage fill for the progress bar */
@@ -23,12 +24,21 @@ interface NavBarProps {
   /** Optional right-side text, e.g. "Save" or "Skip" */
   skipLabel?: string;
   onSkip?: () => void;
+  /**
+   * How to leave the flow — an ✕ back to Home, or "Log out" during signup.
+   * Takes the place of both the back button and the skip label; see
+   * `OnboardingExit`.
+   */
+  onClose?: () => void;
+  onLogout?: () => void;
 }
 
-export function NavBar({ progress, onBack, skipLabel, onSkip }: NavBarProps) {
+export function NavBar({ progress, onBack, skipLabel, onSkip, onClose, onLogout }: NavBarProps) {
   return (
     <View style={styles.container}>
-      {/* Back button — .back */}
+      {/* Back button — .back. Hidden alongside an exit: a screen entered
+          deliberately needs one way out, not two competing controls. */}
+      {!onClose && !onLogout && (
       <Pressable
         onPress={onBack}
         style={({ pressed }) => [
@@ -45,6 +55,7 @@ export function NavBar({ progress, onBack, skipLabel, onSkip }: NavBarProps) {
           />
         </Svg>
       </Pressable>
+      )}
 
       {/* Progress track — .prg */}
       <View style={styles.track}>
@@ -57,8 +68,12 @@ export function NavBar({ progress, onBack, skipLabel, onSkip }: NavBarProps) {
         />
       </View>
 
-      {/* Optional skip / save label — .skip */}
-      {skipLabel ? (
+      {/* The exit when there is one, otherwise the skip / save label. */}
+      {onClose || onLogout ? (
+        <OnboardingExit onClose={onClose} onLogout={onLogout} />
+      ) : skipLabel && onSkip ? (
+        /* Both required: the label used to render on its own, which is how five
+           screens showed a "Save" button wired to nothing. */
         <Pressable onPress={onSkip}>
           <Text style={styles.skip}>{skipLabel}</Text>
         </Pressable>
