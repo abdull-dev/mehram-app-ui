@@ -29,24 +29,40 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
-  Dimensions,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
-const PHOTO_SLIDE_W = Dimensions.get('window').width - 32; // full content width (16px padding each side)
+// Horizontal padding the photo row sits inside (16px each side).
+const PHOTO_ROW_INSET = 32;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Colors } from '../../theme/colors';
+import { pronounsFor } from '../../lib/proposalSteps';
 import { IntroductionProfile } from '../../components/introduction/IntroductionAvailableBlock';
 import { formatHeight } from '../../utils/height';
+import {
+  EDUCATION_LABELS,
+  EMPLOYMENT_LABELS,
+  FIELD_OF_STUDY_LABELS,
+  GENDER_LABELS,
+  MADHHAB_LABELS,
+  MARITAL_LABELS,
+  PRAYER_LABELS,
+  RELIGIOSITY_LABELS,
+  SECT_LABELS,
+  labelFor,
+} from '../../utils/enumLabels';
 
 // ─── icons ────────────────────────────────────────────────────────────────────
 function BackIcon() {
@@ -134,8 +150,130 @@ function Badge({ label, variant }: { label: string; variant: 'mint' | 'indigo' }
 }
 
 // ─── photo carousel (wali view) ───────────────────────────────────────────────
-function PhotoCarousel({ urls }: { urls: string[] }) {
+/** Full-window photo viewer, opened by tapping a photo in the carousel. */
+function PhotoLightbox({ urls, startIndex, onClose }: {
+  urls: string[];
+  startIndex: number;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  // `useWindowDimensions` re-renders on window resize; a module-scope
+  // `Dimensions.get` froze at launch, so a folding phone kept the folded
+  // width and the viewer stopped filling the screen after unfolding.
+  const win = useWindowDimensions();
+  const [index, setIndex] = useState(startIndex);
+  // `useRef<ScrollView>` is the pattern used elsewhere in this repo, but under
+  // these RN types it refers to the component, not the instance — which is why
+  // those call sites sit in the type-error baseline. This is the instance type.
+  const scroller = useRef<React.ComponentRef<typeof ScrollView>>(null);
+
+  return (
+    <Modal
+      visible
+      transparent={false}
+      animationType="fade"
+      statusBarTranslucent
+      // Android's hardware back closes the viewer rather than the screen behind
+      // it, which is what a full-screen overlay is expected to do.
+      onRequestClose={onClose}>
+      <View style={lightboxStyles.root}>
+        <StatusBar barStyle="light-content" />
+
+        <ScrollView
+          ref={scroller}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          // Opening on the photo that was tapped, not always the first.
+          // `contentOffset` alone is unreliable on Android, so the offset is
+          // also applied once the scroller has a width to measure against.
+          contentOffset={{ x: startIndex * win.width, y: 0 }}
+          onLayout={() =>
+            scroller.current?.scrollTo({
+              x: startIndex * win.width,
+              animated: false,
+            })
+          }
+          scrollEventThrottle={16}
+          onScroll={e =>
+            setIndex(
+              Math.round(e.nativeEvent.contentOffset.x / win.width),
+            )
+          }>
+          {urls.map((url, i) => (
+            <Image
+              key={i}
+              source={{ uri: url }}
+              // `contain`, not `cover`: this is the view for looking at the
+              // photo, so nothing should be cropped out of it.
+              resizeMode="contain"
+              style={{ width: win.width, height: win.height }}
+            />
+          ))}
+        </ScrollView>
+
+        <Pressable
+          onPress={onClose}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close photo"
+          style={({ pressed }) => [
+            lightboxStyles.close,
+            { top: insets.top + 10 },
+            pressed && { opacity: 0.7 },
+          ]}>
+          <Text style={lightboxStyles.closeText}>✕</Text>
+        </Pressable>
+
+        {urls.length > 1 && (
+          <View style={[lightboxStyles.counter, { bottom: insets.bottom + 22 }]}>
+            <Text style={lightboxStyles.counterText}>
+              {index + 1} / {urls.length}
+            </Text>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const lightboxStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000' },
+  close: {
+    position: 'absolute',
+    right: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeText: { color: '#fff', fontSize: 17, fontWeight: '700', lineHeight: 20 },
+  counter: {
+    position: 'absolute',
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  counterText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+});
+
+/**
+ * `overlay` renders inside the photo box, above the images.
+ *
+ * Taken as a child rather than stacked by the caller because the paging dots
+ * sit in flow *below* that box: an absolutely-positioned overlay anchored to
+ * the caller's container would have covered them.
+ */
+function PhotoCarousel({ urls, overlay }: { urls: string[]; overlay?: React.ReactNode }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  // Reactive, so the slide width follows a window that changes size.
+  const slideW = useWindowDimensions().width - PHOTO_ROW_INSET;
+  /** Which photo the full-screen viewer is open on, or null when closed. */
+  const [lightboxAt, setLightboxAt] = useState<number | null>(null);
 
   if (urls.length === 0) {
     return (
@@ -144,6 +282,7 @@ function PhotoCarousel({ urls }: { urls: string[] }) {
           <PersonIcon />
           <Text style={styles.photoHintText}>No photos uploaded yet</Text>
         </View>
+        {overlay}
       </View>
     );
   }
@@ -157,19 +296,40 @@ function PhotoCarousel({ urls }: { urls: string[] }) {
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
           onScroll={e => {
-            const idx = Math.round(e.nativeEvent.contentOffset.x / PHOTO_SLIDE_W);
+            const idx = Math.round(e.nativeEvent.contentOffset.x / slideW);
             setActiveIndex(idx);
           }}>
           {urls.map((url, i) => (
-            <Image
+            // Opens the viewer on the photo that was tapped. A Pressable
+            // rather than a touch handler on the Image so the paging scroll
+            // still wins a horizontal drag — a tap is a tap, a swipe pages.
+            <Pressable
               key={i}
-              source={{ uri: url }}
-              style={{ width: PHOTO_SLIDE_W, height: 268 }}
-              resizeMode="cover"
-            />
+              onPress={() => setLightboxAt(i)}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={
+                urls.length > 1
+                  ? `Photo ${i + 1} of ${urls.length}. Opens full screen.`
+                  : 'Photo. Opens full screen.'
+              }>
+              <Image
+                source={{ uri: url }}
+                style={{ width: slideW, height: 268 }}
+                resizeMode="cover"
+              />
+            </Pressable>
           ))}
         </ScrollView>
+        {overlay}
       </View>
+
+      {lightboxAt !== null && (
+        <PhotoLightbox
+          urls={urls}
+          startIndex={lightboxAt}
+          onClose={() => setLightboxAt(null)}
+        />
+      )}
       {urls.length > 1 && (
         <View style={carouselStyles.dots}>
           {urls.map((_, i) => (
@@ -218,9 +378,6 @@ function DetailCard({ title, children }: { title: string; children: React.ReactN
 }
 
 // ─── format helpers ───────────────────────────────────────────────────────────
-const GENDER_LABELS: Record<string, string> = {
-  MALE: 'Man', FEMALE: 'Woman',
-};
 
 /** Map ISO-3166-1 alpha-2 code to full country name for common countries. */
 const COUNTRY_NAMES: Record<string, string> = {
@@ -243,44 +400,13 @@ function fmtCountry(code?: string | null): string | null {
   return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase();
 }
 
-const EDUCATION_LABELS: Record<string, string> = {
-  PRIMARY: 'Primary school', SECONDARY: 'Secondary school',
-  HIGHER_SECONDARY: 'A-levels / FSc', HIGH_SCHOOL: 'High school',
-  DIPLOMA: 'Diploma', BACHELORS: "Bachelor's degree",
-  MASTERS: "Master's degree", DOCTORATE: 'PhD', PHD: 'PhD', OTHER: 'Other',
-};
-const FIELD_OF_STUDY_LABELS: Record<string, string> = {
-  ENGINEERING: 'Engineering', MEDICINE: 'Medicine', IT: 'IT / Computer Science',
-  BUSINESS: 'Business', LAW: 'Law', ARTS: 'Arts & Humanities', OTHER: 'Other',
-};
-const EMPLOYMENT_LABELS: Record<string, string> = {
-  EMPLOYED: 'Employed', SELF_EMPLOYED: 'Self-employed', STUDENT: 'Student',
-  HOMEMAKER: 'Homemaker', UNEMPLOYED: 'Not employed',
-};
-const SECT_LABELS: Record<string, string> = {
-  SUNNI: 'Sunni', SHIA: 'Shia', AHMADI: 'Ahmadi', ISMAILI: 'Ismaili',
-  OTHER: 'Other', PREFER_NOT_SAY: 'Prefer not to say',
-};
-const MADHHAB_LABELS: Record<string, string> = {
-  HANAFI: 'Hanafi', SHAFI: 'Shafi\'i', MALIKI: 'Maliki', HANBALI: 'Hanbali', JAFARI: 'Jafari',
-};
-const RELIGIOSITY_LABELS: Record<string, string> = {
-  VERY_PRACTICING: 'Very practicing', PRACTICING: 'Practicing',
-  MODERATELY_PRACTICING: 'Moderately practicing',
-  MODERATE: 'Moderate', CULTURAL: 'Cultural',
-};
-const PRAYER_LABELS: Record<string, string> = {
-  FIVE_DAILY: 'Five daily prayers', MOST_PRAYERS: 'Most prayers',
-  SOMETIMES: 'Sometimes', RARELY: 'Rarely', NEVER: 'Never',
-};
-const MARITAL_LABELS: Record<string, string> = {
-  NEVER_MARRIED: 'Single', DIVORCED: 'Divorced', WIDOWED: 'Widowed',
-};
 
-function fmt(map: Record<string, string>, key?: string | null): string | null {
-  if (!key) return null;
-  return map[key] ?? key;
-}
+/**
+ * Thin alias so the call sites below read unchanged. The maps and the lookup now
+ * live in `utils/enumLabels`; the difference is that an unmapped value is
+ * humanized rather than returned raw, so nothing prints SCREAMING_SNAKE.
+ */
+const fmt = labelFor;
 function fmtBool(val?: boolean | null, yes = 'Yes', no = 'No'): string | null {
   if (val == null) return null;
   return val ? yes : no;
@@ -383,54 +509,23 @@ interface ProfileDetailScreenProps {
   proposalContext?: ProposalContext;
   onBack?: () => void;
   onNotSuitable?: () => void;
-  onRequestPhoto?: () => void;
-  onSendProposal?: () => void;
+  /**
+   * Ask for the person's photos. May return a promise — the screen waits for it
+   * before claiming the request was sent.
+   */
+  onRequestPhoto?: () => void | Promise<void>;
+  /**
+   * Send a proposal. The optional note exists because the caller's handler
+   * accepts one — this screen has no note field, so it always sends without,
+   * and the type simply stops lying about that.
+   */
+  onSendProposal?: (note?: string) => void | Promise<void>;
   onWithdrawProposal?: () => void;
   onAcceptProposal?: () => void;
   onDeclineProposal?: () => void;
   onOpenChat?: () => void;
 }
 
-const DEFAULT_PROFILE: IntroductionProfile = {
-  userId: '',
-  displayName: 'Fatima S.',
-  age: 27,
-  city: 'Lahore',
-  occupation: 'Healthcare',
-  educationLevel: 'MASTERS',
-  fieldOfStudy: 'MEDICINE',
-  employmentStatus: 'EMPLOYED',
-  languagesSpoken: ['Urdu', 'English'],
-  bio: null,
-  photoUrl: null,
-  photoUrls: [],
-  blurPhotos: false,
-  hideDistance: false,
-  distanceKm: null,
-  gender: 'FEMALE',
-  heightCm: 163,
-  maritalStatus: 'NEVER_MARRIED',
-  hasChildren: false,
-  willingToRelocate: false,
-  sect: 'SUNNI',
-  madhhab: 'HANAFI',
-  religiosity: 'PRACTICING',
-  prayerFrequency: 'FIVE_DAILY',
-  wearsHijab: true,
-  keepsBeard: null,
-  halalStrict: true,
-  quranMemorization: null,
-  familyType: 'JOINT',
-  housingStatus: 'Family home',
-  livingArrangement: 'Joint family',
-  fatherOccupation: 'Doctor',
-  motherOccupation: 'Teacher',
-  siblingsSummary: '2 brothers, 1 sister',
-  hasVehicle: true,
-  idVerified: true,
-  waliRegistered: true,
-  countryCode: 'PK',
-};
 
 // ─── component ────────────────────────────────────────────────────────────────
 export function ProfileDetailScreen({
@@ -450,12 +545,56 @@ export function ProfileDetailScreen({
 }: ProfileDetailScreenProps) {
   const insets = useSafeAreaInsets();
   const [photoRequested, setPhotoRequested] = useState(false);
+  // Declared here, with the other hooks: a skeleton early-return sits a few
+  // lines below, and state declared after it would be called conditionally.
+  const [requestingPhoto, setRequestingPhoto] = useState(false);
+  const [photoRequestError, setPhotoRequestError] = useState<string | null>(null);
 
-  if (loading) {
+  // A fetch that failed leaves no profile and `loading` false. The skeleton is
+  // the honest answer: this used to fall back to a hard-coded sample profile
+  // ("Fatima S., 27, Lahore"), presenting an invented person as this user's
+  // match — the same defect fixed in IntroductionAvailableBlock.
+  if (loading || !profile) {
     return <ProfileDetailSkeleton onBack={onBack} insetTop={insets.top} />;
   }
 
-  const resolvedProfile = profile ?? DEFAULT_PROFILE;
+  const resolvedProfile = profile;
+
+  /**
+   * Photos this viewer may actually see.
+   *
+   * Named `visiblePhotoUrls` while only the wali branch used it; the seeker hero
+   * renders the same list now, so the name no longer implied a wali-only fact.
+   */
+  const visiblePhotoUrls = resolvedProfile.photoUrls ?? [];
+  /**
+   * Someone is actually holding these photos back.
+   *
+   * `photosWithheld` is the other person's privacy setting, so it has nothing to say
+   * about a guardian's own ward — distinguishing the two is what separates
+   * "locked" from "none uploaded", and both used to render the padlock.
+   */
+  const photosWithheld = !isDependent && resolvedProfile.photosWithheld;
+
+  /**
+   * The standing photo request, server-first.
+   *
+   * `photoRequested` is the optimistic flag set when the user taps the button;
+   * it is kept, but only as an *addition* to what the server says. On its own
+   * it was the whole truth, and it is lost on remount — so reopening the
+   * profile forgot the request, offered it again, and the server answered "You
+   * have already asked this person".
+   */
+  const requestState: 'none' | 'pending' | 'answered' | 'refused' =
+    resolvedProfile.photoRequestStatus === 'PENDING' ? 'pending'
+    : resolvedProfile.photoRequestStatus === 'APPROVED' ? 'answered'
+    : resolvedProfile.photoRequestStatus === 'DECLINED' ||
+      resolvedProfile.photoRequestStatus === 'REVOKED' ? 'refused'
+    : photoRequested ? 'pending'
+    : 'none';
+
+  /** Pronouns for the person being viewed; they/them when gender is absent. */
+  const them = pronounsFor(resolvedProfile.gender);
 
   /**
    * A photo can only be asked for once the proposal is accepted.
@@ -477,9 +616,27 @@ export function ProfileDetailScreen({
         ? 'Photos stay private until the proposal is accepted. You can request one here as soon as it is.'
         : 'Photos stay private until a proposal is accepted. Send a proposal first — you can request a photo once it is accepted.';
 
-  function handleRequestPhoto() {
-    setPhotoRequested(true);
-    onRequestPhoto?.();
+  /**
+   * Marks the request sent only once it actually is.
+   *
+   * This used to flip to the sent state and then call the handler, which was a
+   * `console.log` — so the screen reported a request that never left the
+   * device, and a real failure would have looked identical to success.
+   */
+  async function handleRequestPhoto() {
+    if (requestingPhoto) return;
+    setRequestingPhoto(true);
+    setPhotoRequestError(null);
+    try {
+      await onRequestPhoto?.();
+      setPhotoRequested(true);
+    } catch (e) {
+      setPhotoRequestError(
+        e instanceof Error ? e.message : 'Could not send the request. Please try again.',
+      );
+    } finally {
+      setRequestingPhoto(false);
+    }
   }
 
   return (
@@ -513,8 +670,13 @@ export function ProfileDetailScreen({
         showsVerticalScrollIndicator={false}>
 
         {/* ── Photo area ──────────────────────────────────────────────── */}
+        {/* A guardian is not a stranger to their own ward, so `photosWithheld` does
+            not apply to them — it gates other people's profiles, which is every
+            other profile a wali opens. Without the `isDependent` exemption a
+            guardian was shown a padlock over their own ward, and an empty photo
+            set was reported as "locked" when nothing was withholding it. */}
         {isWaliView ? (
-          resolvedProfile.blurPhotos || !resolvedProfile.photoUrls?.length ? (
+          photosWithheld ? (
             <View style={styles.photoWrap}>
               <View style={styles.photoInner}>
                 <Svg width={40} height={40} viewBox="0 0 24 24" fill="none">
@@ -524,68 +686,136 @@ export function ProfileDetailScreen({
                 <Text style={styles.photoHintText}>Photos are locked</Text>
               </View>
             </View>
+          ) : visiblePhotoUrls.length === 0 ? (
+            <View style={styles.photoWrap}>
+              <View style={styles.photoInner}>
+                <PersonIcon />
+                <Text style={styles.photoHintText}>
+                  {isDependent ? 'No photos added yet' : 'No photos to show'}
+                </Text>
+              </View>
+            </View>
           ) : (
-            <PhotoCarousel urls={resolvedProfile.photoUrls} />
+            <PhotoCarousel urls={visiblePhotoUrls} />
           )
         ) : (
-          <View style={styles.photoWrap}>
-            <View style={styles.photoInner}>
-              <PersonIcon />
-            </View>
-
-            {/* gradient fades bottom of photo → identity overlay */}
-            <LinearGradient
-              colors={['transparent', 'rgba(15,10,42,0.82)']}
-              style={styles.photoGradient}>
-              {resolvedProfile.displayName ? (
-                <Text style={styles.overlayName}>{resolvedProfile.displayName}</Text>
-              ) : null}
-              <Text style={styles.overlayAge}>{resolvedProfile.age} · {resolvedProfile.city}</Text>
-              {fmtSect(resolvedProfile.sect, resolvedProfile.madhhab) || fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity) ? (
-                <Text style={styles.overlaySect}>
-                  {[fmtSect(resolvedProfile.sect, resolvedProfile.madhhab), fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity)]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
-              ) : null}
-              {(resolvedProfile.idVerified || resolvedProfile.waliRegistered) ? (
-                <View style={styles.overlayBadges}>
-                  {resolvedProfile.idVerified ? (
-                    <View style={styles.overlayBadge}>
-                      <ShieldCheckIcon />
-                      <Text style={styles.overlayBadgeText}>ID verified</Text>
-                    </View>
-                  ) : null}
-                  {resolvedProfile.waliRegistered ? (
-                    <View style={[styles.overlayBadge, styles.overlayBadgeVio]}>
-                      <UsersIcon />
-                      <Text style={[styles.overlayBadgeText, styles.overlayBadgeTextVio]}>Wali registered</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </LinearGradient>
-          </View>
+          /* The photos, when this viewer may see them.
+             This branch hardcoded `<PersonIcon />`, so a seeker's hero was a
+             placeholder on every profile no matter what: the card below could
+             say "Photos are shared with you" while the hero above it showed the
+             empty-avatar icon. Only the wali branch ever rendered a photo. */
+          <PhotoCarousel
+            urls={visiblePhotoUrls}
+            /* gradient fades bottom of photo → identity overlay */
+            overlay={
+              <LinearGradient
+                colors={['transparent', 'rgba(15,10,42,0.82)']}
+                style={styles.photoGradient}>
+                {resolvedProfile.displayName ? (
+                  <Text style={styles.overlayName}>{resolvedProfile.displayName}</Text>
+                ) : null}
+                <Text style={styles.overlayAge}>{resolvedProfile.age} · {resolvedProfile.city}</Text>
+                {fmtSect(resolvedProfile.sect, resolvedProfile.madhhab) || fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity) ? (
+                  <Text style={styles.overlaySect}>
+                    {[fmtSect(resolvedProfile.sect, resolvedProfile.madhhab), fmt(RELIGIOSITY_LABELS, resolvedProfile.religiosity)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                ) : null}
+                {(resolvedProfile.idVerified || resolvedProfile.waliRegistered) ? (
+                  <View style={styles.overlayBadges}>
+                    {resolvedProfile.idVerified ? (
+                      <View style={styles.overlayBadge}>
+                        <ShieldCheckIcon />
+                        <Text style={styles.overlayBadgeText}>ID verified</Text>
+                      </View>
+                    ) : null}
+                    {resolvedProfile.waliRegistered ? (
+                      <View style={[styles.overlayBadge, styles.overlayBadgeVio]}>
+                        <UsersIcon />
+                        <Text style={[styles.overlayBadgeText, styles.overlayBadgeTextVio]}>Wali registered</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+              </LinearGradient>
+            }
+          />
         )}
 
-        {/* ── Photo request card ───────────────────────────────────────── */}
+        {/* ── Photo request card ───────────────────────────────────────────
+            Only where a request is the thing to do. There are three states
+            here and the card used to collapse them into one:
+
+              photos shown      — nothing to ask for, they are already visible
+              photos withheld   — asking is exactly right
+              no photos at all  — nothing exists to ask for
+
+            The card rendered in all three, so a profile with no photos offered
+            "Request photo" and the server answered "This person already shares
+            their photos; no request is needed" — a confusing refusal for a
+            request that should never have been offered. */}
         {!isDependent && <View style={styles.card}>
-          {resolvedProfile.photoRequestsPaused ? (
-            /* Paused state — shown to other users when the viewed user has paused requests */
+          {visiblePhotoUrls.length === 0 && !photosWithheld ? (
+            /* Nothing viewable and nothing being withheld: they have no
+               approved photo yet. Requesting one is not the answer — under an
+               open setting the server refuses outright ("this person already
+               shares their photos"), and there is nothing to unlock. Say so
+               rather than leaving the card blank or offering a button that
+               cannot succeed.
+
+               Deliberately not more specific: whether a photo is awaiting
+               review is the owner's business, not a viewer's. */
             <View style={styles.sentRow}>
-              <View style={[styles.sentDot, { backgroundColor: '#B5820D' }]} />
+              <View style={[styles.sentDot, { backgroundColor: Colors.ink3 }]} />
               <Text style={styles.sentText}>
-                This person has paused photo requests for now.
+                No photos to show yet. You will see them here when there are.
               </Text>
             </View>
-          ) : photoRequested ? (
+          ) : !photosWithheld ? (
+            /* Visible already — an approved request, or an owner who shares
+               openly. Nothing to ask for. */
+            <View style={styles.sentRow}>
+              <View style={styles.sentDot} />
+              <Text style={styles.sentText}>
+                Photos are shared with you.
+              </Text>
+            </View>
+          ) : requestState === 'refused' ? (
+            /* Answered, but not with a yes.
+               Deliberately not "declined": the server keeps a decline
+               indistinguishable from silence, and this is the screen the
+               requester reads. What matters here is that asking again is not
+               available, which the copy conveys without naming a refusal. */
+            <View style={styles.sentRow}>
+              <View style={[styles.sentDot, { backgroundColor: Colors.ink3 }]} />
+              <Text style={styles.sentText}>
+                Photos are not shared with you.
+              </Text>
+            </View>
+          ) : requestState === 'pending' ? (
             /* Sent state */
             <View style={styles.sentRow}>
               <View style={styles.sentDot} />
               <Text style={styles.sentText}>
                 {isWaliView
                   ? 'Photo request sent on your ward\'s behalf.'
-                  : 'Photo request sent — she\'ll be notified when she logs in.'}
+                  // Was hardcoded "she". `gender` now reaches this screen —
+                  // the detail payload never carried it, so every profile was
+                  // described with the same pronoun regardless of who it was.
+                  : resolvedProfile.photoRequestWaitingOn === 'wali'
+                    ? `Photo request sent — ${them.possessive} wali is reviewing it.`
+                    : `Photo request sent — ${them.subject} will be notified when ${them.subject} next logs in.`}
+              </Text>
+            </View>
+          ) : resolvedProfile.photoRequestsPaused ? (
+            /* Paused — checked *after* the request state. A request sent before
+               the owner paused is still live, and leading with "paused" hid the
+               user's own pending request behind a notice about someone else. */
+            <View style={styles.sentRow}>
+              <View style={[styles.sentDot, { backgroundColor: '#B5820D' }]} />
+              <Text style={styles.sentText}>
+                This person has paused photo requests for now.
               </Text>
             </View>
           ) : (
@@ -597,6 +827,7 @@ export function ProfileDetailScreen({
                 </Text>
                 <Pressable
                   onPress={handleRequestPhoto}
+                  disabled={requestingPhoto}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.85 : 1,
                     transform: [{ scale: pressed ? 0.97 : 1 }],
@@ -606,12 +837,19 @@ export function ProfileDetailScreen({
                     start={{ x: 0, y: 0.5 }}
                     end={{ x: 1, y: 0.5 }}
                     style={styles.photoReqBtn}>
-                    <CameraIcon />
+                    {requestingPhoto ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <CameraIcon />
+                    )}
                     <Text style={styles.photoReqBtnText}>
-                      Request photo
+                      {requestingPhoto ? 'Sending request…' : 'Request photo'}
                     </Text>
                   </LinearGradient>
                 </Pressable>
+                {!!photoRequestError && (
+                  <Text style={styles.photoReqError}>{photoRequestError}</Text>
+                )}
               </>
             ) : (
               <>
@@ -782,7 +1020,9 @@ export function ProfileDetailScreen({
                   </Text>
                 </Pressable>
                 <Pressable
-                  onPress={onSendProposal}
+                  // Called, not passed: Pressable hands its handler a gesture
+                  // event, which is not the note this now accepts.
+                  onPress={() => onSendProposal?.()}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.88 : 1,
                     transform: [{ scale: pressed ? 0.97 : 1 }],
@@ -1048,6 +1288,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 
+  photoReqError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#A31C48',
+    textAlign: 'center',
+    marginTop: 9,
+  },
   photoReqHint: {
     fontSize: 12.5,
     color: Colors.ink2,

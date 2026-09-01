@@ -42,13 +42,22 @@ export interface ChatSummary {
   id: string;
   /** matchId — used to open chat from ProfileDetailScreen */
   matchId?: string;
+  /** The other seeker's user id — used to open their profile from the thread. */
+  partnerUserId?: string;
   /** Display name of the other seeker */
   name: string;
   age?: number;
-  /** Last message snippet */
-  lastMessage: string;
-  /** ISO timestamp of last message */
-  lastMessageAt: string;
+  /**
+   * Last message snippet, or null when nobody has written yet.
+   *
+   * Nullable on purpose: these were non-optional strings, so the caller
+   * coalesced them to '' and `new Date()` — which rendered a blank preview
+   * line and stamped an empty conversation with a "Just now" no message ever
+   * arrived at.
+   */
+  lastMessage: string | null;
+  /** ISO timestamp of the last message, or null when there are none. */
+  lastMessageAt: string | null;
   /** userId of whoever sent the last message */
   lastMessageSenderId?: string;
   /** Current user's id — drives "Read" chip visibility */
@@ -217,7 +226,10 @@ export function ChatsListScreen({
           chats.map(chat => {
             const hasUnread = (chat.unreadCount ?? 0) > 0;
             const participantCount = chat.participantCount ?? 4;
-            const time = fmtTime(chat.lastMessageAt);
+            // An accepted proposal opens the chat before anyone speaks, so
+            // "no messages" is a normal first state, not a loading gap.
+            const started = !!chat.lastMessage && !!chat.lastMessageAt;
+            const time = chat.lastMessageAt ? fmtTime(chat.lastMessageAt) : null;
 
             // "Read" chip: only show when I sent the last msg AND the other side read it
             const iMySentLast = !!chat.myUserId && chat.lastMessageSenderId === chat.myUserId;
@@ -233,11 +245,14 @@ export function ChatsListScreen({
                     <Text style={[styles.chatName, hasUnread && styles.chatNameBold]}>
                       {chat.name}{chat.age != null ? ` · ${chat.age}` : ''}
                     </Text>
-                    <Text style={styles.chatPreview} numberOfLines={1}>
-                      {chat.lastMessage}
+                    <Text
+                      style={[styles.chatPreview, !started && styles.chatPreviewEmpty]}
+                      numberOfLines={1}>
+                      {started ? chat.lastMessage : 'Send a message to start the conversation'}
                     </Text>
                     <Text style={styles.chatMeta}>
-                      {participantCount} people in this chat · {time}
+                      {participantCount} people in this chat
+                      {time ? ` · ${time}` : ''}
                     </Text>
                   </View>
 
@@ -448,6 +463,12 @@ const styles = StyleSheet.create({
     color: C.ink2,
     marginBottom: 4,
     lineHeight: 19,
+  },
+  // A prompt, not a message — set apart so it cannot be misread as something
+  // the other person actually wrote.
+  chatPreviewEmpty: {
+    color: C.ink3,
+    fontStyle: 'italic',
   },
   chatMeta: {
     fontSize: 11.5,

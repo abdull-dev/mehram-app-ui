@@ -5,7 +5,7 @@
  * Shows greeting, pending proposals to review, and bottom tabs.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   ActivityIndicator,
@@ -184,13 +184,21 @@ const skStyles = StyleSheet.create({
   },
 });
 import { ProposalDetailScreen, type ProposalDetailSelection } from './ProposalDetailScreen';
+import { AdjustFiltersScreen, type FilterValues } from './AdjustFiltersScreen';
+import {
+  EDUCATION_LABELS,
+  MARITAL_LABELS,
+  RELIGIOSITY_LABELS,
+  SECT_LABELS,
+  labelFor,
+} from '../../utils/enumLabels';
 import type { Introduction } from '../../api/introductions';
 import type { WardProposal, WardReceivedProposal } from '../../api/wali';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { formatHeight } from '../../utils/height';
-import { buildProposalSteps } from '../../lib/proposalSteps';
+import { buildProposalSteps, isResolvedStage } from '../../lib/proposalSteps';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -266,6 +274,18 @@ function SettingsIcon() {
   );
 }
 
+/** Same glyph as the seeker's home screen, so the control reads as the same one. */
+function FilterIcon() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 6h18M3 12h18M3 18h18" stroke={C.indInk} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx={14} cy={6} r={3} fill={C.page} stroke={C.indInk} strokeWidth={2} />
+      <Circle cx={8} cy={12} r={3} fill={C.page} stroke={C.indInk} strokeWidth={2} />
+      <Circle cx={14} cy={18} r={3} fill={C.page} stroke={C.indInk} strokeWidth={2} />
+    </Svg>
+  );
+}
+
 function CheckBadge() {
   return (
     <Svg width={15} height={15} viewBox="0 0 24 24" fill="none"
@@ -313,8 +333,9 @@ export interface WaliConversation {
   id: string;
   participantName: string;
   participantRole?: string; // e.g. "Wali of Ahmed Khan"
-  lastMessage: string;
-  lastMessageAt?: string; // ISO date string
+  /** Null until someone writes: a chat opens the moment a proposal is accepted. */
+  lastMessage: string | null;
+  lastMessageAt?: string | null; // ISO date string
   unread?: boolean;
 }
 
@@ -349,6 +370,10 @@ interface WaliHomeScreenProps {
   // Ward's discovery feed shown in "To review" tab
   wardIntroductions?: Introduction[];
   onViewIntroProfile?: (userId: string) => void;
+  /** Opens the photo-requests queue (the ward's, which the wali may answer). */
+  onPhotoRequests?: () => void;
+  /** Photo requests this guardian is the one being waited on for. */
+  photoRequestsBadge?: number;
   onIntroNotSuitable?: (userId: string) => void;
   onIntroSendProposal?: (userId: string, note: string) => Promise<void> | void;
   // Proposals tab
@@ -361,6 +386,33 @@ interface WaliHomeScreenProps {
   // Family tab
   dependentProfile?: WaliDependentProfile;
   onViewDependentProfile?: () => void;
+  /**
+   * A ward's proposal was withdrawn from the detail screen.
+   *
+   * Needed because that screen is rendered inside this one, so the parent has no
+   * other way to learn the server state changed — without it the withdrawn
+   * proposal stayed in the Sent list and its recipient stayed filtered out of
+   * the introductions feed until the app was relaunched.
+   */
+  onProposalWithdrawn?: () => void;
+  /**
+   * The ward's introduction filters, mirroring the seeker's own home screen.
+   *
+   * Session-only, like the seeker's: they narrow the ward's feed for this visit
+   * and are never written to the ward's stored preference — a guardian adjusting
+   * what they are shown must not silently rewrite what their ward asked for.
+   */
+  wardFilters?: Partial<FilterValues>;
+  onApplyWardFilters?: (filters: FilterValues) => void;
+  /**
+   * Decide a proposal the ward received, by its proposal id.
+   *
+   * `approveProposal` / `declineProposal` existed in the API layer with no caller
+   * anywhere, so the guardian's own review step — the one the whole pipeline
+   * waits on — could be read but never actioned.
+   */
+  onApproveReceived?: (proposalId: string) => void | Promise<void>;
+  onDeclineReceived?: (proposalId: string) => void | Promise<void>;
   onRemoveDependent?: (membershipId: string) => Promise<void>;
 }
 
@@ -378,23 +430,6 @@ function EmptyState({ icon, iconBg, title, body }: { icon: React.ReactNode; icon
 
 // ─── ward introduction card ───────────────────────────────────────────────────
 
-const SECT_LABELS: Record<string, string> = {
-  SUNNI: 'Sunni', SHIA: 'Shia', AHMADI: 'Ahmadi', ISMAILI: 'Ismaili', OTHER: 'Other',
-};
-const RELIGIOSITY_LABELS: Record<string, string> = {
-  VERY_PRACTICING: 'Very practicing', PRACTICING: 'Practicing',
-  MODERATELY_PRACTICING: 'Moderately practicing',
-  MODERATE: 'Moderate', CULTURAL: 'Cultural',
-};
-const EDUCATION_LABELS: Record<string, string> = {
-  PRIMARY: 'Primary', SECONDARY: 'Secondary', HIGHER_SECONDARY: 'A-levels / FSc',
-  HIGH_SCHOOL: 'High school', DIPLOMA: 'Diploma', BACHELORS: "Bachelor's",
-  MASTERS: "Master's", DOCTORATE: 'PhD', PHD: 'PhD', OTHER: 'Other',
-};
-const MARITAL_LABELS: Record<string, string> = {
-  NEVER_MARRIED: 'Single', DIVORCED: 'Divorced', WIDOWED: 'Widowed',
-};
-
 function WardIntroCard({
   intro,
   onViewProfile,
@@ -406,12 +441,12 @@ function WardIntroCard({
   onNotSuitable?: () => void;
   onSendProposal?: (note: string) => Promise<void> | void;
 }) {
-  const sect = SECT_LABELS[intro.sect ?? ''] ?? null;
-  const religiosity = RELIGIOSITY_LABELS[intro.religiosity ?? ''] ?? null;
+  const sect = labelFor(SECT_LABELS, intro.sect);
+  const religiosity = labelFor(RELIGIOSITY_LABELS, intro.religiosityLevel);
   const subtitle = [sect, religiosity].filter(Boolean).join(' · ');
-  const education = EDUCATION_LABELS[intro.educationLevel ?? ''] ?? intro.educationLevel ?? null;
+  const education = labelFor(EDUCATION_LABELS, intro.educationLevel);
   const height = formatHeight(intro.heightCm);
-  const marital = MARITAL_LABELS[intro.maritalStatus ?? ''] ?? null;
+  const marital = labelFor(MARITAL_LABELS, intro.maritalStatus);
 
   const [noteModalVisible, setNoteModalVisible] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -624,6 +659,7 @@ function ReviewTab({
         type: 'sent',
         proposal: {
           userId: firstPendingSent.toUserId,
+          wardUserId: firstPendingSent.seekerUserId,
           fullName: firstPendingSent.recipientName,
           sentAt: firstPendingSent.createdAt,
           matchId: null,
@@ -631,6 +667,7 @@ function ReviewTab({
           // Without this the detail tracker falls back to self-sent and
           // contradicts the card the user just tapped.
           sentByWali: firstPendingSent.sentByWali,
+          waliNote: firstPendingSent.waliNote,
           status: 'pending',
           age: firstPendingSent.recipientAge,
           city: firstPendingSent.recipientCity,
@@ -651,6 +688,7 @@ function ReviewTab({
           matchId: null,
           stage: firstPendingReceived.stage,
           sentByWali: firstPendingReceived.sentByWali,
+          waliNote: firstPendingReceived.waliNote,
           status: 'pending',
           age: firstPendingReceived.senderAge,
           city: firstPendingReceived.senderCity,
@@ -821,11 +859,15 @@ function ProposalsTab({
   wardReceivedProposals,
   dependentName,
   onOpenDetail,
+  onPhotoRequests,
+  photoRequestsBadge = 0,
 }: {
   wardProposals: WardProposal[];
   wardReceivedProposals: WardReceivedProposal[];
   dependentName: string;
   onOpenDetail?: (sel: ProposalDetailSelection) => void;
+  onPhotoRequests?: () => void;
+  photoRequestsBadge?: number;
 }) {
   const [propTab, setPropTab] = useState<'sent' | 'received'>('sent');
   const depFirst = dependentName
@@ -834,7 +876,29 @@ function ProposalsTab({
 
   return (
     <>
-      <Text style={styles.proposalsTitle}>Proposals</Text>
+      <View style={styles.proposalsHdr}>
+        <Text style={styles.proposalsTitle}>Proposals</Text>
+        {/* A guardian answers photo requests for their ward under two of the
+            three privacy modes, so they need the same entry point. */}
+        {!!onPhotoRequests && (
+          <Pressable
+            onPress={onPhotoRequests}
+            hitSlop={8}
+            accessibilityRole="button"
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
+            <View style={styles.proposalsActionRow}>
+              <Text style={styles.proposalsAction}>Photo requests</Text>
+              {photoRequestsBadge > 0 && (
+                <View style={styles.proposalsBadge}>
+                  <Text style={styles.proposalsBadgeText}>
+                    {photoRequestsBadge > 99 ? '99+' : photoRequestsBadge}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </Pressable>
+        )}
+      </View>
 
       {/* Segmented control */}
       <View style={styles.seg}>
@@ -908,11 +972,13 @@ function ProposalsTab({
                   type: 'sent',
                   proposal: {
                     userId: p.toUserId,
+                    wardUserId: p.seekerUserId,
                     fullName: p.recipientName,
                     sentAt: p.createdAt,
                     matchId: null,
                     stage: p.stage,
                     sentByWali: p.sentByWali,
+                    waliNote: p.waliNote,
                     status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.recipientAge,
                     city: p.recipientCity,
@@ -988,6 +1054,7 @@ function ProposalsTab({
                     matchId: null,
                     stage: p.stage,
                     sentByWali: p.sentByWali,
+                    waliNote: p.waliNote,
                     status: p.stage === 'ACCEPTED' ? 'matched' : 'pending',
                     age: p.senderAge,
                     city: p.senderCity,
@@ -1076,7 +1143,13 @@ function ConversationsTab({
               {!!conv.participantRole && (
                 <Text style={styles.listSub}>{conv.participantRole}</Text>
               )}
-              <Text style={styles.convLastMsg} numberOfLines={1}>{conv.lastMessage}</Text>
+              {/* The guardian sees this list before anyone has spoken; a blank
+                  line read as a failed load rather than an open, quiet chat. */}
+              <Text
+                style={[styles.convLastMsg, !conv.lastMessage && styles.convLastMsgEmpty]}
+                numberOfLines={1}>
+                {conv.lastMessage || 'No messages yet'}
+              </Text>
             </View>
             <Svg width={16} height={16} viewBox="0 0 24 24" fill="none"
               stroke={C.ink3} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -1109,6 +1182,15 @@ function FamilyTab({
     ? (dependentName.includes(' ') ? dependentName.split(' ')[0] : dependentName)
     : 'Dependent';
 
+  /**
+   * Whether a ward is linked at all — the membership, not the name.
+   *
+   * Both facts were read off `dependentName`, so a ward with no usable name made
+   * this card claim nothing was linked: an "Add dependent" prompt for a
+   * dependent that already existed, and no way to reach Remove.
+   */
+  const hasDependent = !!profile;
+
   const photos = profile?.photos ?? [];
   const coverPhoto = photos[0]?.url ?? null;
 
@@ -1130,7 +1212,7 @@ function FamilyTab({
         {/* Header */}
         <View style={styles.linkedCardHeader}>
           <Text style={styles.linkedCardTitle}>Linked accounts</Text>
-          {dependentName ? (
+          {hasDependent ? (
             <View style={styles.linkedCountBadge}>
               <Text style={styles.linkedCountText}>✓  1 linked</Text>
             </View>
@@ -1153,7 +1235,7 @@ function FamilyTab({
 
           {/* Dependents list */}
           <View style={styles.depsCol}>
-            {dependentName ? (
+            {hasDependent ? (
               <View style={styles.depRow}>
                 <View style={styles.depAvatar}>
                   <Text style={styles.depAvatarText}>{firstName[0].toUpperCase()}</Text>
@@ -1175,13 +1257,19 @@ function FamilyTab({
           </View>
         </View>
 
-        {/* Add dependent */}
-        <Pressable style={styles.addDepBtn}>
-          <Text style={styles.addDepBtnText}>+  Add dependent</Text>
-        </Pressable>
+        {/* Add dependent — a guardian account holds one ward, so this only
+            invites them to link the first. Offering it beside a ward that is
+            already linked read as a missing link rather than a filled one. */}
+        {!hasDependent && (
+          <Pressable style={styles.addDepBtn}>
+            <Text style={styles.addDepBtnText}>+  Add dependent</Text>
+          </Pressable>
+        )}
       </View>
 
-      {/* Dependent profile card */}
+      {/* Dependent profile card — only when there is a dependent behind it. */}
+      {hasDependent && (
+        <>
       <Text style={styles.sectionLabel}>{firstName}'s profile</Text>
       <View style={styles.profileCard}>
         {/* Photo strip */}
@@ -1217,9 +1305,11 @@ function FamilyTab({
         {[
           { label: 'Age',         value: profile?.age ? `${profile.age} years` : undefined },
           { label: 'City',        value: profile?.city },
-          { label: 'Education',   value: profile?.educationLevel },
+          // Through the same label maps the introduction card uses. These rows
+          // printed the raw enum, so a ward's education read "HIGH_SCHOOL".
+          { label: 'Education',   value: labelFor(EDUCATION_LABELS, profile?.educationLevel) },
           { label: 'Occupation',  value: profile?.occupation },
-          { label: 'Sect',        value: profile?.sect },
+          { label: 'Sect',        value: labelFor(SECT_LABELS, profile?.sect) },
         ].map(({ label, value }) =>
           value ? (
             <View key={label} style={styles.row}>
@@ -1267,13 +1357,15 @@ function FamilyTab({
           </Svg>
         </Pressable>
       </View>
+        </>
+      )}
 
       {/* Remove dependent confirmation dialog */}
       <Modal
         visible={showRemoveDialog}
         transparent
         animationType="fade"
-        onRequestClose={() => !removing && setShowRemoveDialog(false)}>
+        onRequestClose={() => { if (!removing) setShowRemoveDialog(false); }}>
         <View style={styles.dialogOverlay}>
           <View style={styles.dialogCard}>
             {/* Warning icon */}
@@ -1328,6 +1420,8 @@ export function WaliHomeScreen({
   loading = false,
   wardIntroductions = [],
   onViewIntroProfile,
+  onPhotoRequests,
+  photoRequestsBadge = 0,
   onIntroNotSuitable,
   onIntroSendProposal,
   reviewedProposals = [],
@@ -1337,14 +1431,51 @@ export function WaliHomeScreen({
   onOpenConversation,
   dependentProfile,
   onViewDependentProfile,
+  onProposalWithdrawn,
+  wardFilters,
+  onApplyWardFilters,
+  onApproveReceived,
+  onDeclineReceived,
   onRemoveDependent,
 }: WaliHomeScreenProps) {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const screenWidth = Dimensions.get('window').width;
   const [proposalDetail, setProposalDetail] = useState<ProposalDetailSelection | null>(null);
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(screenWidth)).current;
+
+  /**
+   * Bottom-nav badge counts, keyed by tab id.
+   *
+   * 'review' counts what needs this wali's own decision. 'proposals' mirrors
+   * the seeker app, whose Proposals badge counts received proposals that are
+   * still unresolved — the wali bar is a hand-written copy of the shared
+   * BottomNav and only ever badged
+   * 'review', so a ward's received proposal showed a count on one app and
+   * nothing on the other.
+   *
+   * A proposal awaiting review is deliberately counted in both: it genuinely
+   * is both a pending decision and a received proposal, which is how the
+   * seeker app already treats it.
+   *
+   * 'conversations' counts chats holding something unread — not unread
+   * messages, which this screen cannot know: the server's per-chat
+   * `unreadCount` is flattened to a boolean before it gets here. Chats-waiting
+   * is the same metric the seeker's Chats badge shows, so the two agree.
+   */
+  const tabBadges = useMemo<Partial<Record<WaliTab, number>>>(() => ({
+    review:
+      wardProposals.filter(p => p.stage === 'HIS_WALI_PENDING').length +
+      wardReceivedProposals.filter(p => p.stage === 'HER_WALI_REVIEWING').length,
+    // Proposals *and* photo requests, matching the seeker app: one number for
+    // everything awaiting an answer.
+    proposals:
+      wardReceivedProposals.filter(x => !isResolvedStage(x.stage)).length +
+      photoRequestsBadge,
+    conversations: conversations.filter(c => c.unread).length,
+  }), [wardProposals, wardReceivedProposals, conversations, photoRequestsBadge]);
 
   const openProposalDetail = useCallback((sel: ProposalDetailSelection) => {
     setProposalDetail(sel);
@@ -1357,6 +1488,21 @@ export function WaliHomeScreen({
       useNativeDriver: true,
     }).start();
   }, [slideAnim, screenWidth]);
+
+  /**
+   * The proposal id for a received proposal, found by its sender.
+   *
+   * The detail screen speaks in counterpart user ids; the approve and decline
+   * endpoints are keyed on the proposal itself. Only pending ones are eligible,
+   * so a terminal row cannot be re-decided.
+   */
+  const receivedProposalIdFor = useCallback(
+    (fromUserId: string): string | null =>
+      wardReceivedProposals.find(
+        p => p.fromUserId === fromUserId && p.stage === 'HER_WALI_REVIEWING',
+      )?.id ?? null,
+    [wardReceivedProposals],
+  );
 
   const closeProposalDetail = useCallback(() => {
     Animated.timing(slideAnim, {
@@ -1406,6 +1552,8 @@ export function WaliHomeScreen({
             wardReceivedProposals={wardReceivedProposals}
             dependentName={dependentName}
             onOpenDetail={openProposalDetail}
+            onPhotoRequests={onPhotoRequests}
+            photoRequestsBadge={photoRequestsBadge}
           />
         );
       case 'conversations':
@@ -1440,6 +1588,16 @@ export function WaliHomeScreen({
             {waliName || 'Your dashboard'}
           </Text>
         </View>
+        {/* Only on the review tab, which is the only one showing a feed the
+            filters apply to. */}
+        {activeTab === 'review' && !!onApplyWardFilters && (
+          <Pressable
+            onPress={() => setFiltersVisible(true)}
+            hitSlop={8}
+            style={[styles.settingsBtn, styles.filterBtn]}>
+            <FilterIcon />
+          </Pressable>
+        )}
         <Pressable onPress={onOpenSettings} hitSlop={8} style={styles.settingsBtn}>
           <SettingsIcon />
         </Pressable>
@@ -1469,14 +1627,35 @@ export function WaliHomeScreen({
           ]}>
           <ProposalDetailScreen
             selected={proposalDetail}
+            // Reuses the guardian's existing profile opener. Without this the
+            // detail screen's "View profile" hid itself on the wali side only.
+            onViewProfile={userId => onViewIntroProfile?.(userId)}
             onBack={closeProposalDetail}
+            onWithdrawSuccess={onProposalWithdrawn}
+            // The detail screen identifies the counterpart by user id; the
+            // approve endpoint wants the proposal's own id, so it is looked up
+            // here where the received list is in scope.
+            onAccept={async userId => {
+              const id = receivedProposalIdFor(userId);
+              if (id) { await onApproveReceived?.(id); closeProposalDetail(); }
+            }}
+            onDecline={async userId => {
+              const id = receivedProposalIdFor(userId);
+              if (id) { await onDeclineReceived?.(id); closeProposalDetail(); }
+            }}
+            // The wali reads accepted threads in their own Conversations tab.
+            onOpenChat={() => { closeProposalDetail(); onTabChange?.('conversations'); }}
             isWaliView
             wardName={dependentName}
           />
         </Animated.View>
       )}
 
-      {/* Bottom tab bar */}
+      {/* Bottom tab bar.
+
+          Counts are derived once here rather than inside the .map(): they used
+          to be recomputed for all four tabs on every render to answer a
+          question only 'review' asked. */}
       <View style={[styles.tabBarWrap, { paddingBottom: insets.bottom + 8 }]}>
         <View style={styles.tabBar}>
           {(
@@ -1488,10 +1667,7 @@ export function WaliHomeScreen({
             ] as const
           ).map(({ id, label, Icon }) => {
             const isActive = activeTab === id;
-            const pendingReviewCount =
-              wardProposals.filter(p => p.stage === 'HIS_WALI_PENDING').length +
-              wardReceivedProposals.filter(p => p.stage === 'HER_WALI_REVIEWING').length;
-            const badge = id === 'review' && pendingReviewCount > 0 ? pendingReviewCount : 0;
+            const badge = tabBadges[id] ?? 0;
             return (
               <Pressable
                 key={id}
@@ -1501,7 +1677,9 @@ export function WaliHomeScreen({
                   <Icon active={isActive} />
                   {badge > 0 && (
                     <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{badge}</Text>
+                      <Text style={styles.badgeText}>
+                        {badge > 99 ? '99+' : badge}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -1514,6 +1692,23 @@ export function WaliHomeScreen({
           })}
         </View>
       </View>
+
+      {/* Ward filters — full screen, and declared *after* the tab bar so it
+          covers it. Rendered before, the bar painted over the Apply button at
+          the bottom of the form and the tabs stayed tappable underneath a modal
+          the user had not finished with. */}
+      {filtersVisible && (
+        <View style={StyleSheet.absoluteFill}>
+          <AdjustFiltersScreen
+            initialFilters={wardFilters}
+            onBack={() => setFiltersVisible(false)}
+            onApply={filters => {
+              onApplyWardFilters?.(filters);
+              setFiltersVisible(false);
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -1542,6 +1737,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.ink3,
     marginTop: 4,
+  },
+  filterBtn: {
+    marginRight: 8,
   },
   settingsBtn: {
     width: 40,
@@ -1961,10 +2159,21 @@ const styles = StyleSheet.create({
   },
 
   // ── Proposals tab ──
+  proposalsHdr: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', gap: 10,
+  },
   proposalsTitle: {
     fontSize: 26, fontWeight: '700', letterSpacing: -0.6,
     color: C.ink, marginTop: 8, marginBottom: 4, paddingHorizontal: 2,
   },
+  proposalsActionRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  proposalsAction: { fontSize: 13, fontWeight: '700', color: C.rose },
+  proposalsBadge: {
+    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
+    backgroundColor: C.rose, alignItems: 'center', justifyContent: 'center',
+  },
+  proposalsBadgeText: { fontSize: 10.5, fontWeight: '800', color: C.white },
   seg: {
     flexDirection: 'row', backgroundColor: '#EDEBF4',
     borderRadius: 14, padding: 4, marginTop: 8, marginBottom: 14,
@@ -2026,6 +2235,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.ink3,
     marginTop: 2,
+  },
+  convLastMsgEmpty: {
+    fontStyle: 'italic',
   },
   unreadDot: {
     width: 7,

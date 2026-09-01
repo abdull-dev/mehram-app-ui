@@ -7,8 +7,9 @@
  * Pixel-perfect implementation matching mehram-proposals-chats.html.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -28,6 +29,14 @@ import {
 } from '../../lib/proposalSteps';
 import { withdrawWardProposal } from '../../api/wali';
 import type { ProposalStage, ReceivedProposal, SentProposal } from '../../api/proposals';
+import {
+  EDUCATION_LABELS,
+  FAMILY_TYPE_LABELS,
+  MADHHAB_LABELS,
+  MARITAL_LABELS,
+  SECT_LABELS,
+  labelFor,
+} from '../../utils/enumLabels';
 import { formatHeight } from '../../utils/height';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
@@ -51,59 +60,35 @@ const C = {
   ink3:      '#9695A5',
 } as const;
 
-// ─── label maps ───────────────────────────────────────────────────────────────
-const EDUCATION_LABELS: Record<string, string> = {
-  NO_FORMAL: 'No formal education',
-  PRIMARY: 'Primary',
-  SECONDARY: 'Secondary / O-Level',
-  HIGHER_SECONDARY: 'Higher Secondary / A-Level',
-  DIPLOMA: 'Diploma / Certificate',
-  BACHELORS: "Bachelor's degree",
-  MASTERS: "Master's degree",
-  PHD: 'PhD / Doctorate',
-  OTHER: 'Other',
-};
-
-const MARITAL_LABELS: Record<string, string> = {
-  SINGLE: 'Single',
-  DIVORCED: 'Divorced',
-  WIDOWED: 'Widowed',
-  SEPARATED: 'Separated',
-};
-
-const FAMILY_TYPE_LABELS: Record<string, string> = {
-  NUCLEAR: 'Nuclear family',
-  JOINT: 'Joint family',
-  EXTENDED: 'Extended family',
-};
-
-const SECT_LABELS: Record<string, string> = {
-  SUNNI: 'Sunni', SHIA: 'Shia', AHMADIYYA: 'Ahmadiyya', IBADI: 'Ibadi', OTHER: 'Other',
-};
-
-const MADHHAB_LABELS: Record<string, string> = {
-  HANAFI: 'Hanafi', MALIKI: 'Maliki', SHAFII: "Shafi'i",
-  HANBALI: 'Hanbali', JAFARI: "Ja'fari", ZAIDI: 'Zaidi', OTHER: 'Other',
-};
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
-function fmt(map: Record<string, string>, val?: string | null): string | null {
-  if (!val) return null;
-  return map[val] ?? val;
-}
+/**
+ * Kept as a thin alias so the call sites below read unchanged. The maps and the
+ * lookup now live in `utils/enumLabels`; this screen's own copies were missing
+ * `HIGH_SCHOOL` entirely and keyed marital status on `SINGLE`, so both printed
+ * the raw enum.
+ */
+const fmt = labelFor;
 
 function fmtSect(sect?: string | null, madhhab?: string | null): string | null {
-  const s = sect ? SECT_LABELS[sect] ?? sect : null;
-  const m = madhhab ? MADHHAB_LABELS[madhhab] ?? madhhab : null;
+  const s = labelFor(SECT_LABELS, sect);
+  const m = labelFor(MADHHAB_LABELS, madhhab);
   if (s && m) return `${s} (${m})`;
-  return s ?? null;
+  return s;
 }
 
 function fmtStepTime(iso: string): string {
   const d = new Date(iso);
-  const day = d.toLocaleDateString('en-US', { weekday: 'long' });
+  // Guard the parse: this renders a server timestamp straight into the
+  // tracker, and an unparseable one used to reach the screen verbatim.
+  if (Number.isNaN(d.getTime())) return '';
   const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${day}, ${time}`;
+  // A bare weekday only reads correctly inside the last week — beyond that
+  // 'Monday' makes a months-old approval sound like it happened this week.
+  const ageDays = (Date.now() - d.getTime()) / 86_400_000;
+  const when = ageDays >= 0 && ageDays < 7
+    ? d.toLocaleDateString('en-US', { weekday: 'long' })
+    : d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${when}, ${time}`;
 }
 
 // ─── icons ────────────────────────────────────────────────────────────────────
@@ -189,6 +174,31 @@ function Banner({ variant, icon, title, body }: {
   );
 }
 
+// ─── NoteCard ─────────────────────────────────────────────────────────────────
+// The message the other family wrote by hand. Deliberately not a `Banner`:
+// banners carry Mehram's own copy, and a family's words must not be mistaken
+// for the app speaking. Attribution comes from `sentByWali` rather than the
+// field name — `waliNote` holds a seeker's own note too.
+function NoteCard({ note, sentByWali, gender }: {
+  note: string;
+  sentByWali?: boolean;
+  gender?: string | null;
+}) {
+  const p = pronounsFor(gender);
+  const from = sentByWali ? `${p.Possessive} wali wrote` : `${p.Subject} wrote`;
+  return (
+    <View style={styles.noteCard}>
+      <View style={styles.noteRule} />
+      <View style={styles.noteBody}>
+        <Text style={styles.noteFrom}>{from}</Text>
+        {/* No numberOfLines: a note is the sender's own words and truncating
+            them mid-sentence loses the part that matters. */}
+        <Text style={styles.noteText}>{note}</Text>
+      </View>
+    </View>
+  );
+}
+
 // ─── StepTracker ──────────────────────────────────────────────────────────────
 // Rows arrive already ordered by src/lib/proposalSteps: completed approvals
 // first, in the sequence they happened, then whatever is still outstanding.
@@ -269,7 +279,7 @@ function StepTracker({ flow }: { flow: ProposalFlow }) {
                   {step.label}
                 </Text>
                 {!!step.sub ? (
-                  <Text style={styles.stepSub}>{step.sub}</Text>
+                  <Text style={styles.stepSub}>{fmtStepTime(step.sub)}</Text>
                 ) : step.state === 'waiting' ? (
                   <Text style={styles.stepSub}>Not started</Text>
                 ) : null}
@@ -349,22 +359,45 @@ const BTN_STYLES: Record<BtnVariant, { bg: string; color: string; border?: strin
   d: { bg: C.indInk,   color: '#fff' },
 };
 
-function ActionButtons({ buttons }: { buttons: [BtnVariant, string, (() => void)?][] }) {
+/**
+ * Optional per-button state.
+ *
+ * `busy` swaps the label for a spinner and blocks the press; `disabled` greys
+ * the button out. Both matter here because accept and decline call the network:
+ * without them the button stayed fully live under the user's finger and a
+ * double-tap sent the request twice.
+ */
+type BtnState = { busy?: boolean; disabled?: boolean };
+
+function ActionButtons({ buttons }: {
+  buttons: [BtnVariant, string, (() => void)?, BtnState?][];
+}) {
   const single = buttons.length === 1;
   return (
     <View style={[styles.acts, single && styles.actsSingle]}>
-      {buttons.map(([variant, label, onPress], i) => {
+      {buttons.map(([variant, label, onPress, state], i) => {
         const s = BTN_STYLES[variant];
+        const busy = !!state?.busy;
+        const inert = busy || !!state?.disabled || !onPress;
         return (
           <Pressable
             key={i}
-            onPress={onPress}
+            onPress={inert ? undefined : onPress}
+            disabled={inert}
             style={({ pressed }) => [
               styles.btn,
               { backgroundColor: s.bg, borderWidth: s.border ? 1.5 : 0, borderColor: s.border ?? 'transparent' },
+              // Only the *other* button dims. A spinner already says the busy
+              // one is working, and dimming it too made the whole row look
+              // dead just as the user was waiting on it.
+              !busy && inert && { opacity: 0.45 },
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
             ]}>
-            <Text style={[styles.btnText, { color: s.color }]}>{label}</Text>
+            {busy ? (
+              <ActivityIndicator size="small" color={s.color} />
+            ) : (
+              <Text style={[styles.btnText, { color: s.color }]}>{label}</Text>
+            )}
           </Pressable>
         );
       })}
@@ -451,7 +484,13 @@ function SentProposalDetail({
     setWithdrawing(true);
     try {
       if (isWaliView) {
-        await withdrawWardProposal(proposal.userId);
+        // Scoped to the ward whose proposal it is; the wali is not the sender.
+        if (!proposal.wardUserId) {
+          setWithdrawing(false);
+          setShowConfirm(false);
+          return;
+        }
+        await withdrawWardProposal(proposal.wardUserId, proposal.userId);
       } else {
         await withdrawProposal(proposal.userId);
       }
@@ -502,6 +541,18 @@ function SentProposalDetail({
         showsVerticalScrollIndicator={false}>
 
         <StepTracker flow={flow} />
+
+        {/* The sender's own words, when they wrote any. Sits directly under
+            the tracker: it is the most human thing on the page and the reason
+            the reader is deciding, not a footnote to the profile grid. */}
+        {proposal.waliNote?.trim() ? (
+          <NoteCard
+            note={proposal.waliNote.trim()}
+            sentByWali={proposal.sentByWali}
+            gender={proposal.gender}
+          />
+        ) : null}
+
 
         <ProfileMiniCard
           who={who}
@@ -557,7 +608,7 @@ function SentProposalDetail({
         transparent
         animationType="fade"
         visible={showConfirm}
-        onRequestClose={() => !withdrawing && setShowConfirm(false)}>
+        onRequestClose={() => { if (!withdrawing) setShowConfirm(false); }}>
         <Pressable
           style={styles.modalOverlay}
           onPress={() => !withdrawing && setShowConfirm(false)}>
@@ -593,12 +644,14 @@ function SentProposalDetail({
 
 // ─── PR7: Received proposal detail ────────────────────────────────────────────
 function ReceivedProposalDetail({
-  proposal, onBack, onAccept, onDecline, isWaliView = false, wardName,
+  proposal, onBack, onViewProfile, onAccept, onDecline, onOpenChat, isWaliView = false, wardName,
 }: {
   proposal: ReceivedProposal;
   onBack: () => void;
-  onAccept?: (userId: string) => void;
-  onDecline?: (userId: string) => void;
+  onViewProfile?: (userId: string, type: 'sent' | 'received', matchId: string | null) => void;
+  onAccept?: (userId: string) => void | Promise<void>;
+  onDecline?: (userId: string) => void | Promise<void>;
+  onOpenChat?: (matchId: string | null) => void;
   /** True when her wali is the one reading it. */
   isWaliView?: boolean;
   wardName?: string;
@@ -607,7 +660,71 @@ function ReceivedProposalDetail({
 
   const who = [proposal.age, proposal.city].filter(Boolean).join(' · ');
   const sub = fmtSect(proposal.sect, proposal.madhhab);
-  const matched = proposal.status === 'matched';
+
+  /**
+   * Which of the two answers is in flight, if either.
+   *
+   * Accept and Decline used to be fire-and-forget: the handler was called and
+   * the caller closed the screen in the same tick, so the user got no sign the
+   * request was running and the screen vanished before it had succeeded — or
+   * failed. Holding the screen open until the promise settles is what lets an
+   * error stay on the screen that caused it.
+   */
+  const [answering, setAnswering] = useState<null | 'accept' | 'decline'>(null);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+
+  // The parent unmounts this screen once the answer lands, so guard the
+  // trailing setState rather than updating a component that is already gone.
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
+
+  const answer = (kind: 'accept' | 'decline', fn?: (userId: string) => void | Promise<void>) =>
+    fn
+      ? () => {
+          if (answering) return;
+          setAnswering(kind);
+          setAnswerError(null);
+          void (async () => {
+            try {
+              await fn(proposal.userId);
+            } catch (e) {
+              if (aliveRef.current) {
+                setAnswerError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+              }
+            } finally {
+              if (aliveRef.current) setAnswering(null);
+            }
+          })();
+        }
+      : undefined;
+
+  /**
+   * Derived from the stage, which the server always sends.
+   *
+   * `status` was the only signal here, and `listInterests` does not return it —
+   * so it was `undefined`, `matched` was always false, and Accept and Decline
+   * rendered at every stage including one already accepted. Tapping Accept then
+   * hit a 403 the server could only refuse.
+   */
+  const matched =
+    proposal.stage === 'ACCEPTED' || proposal.status === 'matched';
+  /** Already resolved, one way or another — nothing left to decide. */
+  const decided =
+    matched ||
+    proposal.stage === 'DECLINED' ||
+    proposal.stage === 'WITHDRAWN';
+  /**
+   * The recipient can see this proposal but cannot answer it yet: it is with her
+   * guardian, and the accept endpoint refuses anything before
+   * HER_DECISION_PENDING. Rendering the buttons would offer an action that
+   * cannot succeed.
+   *
+   * Excludes the wali's own view. HER_WALI_REVIEWING is precisely the stage a
+   * guardian acts at, so hiding the controls from them removed the only way to
+   * approve a proposal — which is what the first version of this did.
+   */
+  const waitingOnHerWali =
+    proposal.stage === 'HER_WALI_REVIEWING' && !isWaliView;
 
   const educ = fmt(EDUCATION_LABELS, proposal.educationLevel);
   const marital = fmt(MARITAL_LABELS, proposal.maritalStatus);
@@ -633,6 +750,17 @@ function ReceivedProposalDetail({
           counterpartGender: proposal.gender,
         })} />
 
+        {/* The sender's own words, when they wrote any. Sits directly under
+            the tracker: it is the most human thing on the page and the reason
+            the reader is deciding, not a footnote to the profile grid. */}
+        {proposal.waliNote?.trim() ? (
+          <NoteCard
+            note={proposal.waliNote.trim()}
+            sentByWali={proposal.sentByWali}
+            gender={proposal.gender}
+          />
+        ) : null}
+
         <Banner
           variant="ind"
           icon={<FamilyIcon color={C.indInk} />}
@@ -652,22 +780,59 @@ function ReceivedProposalDetail({
             ['Height',         height],
             ['Marital status', marital],
             ['Family',         family],
-            ['His wali',       'Father'],
+            // No kinship row. The proposal payload says *whether* the suitor
+            // has a guardian (`suitorHasWali`), never who they are — this line
+            // was the literal 'Father' for every proposal ever shown. The
+            // banner above already states that his wali approved it, which is
+            // the part that is true and the part that matters here.
+
+          ]} />
+          {/* The card shows a handful of fields; this opens the rest. Available
+              at every stage — reading the biodata is not a decision, and the
+              sent view has offered it all along. */}
+          <ActionButtons buttons={[
+            ['o', 'View profile',
+              onViewProfile
+                ? () => onViewProfile(proposal.userId, 'received', proposal.matchId ?? null)
+                : undefined],
           ]} />
         </ProfileMiniCard>
 
         {/* Action card with lock + buttons */}
         <View style={styles.card}>
-          <LockNotice text="Declining is silent. He is told only that it was not taken forward, and he cannot propose to you again for 90 days." />
-          {!matched && (
+          <LockNotice
+            text={
+              matched
+                ? 'You accepted this proposal. The conversation is open.'
+                : proposal.stage === 'DECLINED'
+                  ? 'This proposal was not taken forward.'
+                  : proposal.stage === 'WITHDRAWN'
+                    ? 'This proposal was withdrawn by the other family.'
+                    : waitingOnHerWali
+                      ? 'Your wali is reviewing this proposal. You can accept or decline once they have passed it to you — nothing is decided without you.'
+                      : isWaliView
+                        ? `Approving passes this to ${wardName || 'your ward'}, who decides. Declining is silent — the other family is told only that it was not taken forward.`
+                        : 'Declining is silent. He is told only that it was not taken forward, and he cannot propose to you again for 90 days.'
+            }
+          />
+          {!decided && !waitingOnHerWali && (
             <ActionButtons buttons={[
-              ['g', 'Decline', onDecline ? () => onDecline(proposal.userId) : undefined],
-              ['f', 'Accept',  onAccept  ? () => onAccept(proposal.userId)  : undefined],
+              // The guardian is passing it on, not answering it, so the words
+              // change even though the controls are the same two.
+              ['g', 'Decline', answer('decline', onDecline),
+                { busy: answering === 'decline', disabled: answering === 'accept' }],
+              ['f', isWaliView ? 'Approve' : 'Accept', answer('accept', onAccept),
+                { busy: answering === 'accept', disabled: answering === 'decline' }],
             ]} />
+          )}
+          {!!answerError && (
+            <Text style={styles.answerError}>{answerError}</Text>
           )}
           {matched && (
             <ActionButtons buttons={[
-              ['f', 'Open chat'],
+              // Had no handler at all, so the one button on an accepted
+              // proposal — the whole point of accepting — did nothing.
+              ['f', 'Open chat', onOpenChat ? () => onOpenChat(proposal.matchId) : undefined],
             ]} />
           )}
         </View>
@@ -687,14 +852,16 @@ interface ProposalDetailScreenProps {
   onBack: () => void;
   onWithdrawSuccess?: () => void;
   onViewProfile?: (userId: string, type: 'sent' | 'received', matchId: string | null) => void;
-  onAccept?: (userId: string) => void;
-  onDecline?: (userId: string) => void;
+  onAccept?: (userId: string) => void | Promise<void>;
+  onDecline?: (userId: string) => void | Promise<void>;
+  /** Open the conversation for an accepted proposal. */
+  onOpenChat?: (matchId: string | null) => void;
   isWaliView?: boolean;
   waliIsSender?: boolean;
   wardName?: string;
 }
 
-export function ProposalDetailScreen({ selected, onBack, onWithdrawSuccess, onViewProfile, onAccept, onDecline, isWaliView, waliIsSender, wardName }: ProposalDetailScreenProps) {
+export function ProposalDetailScreen({ selected, onBack, onWithdrawSuccess, onViewProfile, onAccept, onDecline, onOpenChat, isWaliView, waliIsSender, wardName }: ProposalDetailScreenProps) {
   if (selected.type === 'sent') {
     return (
       <SentProposalDetail
@@ -712,8 +879,10 @@ export function ProposalDetailScreen({ selected, onBack, onWithdrawSuccess, onVi
     <ReceivedProposalDetail
       proposal={selected.proposal}
       onBack={onBack}
+      onViewProfile={onViewProfile}
       onAccept={onAccept}
       onDecline={onDecline}
+      onOpenChat={onOpenChat}
       isWaliView={isWaliView}
       wardName={wardName}
     />
@@ -770,6 +939,36 @@ const styles = StyleSheet.create({
   },
 
   // ── Card ────────────────────────────────────────────────────────────────────
+  answerError: {
+    marginTop: 10,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: C.roseInk,
+    textAlign: 'center',
+  },
+  noteCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    marginBottom: 13,
+    overflow: 'hidden',
+    shadowColor: 'rgba(40,30,80,0.055)',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  noteRule: { width: 3, backgroundColor: C.indInk },
+  noteBody: { flex: 1, paddingVertical: 14, paddingHorizontal: 15 },
+  noteFrom: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: C.indInk,
+    marginBottom: 6,
+  },
+  noteText: { fontSize: 14, lineHeight: 21, color: '#3A3550' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 24,

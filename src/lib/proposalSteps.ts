@@ -24,6 +24,20 @@ export type ProposalStage =
   | 'WITHDRAWN';
 
 /**
+ * Stages where the proposal is over — nothing left for anyone to do.
+ *
+ * Note this is broader than the `terminal` field on a built flow, which covers
+ * only the two unhappy endings; ACCEPTED is just as finished, and a badge that
+ * counts it keeps nagging about a proposal the user already answered.
+ *
+ * Shared so the seeker's Proposals badge and the wali's tab badge cannot drift
+ * to different definitions of "needs attention".
+ */
+export function isResolvedStage(stage: ProposalStage): boolean {
+  return stage === 'ACCEPTED' || stage === 'DECLINED' || stage === 'WITHDRAWN';
+}
+
+/**
  * Pronouns for the other party, so the flow can talk about a real person.
  *
  * Every gendered word here used to be hardcoded suitor-as-he /

@@ -50,6 +50,14 @@ export interface PrivacySettings {
   hideDistance?: boolean;
 }
 
+/**
+ * The photo-visibility choices offered to a user, strictest first.
+ *
+ * `OPEN` is a real mode but deliberately not offered here: the server sets it
+ * as the default for men, and there is no screen on which someone opts into
+ * showing their photos to everyone. It is excluded rather than hidden, so
+ * anything reading this list is reading the full set of *choices*.
+ */
 export const PHOTO_PRIVACY_OPTIONS: Array<{
   mode: PhotoVisibilityMode;
   chipLabel: string;
@@ -60,21 +68,37 @@ export const PHOTO_PRIVACY_OPTIONS: Array<{
     mode: 'NOBODY',
     chipLabel: 'Nobody without my approval',
     title: 'Nobody until I approve each request',
-    subtitle: 'You are asked every time. You and he see each other at the same moment.',
+    subtitle:
+      'You are asked every time. You and they see each other at the same moment.',
   },
   {
+    // `viewer.matched` — and a match exists only once a proposal has cleared
+    // both guardians and been accepted in person, so "my wali and I" is what
+    // this rule actually requires, not a paraphrase of it.
+    mode: 'MUTUAL_ACCEPTED',
+    chipLabel: 'After my wali and I both approve',
+    title: 'Anyone my wali and I have both approved',
+    subtitle:
+      'Shared once a proposal has passed your wali and you have accepted it.',
+  },
+  {
+    // `viewer.waliCleared || viewer.matched` — the wali alone can grant this,
+    // which is what makes it wider than the option above.
     mode: 'WALI_APPROVED',
     chipLabel: 'My wali decides',
     title: 'Anyone my wali has approved',
-    subtitle: 'Imran decides on your behalf. You are still told each time.',
-  },
-  {
-    mode: 'MUTUAL_ACCEPTED',
-    chipLabel: 'Mutual proposals only',
-    title: 'Anyone I have accepted a proposal from',
-    subtitle: 'Shared automatically once a proposal is mutual.',
+    subtitle: 'Your wali decides on your behalf. You are still told each time.',
   },
 ];
+
+/**
+ * What the photos step starts on when nothing is stored.
+ *
+ * The strictest option. A default that shares more than the user has chosen is
+ * not a default worth having, and this screen exists precisely to let them widen
+ * it deliberately.
+ */
+export const DEFAULT_PHOTO_PRIVACY: PhotoVisibilityMode = 'NOBODY';
 
 export interface MyProfile {
   id: string;
@@ -93,7 +117,7 @@ export interface MyProfile {
   photos: ProfilePhoto[];
   familyBackground?: FamilyBackground | null;
   religiousProfile?: ReligiousProfile | null;
-  partnerPreference?: { ageMin?: number | null; ageMax?: number | null } | null;
+  partnerPreference?: PartnerPreference | null;
   privacySettings?: PrivacySettings | null;
 }
 
@@ -162,6 +186,16 @@ export function parseDob(dobLabel: string): string {
 }
 
 interface EssentialsPayload {
+  /**
+   * The name the user typed at F8.
+   *
+   * F8 collected and validated it, then dropped it: `updateEssentials` never
+   * sent it, so the account kept the placeholder registration put there — the
+   * local part of the email address. The name looked right for the rest of that
+   * session, because the screen also set it in memory, and came back as
+   * `wowarej751` on the next launch when `getMe` supplied the stored value.
+   */
+  fullName: string;
   gender: Gender;
   dateOfBirth: string; // ISO "YYYY-MM-DD"
   maritalStatus: MaritalStatus;
@@ -172,7 +206,7 @@ interface EssentialsPayload {
   heightCm: number;
 }
 
-/** Save gender, DOB, marital status (F8 — Essentials). */
+/** Save name, gender, DOB, marital status (F8 — Essentials). */
 export async function updateEssentials(data: EssentialsPayload): Promise<void> {
   return apiRequest('/profile/me', {
     method: 'PUT',
@@ -180,11 +214,22 @@ export async function updateEssentials(data: EssentialsPayload): Promise<void> {
   });
 }
 
-/** Update basic identity fields from the Edit Biodata screen (M6). */
+/**
+ * Update basic identity fields from the Edit Biodata screen (M6).
+ *
+ * `PUT /profile/me` is a full replace, not a patch: `gender`, `dateOfBirth`,
+ * `maritalStatus` and `countryCode` are all required, and the endpoint rejects
+ * the request outright if any is missing. This used to send only the four fields
+ * the screen edits — so gender and countryCode were absent and the save could
+ * never have succeeded. Callers pass the stored values for the rest; every
+ * screen that reaches here has already loaded the profile.
+ */
 export async function updateBasicIdentity(data: {
   fullName?: string;
-  dateOfBirth?: string; // ISO "YYYY-MM-DD"
-  maritalStatus?: MaritalStatus;
+  gender: Gender;
+  dateOfBirth: string; // ISO "YYYY-MM-DD"
+  maritalStatus: MaritalStatus;
+  countryCode: string;
   heightCm?: number;
 }): Promise<void> {
   return apiRequest('/profile/me', {
@@ -286,14 +331,59 @@ export async function updatePrompts(data: {
 
 // ─── F13 — Preferences ────────────────────────────────────────────────────────
 
-/** Save age range preferences (F13). */
+export type SectEnumValue = SectEnum;
+export type ReligiosityEnum =
+  | 'VERY_PRACTICING'
+  | 'PRACTICING'
+  | 'MODERATE'
+  | 'CULTURAL';
+export type EducationEnum =
+  | 'HIGH_SCHOOL'
+  | 'DIPLOMA'
+  | 'BACHELORS'
+  | 'MASTERS'
+  | 'DOCTORATE'
+  | 'OTHER';
+
+/**
+ * The stored partner preference, exactly as `GET /profile/me` returns it.
+ *
+ * Every field here is a real column on `PartnerPreference`, and `PUT
+ * /profile/me/preferences` accepts all of them. The client used to model this as
+ * `{ ageMin, ageMax }` and send only those two, so the rest of the preferences
+ * screen lived in memory and was lost on every relaunch — while the server's own
+ * copy stayed at its defaults and kept filtering the feed by them.
+ */
+export interface PartnerPreference {
+  ageMin?: number | null;
+  ageMax?: number | null;
+  heightMinCm?: number | null;
+  heightMaxCm?: number | null;
+  /** ISO-3166 alpha-2. Empty means "anywhere". */
+  countryCodes?: string[];
+  sects?: SectEnum[];
+  minReligiosity?: ReligiosityEnum | null;
+  educationLevels?: EducationEnum[];
+  maritalStatuses?: MaritalStatus[];
+  acceptsChildren?: boolean;
+  willingToRelocatePartner?: boolean;
+  lookingFor?: string | null;
+}
+
+/**
+ * Replace the stored preference set (F13 and the Partner preferences screen).
+ *
+ * Omitted keys keep their stored value server-side, so callers send the whole
+ * set rather than a patch — otherwise clearing a choice back to "any" would be
+ * indistinguishable from not mentioning it. Empty arrays are the way to say
+ * "no constraint", which is what the UI's "Any" chip means.
+ */
 export async function updatePreferences(
-  ageMin: number,
-  ageMax: number,
+  data: PartnerPreference,
 ): Promise<void> {
   return apiRequest('/profile/me/preferences', {
     method: 'PUT',
-    body: JSON.stringify({ ageMin, ageMax }),
+    body: JSON.stringify(data),
   });
 }
 

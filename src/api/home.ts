@@ -21,6 +21,7 @@ export type HomeState =
   | 'PAYMENT_FAILED'
   | 'PROFILE_INCOMPLETE'
   | 'VERIFICATION_NOT_STARTED'
+  | 'WALI_REQUIRED'
   | 'UNDER_REVIEW_UNPAID'
   | 'UNDER_REVIEW_PAID'
   | 'NO_MATCHES_IN_CITY'
@@ -90,6 +91,13 @@ export interface HomeStateResponse {
     isPaid: boolean;
     verification: VerificationSummary;
     hasIncomingPhotoRequest: boolean;
+    /**
+     * Photo requests waiting on this user's own answer.
+     *
+     * Excludes ones their wali decides — the badge means "needs you", and the
+     * server resolves who that is from the owner's photo-visibility mode.
+     */
+    incomingPhotoRequests?: number;
     introduction: {
       counterpartUserId: string | null;
       stage: string;

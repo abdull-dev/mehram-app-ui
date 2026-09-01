@@ -3,7 +3,7 @@
  *
  * Real-time 4-person group chat (2 seekers + 2 walis).
  * Features:
- *  - Live messages via Socket.io
+ *  - Live messages over Supabase Realtime
  *  - Multi-user typing indicator ("Ahmad and Tariq are typing…")
  *  - Per-message read receipts (initials of readers)
  *  - Presence: online dot or "last seen X ago" per participant
@@ -28,12 +28,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import {
-  useChatSocket,
+  useChatRealtime,
   type AnyMessage,
   type ChatMessagePayload,
   type ParticipantPresence,
   type Typer,
-} from '../../hooks/useChatSocket';
+} from '../../hooks/useChatRealtime';
 import { getMessages } from '../../api/chat';
 
 // ─── design tokens ────────────────────────────────────────────────────────────
@@ -64,6 +64,11 @@ export interface ChatThreadScreenProps {
   /** Display title shown in the header */
   chatTitle: string;
   onBack?: () => void;
+  /**
+   * Open the other seeker's profile. Omitted when there is nobody to open —
+   * the button hides rather than rendering a control that does nothing.
+   */
+  onViewProfile?: () => void;
   /** Called immediately when the user sends a message — used for optimistic chat list update */
   onMessageSent?: (text: string) => void;
 }
@@ -329,9 +334,10 @@ export function ChatThreadScreen({
   chatTitle,
   onBack,
   onMessageSent,
+  onViewProfile,
 }: ChatThreadScreenProps) {
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [inputText, setInputText] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
@@ -346,7 +352,11 @@ export function ChatThreadScreen({
     isMe: boolean;
   } | null>(null);
   // Refs to measure bubble positions for popover anchoring
-  const bubbleRefsMap = useRef<Map<string, View | null>>(new Map());
+  // Instance type, not the component type — the same distinction the single
+  // refs above needed.
+  const bubbleRefsMap = useRef<Map<string, React.ComponentRef<typeof View> | null>>(
+    new Map(),
+  );
   // Edit mode — when set, sending PATCHes instead of POSTing a new message
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -363,14 +373,14 @@ export function ChatThreadScreen({
     markSeen,
     prependMessages,
     setInitialMessages,
-  } = useChatSocket(conversationId, myUserId, myDisplayName);
+  } = useChatRealtime(conversationId, myUserId, myDisplayName);
 
   // Show skeleton only on first open when there's no cached data yet.
   const [isLoadingFirst, setIsLoadingFirst] = useState(() => messages.length === 0);
 
   // Pre-load history via HTTP only when cache is empty (first open).
   // On re-open the cache seeds messages instantly — no fetch needed.
-  // The socket's chat:history event always replaces with the authoritative set.
+  // The channel's chat:history event always replaces with the authoritative set.
   useEffect(() => {
     if (!conversationId || messages.length > 0) {
       setIsLoadingFirst(false);
@@ -385,7 +395,7 @@ export function ChatThreadScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]); // intentionally exclude messages — only run on first open
 
-  // Also hide skeleton when socket pushes messages before HTTP returns.
+  // Also hide skeleton when Realtime pushes messages before HTTP returns.
   useEffect(() => {
     if (messages.length > 0) setIsLoadingFirst(false);
   }, [messages.length]);
@@ -509,6 +519,19 @@ export function ChatThreadScreen({
             })()}
           </Text>
         </View>
+
+        {/* The thread names someone the reader may not have decided about yet;
+            their biodata is one tap away rather than back through Proposals. */}
+        {!!onViewProfile && (
+          <Pressable
+            onPress={onViewProfile}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="View profile"
+            style={({ pressed }) => [styles.viewProfileBtn, pressed && { opacity: 0.65 }]}>
+            <Text style={styles.viewProfileText}>View profile</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* ── Participants presence bar ──────────────────────────────────────── */}
@@ -581,7 +604,7 @@ export function ChatThreadScreen({
                           </Pressable>
                         )}
                         <View
-                          ref={el => bubbleRefsMap.current.set(m.id, el)}
+                          ref={el => { bubbleRefsMap.current.set(m.id, el); }}
                           style={[styles.meBubble, isPending && { opacity: 0.75 }, m.deleted && styles.deletedBubble]}
                         >
                           {m.deleted
@@ -610,7 +633,7 @@ export function ChatThreadScreen({
                       style={styles.waliRow}
                     >
                       <View
-                        ref={el => bubbleRefsMap.current.set(m.id, el)}
+                        ref={el => { bubbleRefsMap.current.set(m.id, el); }}
                         style={styles.waliWrap}
                       >
                         <Text style={styles.waliLabel}>{waliLabel(m, myUserId)}</Text>
@@ -647,7 +670,7 @@ export function ChatThreadScreen({
                       style={styles.themWrap}
                     >
                       <View
-                        ref={el => bubbleRefsMap.current.set(m.id, el)}
+                        ref={el => { bubbleRefsMap.current.set(m.id, el); }}
                         style={[styles.themBubble, m.deleted && styles.deletedBubbleLight]}
                       >
                         {m.deleted
@@ -821,6 +844,20 @@ const styles = StyleSheet.create({
     backgroundColor: C.white,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.line,
+  },
+  // Sits at the end of the header row, which is flex with a gap; the title
+  // column above it has flex:1 and gives up the space.
+  viewProfileBtn: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: C.indSoft,
+    flexShrink: 0,
+  },
+  viewProfileText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.indInk,
   },
   backBtn: {
     width: 34, height: 34, borderRadius: 11,
