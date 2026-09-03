@@ -4,7 +4,12 @@
  * forever. The preferences step disables Continue until the stored preference
  * has been read, which is where that showed up.
  */
-import { ApiError, REQUEST_TIMEOUT_MS, apiRequest } from '../src/api/client';
+import {
+  ApiError,
+  PROVIDER_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  apiRequest,
+} from '../src/api/client';
 
 jest.mock('../src/storage/authStorage', () => ({
   getAccessToken: jest.fn().mockResolvedValue('token'),
@@ -88,4 +93,54 @@ it('reports an abort by the caller as an abort, not as a timeout', async () => {
 
   expect(error).not.toBeInstanceOf(ApiError);
   expect((error as Error).name).toBe('AbortError');
+});
+
+/**
+ * `/auth/register` waits on Supabase to mint the identity and hand the code to
+ * SMTP, which measured 12-15s against a distant database — past the default
+ * deadline. Aborting it reported a timeout for a signup the server completed,
+ * leaving an account the user was then told already existed.
+ */
+it('honours a longer deadline for a provider-backed call', async () => {
+  jest.useFakeTimers();
+  fetchMock.mockImplementation(
+    (_url: string, init: { signal: AbortSignal }) =>
+      new Promise((resolve, reject) => {
+        setTimeout(() => resolve(jsonResponse({ status: 'pending_confirmation' })),
+          REQUEST_TIMEOUT_MS + 5000);
+        init.signal.addEventListener('abort', () => {
+          const err = new Error('Aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      }),
+  );
+
+  const pending = apiRequest('/auth/register', {
+    method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
+  });
+  await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 5000);
+  await expect(pending).resolves.toEqual({ status: 'pending_confirmation' });
+});
+
+it('still gives up on a provider-backed call that never answers', async () => {
+  fetchMock.mockImplementation(hangingFetch());
+  jest.useFakeTimers();
+
+  const pending = apiRequest('/auth/register', {
+    method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
+  }).catch((e: unknown) => e);
+  await jest.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS + 100);
+
+  expect((await pending as ApiError).status).toBe(408);
+});
+
+it('does not send the deadline on to fetch as a request option', async () => {
+  fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+
+  await apiRequest('/auth/register', { method: 'POST', timeoutMs: 1000 });
+
+  expect(fetchMock.mock.calls[0][1]).not.toHaveProperty('timeoutMs');
 });

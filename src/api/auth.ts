@@ -9,7 +9,7 @@
  * Wali flow:
  *  - verifyInviteCode(code)   → wali submits 6-character invite code
  */
-import { apiRequest } from './client';
+import { ApiError, apiRequest, PROVIDER_TIMEOUT_MS } from './client';
 import { API_BASE_URL } from './config';
 import { saveTokens, clearTokens } from '../storage/authStorage';
 
@@ -78,6 +78,7 @@ export interface AuthResponse {
 export async function sendOtp(phone: string): Promise<void> {
   return apiRequest('/auth/send-otp', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ phone }),
   });
 }
@@ -92,6 +93,7 @@ export async function verifyOtp(
 ): Promise<AuthResponse> {
   const result = await apiRequest<AuthResponse>('/auth/verify-phone-otp', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ phone, otp }),
   });
   await saveTokens(result.session.accessToken, result.session.refreshToken);
@@ -102,6 +104,7 @@ export async function verifyOtp(
 export async function resendOtp(phone: string): Promise<void> {
   return apiRequest('/auth/resend-otp', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ phone }),
   });
 }
@@ -158,6 +161,7 @@ export async function verifyInviteCode(
 ): Promise<AuthResponse | PendingConfirmation> {
   const result = await apiRequest<AuthResponse | PendingConfirmation>('/auth/parent/redeem', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ inviteCode, ...credentials }),
   });
   if (isPendingConfirmation(result)) return result;
@@ -197,6 +201,7 @@ export interface PendingConfirmation {
 export async function registerUser(payload: RegisterPayload): Promise<PendingConfirmation> {
   return apiRequest<PendingConfirmation>('/auth/register', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify(payload),
   });
 }
@@ -205,6 +210,7 @@ export async function registerUser(payload: RegisterPayload): Promise<PendingCon
 export async function verifyEmailOtp(email: string, otp: string): Promise<AuthResponse> {
   const result = await apiRequest<AuthResponse>('/auth/verify-otp', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ email, otp }),
   });
   await saveTokens(result.session.accessToken, result.session.refreshToken);
@@ -215,6 +221,7 @@ export async function verifyEmailOtp(email: string, otp: string): Promise<AuthRe
 export async function resendEmailOtp(email: string): Promise<void> {
   return apiRequest('/auth/resend-verification', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ email }),
   });
 }
@@ -237,6 +244,24 @@ export async function getPendingStatus(email: string): Promise<{
 }
 
 /**
+ * Whether a `getPendingStatus` rejection actually means "this address has no
+ * unconfirmed signup" — it is confirmed already, or was never registered.
+ *
+ * Only the endpoint's deliberate 400 says that. Every other failure says
+ * nothing about the address at all: offline, a timeout, the per-IP rate limiter
+ * (20/min), a 5xx, an API too old to carry the route. Reading those the same way
+ * meant a backend that was merely unreachable answered every brand-new signup
+ * with "you already have an account. This email is verified" and sent the user
+ * off to sign in to an account that did not exist.
+ *
+ * The web client draws the same line — it renders the verification screen with
+ * unverified defaults for any failure rather than refusing it.
+ */
+export function meansNoPendingSignup(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 400;
+}
+
+/**
  * Correct the email and/or phone on a signup that has not been confirmed yet.
  *
  * Not a re-register: re-registering needs the password, which the client no
@@ -250,6 +275,7 @@ export async function updatePendingContact(payload: {
 }): Promise<PendingConfirmation> {
   return apiRequest<PendingConfirmation>('/auth/pending-contact', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify(payload),
   });
 }
@@ -305,6 +331,7 @@ export async function login(
 export async function forgotPassword(email: string): Promise<void> {
   await apiRequest<void>('/auth/forgot-password', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ email }),
   });
 }
@@ -317,6 +344,7 @@ export async function resetPassword(
 ): Promise<void> {
   await apiRequest<void>('/auth/reset-password', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ email, otp, newPassword }),
   });
 }
@@ -334,6 +362,7 @@ export async function resetPasswordByPhone(
 ): Promise<void> {
   await apiRequest<void>('/auth/reset-password-phone', {
     method: 'POST',
+    timeoutMs: PROVIDER_TIMEOUT_MS,
     body: JSON.stringify({ phone, otp, newPassword }),
   });
 }

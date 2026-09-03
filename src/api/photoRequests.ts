@@ -21,7 +21,11 @@ interface PhotoRequestUser {
 }
 
 /**
- * A pending request I can see: one sent to me, or one sent to my ward.
+ * A request I can see: one sent to me, or one sent to my ward.
+ *
+ * Answered-and-approved rows come back too, so a card that has just been
+ * approved reads APPROVED instead of disappearing. Declined ones do not — a
+ * decline is silent and final.
  *
  * The server resolves who must answer from the owner's photo-visibility mode,
  * so the app never has to re-derive it — and never offers a button the server
@@ -46,6 +50,8 @@ export interface IncomingPhotoRequest {
   photoVisibilityMode: PhotoVisibilityMode;
   waliApprovedAt: string | null;
   ownerApprovedAt: string | null;
+  /** When the last approval landed; null while one is still outstanding. */
+  respondedAt: string | null;
 }
 
 /** A request I sent. */
@@ -75,7 +81,7 @@ export async function requestPhoto(
   });
 }
 
-/** Only PENDING rows: the server does not return ones already answered. */
+/** PENDING and APPROVED rows; a declined request is never returned. */
 export async function getIncomingPhotoRequests(): Promise<IncomingPhotoRequest[]> {
   return apiRequest<IncomingPhotoRequest[]>('/photos/requests/incoming');
 }
@@ -84,8 +90,24 @@ export async function getOutgoingPhotoRequests(): Promise<OutgoingPhotoRequest[]
   return apiRequest<OutgoingPhotoRequest[]>('/photos/requests/outgoing');
 }
 
-export async function approvePhotoRequest(id: string): Promise<void> {
-  await apiRequest<void>(`/photos/requests/${id}/approve`, { method: 'POST' });
+/**
+ * The row as it stands after an approval, so the card can be updated in place.
+ *
+ * Under MUTUAL_ACCEPTED this comes back still PENDING with one stamp in: the
+ * guardian's yes is recorded but photos do not unlock until the ward's follows.
+ */
+export interface PhotoRequestAnswer {
+  id: string;
+  status: PhotoRequestStatus;
+  respondedAt: string | null;
+  waliApprovedAt: string | null;
+  ownerApprovedAt: string | null;
+}
+
+export async function approvePhotoRequest(id: string): Promise<PhotoRequestAnswer> {
+  return apiRequest<PhotoRequestAnswer>(`/photos/requests/${id}/approve`, {
+    method: 'POST',
+  });
 }
 
 /**

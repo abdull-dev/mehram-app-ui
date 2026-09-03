@@ -108,6 +108,24 @@ function buildHeaders(
  */
 export const REQUEST_TIMEOUT_MS = 15000;
 
+/**
+ * The deadline for a call that waits on an outside provider before it can
+ * answer: Supabase minting or re-reading an auth identity, an SMTP hand-off for
+ * a verification email, the SMS gateway taking a code.
+ *
+ * Those endpoints are not slow because the network is; they are slow because
+ * one request is several sequential round trips to services in another region.
+ * `/auth/register` alone measures 12–15s — one Supabase `signUp` plus four
+ * database round trips — so the default deadline was aborting a signup the
+ * server went on to complete, and the user was told the connection had timed
+ * out while their account, and its emailed code, existed. Retrying then hit the
+ * "already registered" wall.
+ *
+ * Applied per call rather than raised for everything: a request that only reads
+ * our own database should still give up quickly.
+ */
+export const PROVIDER_TIMEOUT_MS = 45000;
+
 /** 408, the status the request would have got had anyone answered it. */
 const TIMEOUT_STATUS = 408;
 
@@ -115,9 +133,10 @@ const TIMEOUT_STATUS = 408;
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   // A caller's own signal still has to work: this one replaces it on the
   // request, so forward it rather than swallowing it.
@@ -144,18 +163,30 @@ async function fetchWithTimeout(
   }
 }
 
+/** `RequestInit`, plus the one knob callers here need. */
+export interface ApiRequestInit extends RequestInit {
+  /**
+   * Overrides `REQUEST_TIMEOUT_MS` for this call. Pass
+   * `PROVIDER_TIMEOUT_MS` for anything that waits on Supabase, email or SMS.
+   */
+  timeoutMs?: number;
+}
+
 export async function apiRequest<T = void>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
-  const extraHeaders = options.headers as Record<string, string> | undefined;
+  // Pulled out of the init so it never reaches `fetch` as an unknown option.
+  const { timeoutMs, ...init } = options;
+  const extraHeaders = init.headers as Record<string, string> | undefined;
 
   let token = await getAccessToken();
-  let response = await fetchWithTimeout(url, {
-    ...options,
-    headers: buildHeaders(token, extraHeaders),
-  });
+  let response = await fetchWithTimeout(
+    url,
+    { ...init, headers: buildHeaders(token, extraHeaders) },
+    timeoutMs,
+  );
 
   // 401 → attempt one silent refresh then retry.
   if (response.status === 401) {
@@ -164,10 +195,11 @@ export async function apiRequest<T = void>(
       throw new ApiError(401, { message: 'Session expired. Please sign in again.' });
     }
     token = newToken;
-    response = await fetchWithTimeout(url, {
-      ...options,
-      headers: buildHeaders(token, extraHeaders),
-    });
+    response = await fetchWithTimeout(
+      url,
+      { ...init, headers: buildHeaders(token, extraHeaders) },
+      timeoutMs,
+    );
   }
 
   if (response.status === 204) {

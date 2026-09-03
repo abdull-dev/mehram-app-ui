@@ -20,6 +20,7 @@ import {
   resendEmailOtp,
   updatePendingContact,
   getPendingStatus,
+  meansNoPendingSignup,
 } from './src/api/auth';
 import {
   submitFaceVerification,
@@ -1869,11 +1870,18 @@ export default function App({ initialScreen }: { initialScreen?: Screen } = {}) 
         }
         settle();
       })
-      .catch(() => {
-        // 400 here means the signup is already confirmed — a fully signed-in
-        // account revisiting this screen. /auth/me is the right source then.
+      .catch((err: unknown) => {
         if (cancelled) return;
-        seedFromSession();
+        // A 400 is the endpoint saying there is no unconfirmed signup for this
+        // address — confirmed already, so /auth/me is the right source from
+        // here. Any other failure says nothing about the address, and must
+        // leave the screen alone rather than accuse the user of owning an
+        // account (see `meansNoPendingSignup`).
+        if (meansNoPendingSignup(err)) {
+          seedFromSession();
+          return;
+        }
+        settle();
       });
 
     function seedFromSession() {

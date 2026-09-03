@@ -36,6 +36,7 @@ import {
   getOutgoingPhotoRequests,
   type IncomingPhotoRequest,
   type OutgoingPhotoRequest,
+  type PhotoRequestAnswer,
   type PhotoRequestStatus,
 } from '../../api/photoRequests';
 import { Bone } from '../../components/ui/Skeleton';
@@ -94,6 +95,42 @@ function fmtAsked(iso: string, verb: 'Asked' | 'Requested'): string {
 }
 
 /**
+ * Fold an approval back into the card that produced it.
+ *
+ * The row stays in the list, so what changes is its status and whose answer is
+ * still outstanding. Under MUTUAL_ACCEPTED one yes leaves the request PENDING,
+ * and the approval left is always the *other* party's: the server refuses an
+ * approval out of turn, so whoever just answered can never be next.
+ */
+function applyAnswer(
+  r: IncomingPhotoRequest,
+  answered: PhotoRequestAnswer,
+): IncomingPhotoRequest {
+  const settled = answered.status === 'APPROVED';
+  return {
+    ...r,
+    status: answered.status,
+    respondedAt: answered.respondedAt,
+    waliApprovedAt: answered.waliApprovedAt,
+    ownerApprovedAt: answered.ownerApprovedAt,
+    waitingOn: settled ? null : r.viewerRole === 'wali' ? 'owner' : 'wali',
+    canAnswer: false,
+  };
+}
+
+/** The chip a received card wears, once its status is allowed to change. */
+function receivedChip(r: IncomingPhotoRequest): { variant: ChipVariant; label: string } {
+  if (r.status === 'APPROVED') {
+    return { variant: 'mint', label: r.viewerRole === 'wali' ? 'Approved' : 'Photos shared' };
+  }
+  if (r.canAnswer) return { variant: 'rose', label: 'Needs your answer' };
+  return {
+    variant: 'gold',
+    label: r.waitingOn === 'wali' ? 'With your wali' : 'With them',
+  };
+}
+
+/**
  * Why this request is where it is, in the reader's terms.
  *
  * The mode decides who answers, so the copy has to name that rather than
@@ -102,6 +139,19 @@ function fmtAsked(iso: string, verb: 'Asked' | 'Requested'): string {
  */
 function explain(r: IncomingPhotoRequest): string {
   const ward = r.ownerUser.fullName?.split(' ')[0] ?? 'your ward';
+  const asker = r.fromUser.fullName?.split(' ')[0] ?? 'They';
+
+  if (r.status === 'APPROVED') {
+    return r.viewerRole === 'wali'
+      ? `Approved. ${asker} and ${ward} can see each other's photos now, and you can withdraw it for ${ward} at any time.`
+      : `Shared. ${asker} can see your photos now, and you can withdraw that at any time in Privacy and photos.`;
+  }
+
+  // Half-answered: your stamp is in, and the request is waiting on the other
+  // party. Saying so is the point of keeping the card here.
+  if (r.viewerRole === 'wali' && r.waliApprovedAt) {
+    return `You approved this for ${ward}. Nothing is shared until ${ward} answers it themselves.`;
+  }
 
   if (r.viewerRole === 'wali') {
     return r.canAnswer
@@ -191,14 +241,30 @@ export function PhotoRequestsScreen({ onBack, onOpenPrivacy }: PhotoRequestsScre
 
   useEffect(() => { load(); }, [load]);
 
-  const answer = (id: string, run: (id: string) => Promise<void>) => async () => {
+  const approve = (id: string) => async () => {
     if (answering) return;
     setAnswering(id);
     setError(null);
     try {
-      await run(id);
-      // Both answers remove the row from the incoming queue, which only ever
-      // returns PENDING — so drop it here rather than refetching the list.
+      const answered = await approvePhotoRequest(id);
+      // The card stays: an approval is something the reader should see land on
+      // the request they answered, not a row that vanishes under their thumb.
+      setReceived(prev => prev.map(r => (r.id === id ? applyAnswer(r, answered) : r)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save your answer. Please try again.');
+    } finally {
+      setAnswering(null);
+    }
+  };
+
+  const decline = (id: string) => async () => {
+    if (answering) return;
+    setAnswering(id);
+    setError(null);
+    try {
+      await declinePhotoRequest(id);
+      // A decline is silent and final, and the server drops it from the queue
+      // — so the row goes with it rather than sitting here as a refusal.
       setReceived(prev => prev.filter(r => r.id !== id));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save your answer. Please try again.');
@@ -320,25 +386,21 @@ export function PhotoRequestsScreen({ onBack, onOpenPrivacy }: PhotoRequestsScre
                     )}
                     <Text style={styles.meta}>{fmtAsked(r.requestedAt, 'Requested')}</Text>
                   </View>
-                  <Chip
-                    variant={r.canAnswer ? 'rose' : 'gold'}
-                    label={
-                      r.canAnswer
-                        ? 'Needs your answer'
-                        : r.waitingOn === 'wali'
-                          ? 'With your wali'
-                          : 'With them'
-                    }
-                  />
+                  <Chip {...receivedChip(r)} />
                 </View>
 
                 <Text style={styles.note}>{explain(r)}</Text>
 
-                {r.canAnswer ? (
+                {r.status !== 'PENDING' ? (
+                  /* Answered. The card stays as the record of it, and there is
+                     nothing left to press — an approved request cannot be
+                     declined afterwards; withdrawing is done in Privacy. */
+                  null
+                ) : r.canAnswer ? (
                   <View style={styles.acts}>
                     <Pressable
                       disabled={busy}
-                      onPress={answer(r.id, declinePhotoRequest)}
+                      onPress={decline(r.id)}
                       style={({ pressed }) => [
                         styles.btn, styles.btnGhost,
                         pressed && { opacity: 0.85 }, busy && { opacity: 0.5 },
@@ -347,7 +409,7 @@ export function PhotoRequestsScreen({ onBack, onOpenPrivacy }: PhotoRequestsScre
                     </Pressable>
                     <Pressable
                       disabled={busy}
-                      onPress={answer(r.id, approvePhotoRequest)}
+                      onPress={approve(r.id)}
                       style={({ pressed }) => [
                         styles.btn, styles.btnPrimary,
                         pressed && { opacity: 0.9 },
@@ -367,7 +429,7 @@ export function PhotoRequestsScreen({ onBack, onOpenPrivacy }: PhotoRequestsScre
                      the order puts them second. */
                   <Pressable
                     disabled={busy}
-                    onPress={answer(r.id, declinePhotoRequest)}
+                    onPress={decline(r.id)}
                     style={({ pressed }) => [
                       styles.btn, styles.btnGhost,
                       pressed && { opacity: 0.85 }, busy && { opacity: 0.5 },
