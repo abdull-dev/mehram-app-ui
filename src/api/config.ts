@@ -8,26 +8,78 @@
  * The split is on `__DEV__` — true in a Metro/dev bundle, false in a release
  * bundle — so nothing needs editing by hand before shipping.
  */
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
 /** Hosted API. Cleartext HTTP, whitelisted in network_security_config.xml. */
 const HOSTED_ORIGIN = 'http://13.233.88.125';
 
 /**
- * The dev machine, as seen from the device.
+ * The port the dev backend listens on.
  *
- * The machine's LAN address rather than the 10.0.2.2 alias: 10.0.2.2 only
- * exists inside an Android emulator, so a real handset cannot reach it and
- * every request fails with "Network request failed". The emulator can reach the
- * LAN address too, so one value serves both.
+ * 3001, not the 3000 in this repo's `.env`, and matching what the web app is
+ * pointed at.
  *
- * Update it if the router hands this machine a different address, and keep the
- * device on the same Wi-Fi. The iOS simulator shares the host's loopback.
+ * Another checkout of the backend holds 3000 on this machine, and it runs
+ * against a different Supabase project — so the default would send signups to
+ * the wrong database and print the OTP in the wrong terminal. That checkout is
+ * also older than both clients: it has no `pending-status`, no `pending-contact`
+ * and no `resend-verification`, all of which this app calls, and it hardcodes
+ * the phone OTP to `000000`.
+ *
+ * Change it back if 3000 is freed, and move the web's `API_ORIGIN` with it —
+ * the two have to agree or a signup started in one is invisible to the other.
  */
-const DEV_HOST = '192.168.1.3:3000';
+const DEV_PORT = 3001;
 
+/** The Android emulator's alias for the machine it runs on. */
+const EMULATOR_HOST_ALIAS = '10.0.2.2';
+
+/**
+ * Where the dev machine is, as seen from an Android device.
+ *
+ * Taken from the address the JS bundle itself arrived from rather than written
+ * down here. A hardcoded LAN address is only correct until DHCP renews the
+ * lease: when this machine moved from .3 to .7 every request left the device
+ * for an address with nothing on it, and since a SYN into an empty address is
+ * never answered nor refused, each one hung for the client's full deadline and
+ * then reported a timeout. Metro's own host cannot go stale that way — if the
+ * bundle loaded, that address reaches this machine.
+ *
+ * Two shapes come back. A bundle served over Wi-Fi gives the machine's LAN
+ * address, which is what a real handset needs. A bundle served through
+ * `adb reverse` (how `react-native run-android` wires up an emulator) gives
+ * loopback, which on the device means the device itself — so that case falls
+ * back to the emulator's alias for its host. A physical handset therefore wants
+ * to be on the same Wi-Fi as this machine; over USB alone it has no route to
+ * the API.
+ */
+function androidDevHost(): string {
+  // `getConstants()`, not a `scriptURL` property. Under the New Architecture
+  // `NativeModules` is `global.nativeModuleProxy`, and only the legacy bridge's
+  // `genModule` flattened a module's constants onto it (`Object.assign(module,
+  // constants)`). Bridgeless never runs that, and `SourceCode`'s TurboModule
+  // spec declares nothing but `getConstants`, so reading `.scriptURL` straight
+  // off the module was always `undefined` — which sent every physical handset
+  // into the emulator-alias fallback below and every request to an address it
+  // has no route to. `getConstants()` is present on both paths.
+  const scriptUrl: unknown =
+    NativeModules?.SourceCode?.getConstants?.().scriptURL;
+  const bundleHost =
+    typeof scriptUrl === 'string'
+      ? /^[a-z]+:\/\/([^/:]+)/i.exec(scriptUrl)?.[1]
+      : undefined;
+
+  if (!bundleHost || bundleHost === 'localhost' || bundleHost === '127.0.0.1') {
+    return EMULATOR_HOST_ALIAS;
+  }
+  return bundleHost;
+}
+
+/** The iOS simulator shares the host's loopback, so it needs none of that. */
 const DEV_ORIGIN =
-  Platform.OS === 'android' ? `http://${DEV_HOST}` : 'http://localhost:3000';
+  Platform.OS === 'android'
+    ? `http://${androidDevHost()}:${DEV_PORT}`
+    : `http://localhost:${DEV_PORT}`;
 
 /**
  * The web build talks to its own origin and lets the host proxy `/v1` and
