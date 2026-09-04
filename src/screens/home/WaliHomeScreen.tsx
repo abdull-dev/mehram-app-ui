@@ -187,6 +187,7 @@ import { ProposalDetailScreen, type ProposalDetailSelection } from './ProposalDe
 import { AdjustFiltersScreen, type FilterValues } from './AdjustFiltersScreen';
 import {
   EDUCATION_LABELS,
+  FAMILY_TYPE_LABELS,
   MARITAL_LABELS,
   RELIGIOSITY_LABELS,
   SECT_LABELS,
@@ -492,7 +493,7 @@ function WardIntroCard({
     { label: 'Profession',     value: intro.occupation ?? '—' },
     { label: 'Height',         value: height ?? '—' },
     { label: 'Marital status', value: marital },
-    { label: 'Family',         value: intro.familyType },
+    { label: 'Family',         value: labelFor(FAMILY_TYPE_LABELS, intro.familyType) },
   ].filter(r => r.value != null && r.value !== '') as { label: string; value: string }[];
 
   return (

@@ -553,6 +553,8 @@ export function HomeScreen({
           verificationPending={verificationPending}
           verificationPartial={verificationPartial}
           onStartVerification={onStartVerification}
+          onImproveBiodata={onImproveBiodata}
+          onReviewPreferences={onReviewPreferences}
         />
         {filterOverlay}
         {bellOverlay}

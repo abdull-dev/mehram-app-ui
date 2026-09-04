@@ -101,7 +101,17 @@ export const PREFERENCE_DEFAULTS: PreferenceValues = {
   ageMax: 34,
   heightMinCm: null,
   heightMaxCm: null,
-  cities: ['Lahore'],
+  /*
+   * Empty, not Lahore.
+   *
+   * This was `['Lahore']` back when cities went nowhere — a decorative
+   * preselection on a control the server never saw. `preferredCities` is a hard
+   * filter now, so that same default would quietly restrict a woman in Karachi
+   * who never opened the picker to introductions from a city she has no
+   * connection to. Empty means any city, which is the only safe thing to filter
+   * by on somebody's behalf.
+   */
+  cities: [],
   includeOverseas: false,
   sects: ['Any'],
   minReligiosity: 'Any',
@@ -208,14 +218,28 @@ function toLabels<T extends string>(
 }
 
 /**
+ * A picker row as the city name the server stores.
+ *
+ * The overseas rows read "London (United Kingdom)" so one list can hold two
+ * Birminghams without either looking like a mistake. That parenthesis is for
+ * the eye only — `Profile.city` holds "London" — so it comes off at the
+ * boundary, or every overseas city would be saved as a filter matching nobody.
+ */
+export function cityNameForApi(row: string): string {
+  return row.replace(/\s*\([^()]*\)\s*$/, '').trim();
+}
+
+/**
  * The form's values as the preferences endpoint wants them.
  *
  * Nulls are sent deliberately, not omitted: an omitted key keeps whatever the
  * server already has, so clearing a height range back to "no preference" has to
- * say so explicitly.
+ * say so explicitly. The same goes for an empty `preferredCities`: it is how
+ * "any city" is said, and omitting it would leave yesterday's cities filtering.
  *
- * `cities` and `includeOverseas` are absent because `PartnerPreference` has no
- * city field — only `countryCodes` — so those two cannot be persisted at all.
+ * `includeOverseas` is still absent. It is the one field with nowhere to go —
+ * it would have to become `countryCodes`, and the app has no country shortlist
+ * to turn a switch into.
  */
 export function preferencesToApi(values: PreferenceValues): PartnerPreference {
   return {
@@ -223,6 +247,7 @@ export function preferencesToApi(values: PreferenceValues): PartnerPreference {
     ageMax: values.ageMax,
     heightMinCm: values.heightMinCm,
     heightMaxCm: values.heightMaxCm,
+    preferredCities: values.cities.map(cityNameForApi).filter(Boolean),
     sects: toEnums(values.sects, SECT_TO_API),
     minReligiosity: RELIGIOSITY_TO_API[values.minReligiosity] ?? null,
     educationLevels: toEnums(values.educationLevels, EDUCATION_TO_API),
@@ -242,6 +267,10 @@ export function preferencesFromApi(
     ...(pref.heightMinCm != null && pref.heightMaxCm != null
       ? { heightMinCm: pref.heightMinCm, heightMaxCm: pref.heightMaxCm }
       : { heightMinCm: null, heightMaxCm: null }),
+    // Whatever is stored, including nothing: an empty list is "any city" and
+    // has to win over the defaults, or clearing the picker would not survive
+    // reopening the screen.
+    cities: pref.preferredCities ?? [],
     sects: toLabels(pref.sects, SECT_FROM_API),
     minReligiosity: pref.minReligiosity
       ? RELIGIOSITY_FROM_API[pref.minReligiosity] ?? 'Any'

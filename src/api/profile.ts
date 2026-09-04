@@ -273,12 +273,16 @@ export type FamilyTypeEnum = 'NUCLEAR' | 'JOINT';
 const FAMILY_TYPE_MAP: Record<string, FamilyTypeEnum> = {
   // What F11 offers.
   'Joint family': 'JOINT',
-  'Nuclear family': 'NUCLEAR',
+  'Separate family': 'NUCLEAR',
   // Older labels, in case one is still held in a screen's state or a draft.
+  // "Nuclear family" was renamed to "Separate family" — the wording families
+  // here use — and still saves as NUCLEAR, so drafts holding it are unchanged.
   // "Extended" was dropped: Pakistani families call that arrangement joint, and
   // it had no FamilyType of its own to be saved as anyway.
+  'Nuclear family': 'NUCLEAR',
   Joint: 'JOINT',
   Nuclear: 'NUCLEAR',
+  Separate: 'NUCLEAR',
   Extended: 'JOINT',
   // Already an enum value — the profile endpoint returns these.
   JOINT: 'JOINT',
@@ -368,6 +372,11 @@ export interface PartnerPreference {
   heightMaxCm?: number | null;
   /** ISO-3166 alpha-2. Empty means "anywhere". */
   countryCodes?: string[];
+  /**
+   * City names, matched case-insensitively against a profile's own city. Empty
+   * means any city; the countries above widen it rather than narrowing it.
+   */
+  preferredCities?: string[];
   sects?: SectEnum[];
   minReligiosity?: ReligiosityEnum | null;
   educationLevels?: EducationEnum[];

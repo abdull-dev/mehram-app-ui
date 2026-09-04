@@ -76,6 +76,7 @@ import { formatHeight } from '../../utils/height';
 import { Bone, DarkBone } from '../ui/Skeleton';
 import {
   EDUCATION_LABELS,
+  FAMILY_TYPE_LABELS,
   MADHHAB_LABELS,
   MARITAL_LABELS,
   RELIGIOSITY_LABELS,
@@ -731,7 +732,8 @@ export function IntroductionAvailableBlock({
                   rows.push({ label: 'Profession', value: profile.occupation ?? '—' });
                   rows.push({ label: 'Height', value: formatHeight(profile.heightCm) ?? '—' });
                   if (mar) rows.push({ label: 'Marital status', value: mar });
-                  if (profile.familyType) rows.push({ label: 'Family', value: profile.familyType });
+                  const familyLabel = labelFor(FAMILY_TYPE_LABELS, profile.familyType);
+                  if (familyLabel) rows.push({ label: 'Family', value: familyLabel });
                   return rows.map((r, i) => (
                     <ProfileRow key={r.label} first={i === 0} label={r.label} value={r.value} />
                   ));

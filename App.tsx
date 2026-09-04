@@ -2885,8 +2885,11 @@ export default function App({ initialScreen }: { initialScreen?: Screen } = {}) 
       case 'F13': {
         // Only the city is seeded here. Everything else the form shows is read
         // from the stored preference by the screen itself, so a relaunch cannot
-        // show one thing while the server filters by another. `cities` has no
-        // column on `PartnerPreference`, which is why it still travels as state.
+        // show one thing while the server filters by another.
+        //
+        // The seed is a suggestion the user can see and untick, not a silent
+        // one: `preferredCities` is a hard filter, so the city they just gave
+        // is the only city it is honest to preselect on their behalf.
         const prefSeed: Partial<PreferenceValues> = {};
         if (obCity) { prefSeed.cities = [obCity]; }
         return (
@@ -2906,9 +2909,10 @@ export default function App({ initialScreen }: { initialScreen?: Screen } = {}) 
               );
               setPreferenceFilters(values);
               setAppliedFilters(undefined);
-              // The whole set goes to the server. Cities and "include
-              // overseas" are the exception: `PartnerPreference` has no city
-              // column, so those two stay in app state.
+              // The whole set goes to the server, cities included. "Include
+              // overseas" is the exception: it would have to become
+              // `countryCodes` and there is no country shortlist here to turn a
+              // switch into, so it stays in app state.
               saveThenAdvance(() => updatePreferences(preferencesToApi(values)), 'F14');
             }}
             continueLoading={continueBusy}

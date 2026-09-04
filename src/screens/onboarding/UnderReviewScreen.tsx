@@ -105,6 +105,17 @@ interface UnderReviewScreenProps {
   onGoHome?: () => void;
   /** Take the user to the verification step when nothing has been submitted. */
   onStartVerification?: () => void;
+  /**
+   * The two actionable rows of "While you wait".
+   *
+   * `WhileYouWaitCard` only wraps a row in a `Pressable` when it is handed a
+   * handler, so leaving these out rendered both rows as plain views — chevron
+   * drawn, nothing to tap. The unpaid block next door always passed them; this
+   * screen did not, so the same two rows were live before payment and dead
+   * after it.
+   */
+  onImproveBiodata?: () => void;
+  onReviewPreferences?: () => void;
 }
 
 export function UnderReviewScreen({
@@ -112,6 +123,8 @@ export function UnderReviewScreen({
   verificationPending = true,
   verificationPartial = false,
   onStartVerification,
+  onImproveBiodata,
+  onReviewPreferences,
 }: UnderReviewScreenProps) {
   const insets = useSafeAreaInsets();
 
@@ -239,7 +252,11 @@ export function UnderReviewScreen({
         </View>
 
         {/* ── While you wait ────────────────────────────────────────────── */}
-        <WhileYouWaitCard doneCount={3} />
+        <WhileYouWaitCard
+          doneCount={3}
+          onImproveBiodata={onImproveBiodata}
+          onReviewPreferences={onReviewPreferences}
+        />
 
         {/* ── Daily Dua ─────────────────────────────────────────────────── */}
         <DailyDuaCard index={1} />

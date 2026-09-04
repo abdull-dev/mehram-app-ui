@@ -121,10 +121,15 @@ export const EMPLOYMENT_LABELS: Labels = {
  * `FamilyType`. The enum has these two members and no more, which is why F11
  * offers exactly these two chips — an "Extended" option there was saved as
  * JOINT and came back as "Joint family".
+ *
+ * NUCLEAR reads as "Separate family": that is the word Pakistani families use
+ * for a household of parents and unmarried children, where "nuclear" is a
+ * sociology term few would pick themselves. Only the label changed — the enum
+ * value the server stores is still NUCLEAR.
  */
 export const FAMILY_TYPE_LABELS: Labels = {
   JOINT: 'Joint family',
-  NUCLEAR: 'Nuclear family',
+  NUCLEAR: 'Separate family',
 };
 
 /** `Gender`. */

@@ -20,7 +20,7 @@ describe('family type round trip', () => {
   it('saves each offered option as a distinct enum value', () => {
     const saved = OFFERED.map(toFamilyType);
     expect(saved).toEqual(['JOINT', 'NUCLEAR']);
-    expect(OFFERED).toEqual(['Joint family', 'Nuclear family']);
+    expect(OFFERED).toEqual(['Joint family', 'Separate family']);
     // Distinct is the point: two chips that save the same value are two ways of
     // saying one thing, and one of them loses.
     expect(new Set(saved).size).toBe(OFFERED.length);
@@ -47,6 +47,9 @@ describe('toFamilyType', () => {
   it('still understands the labels the screen used to send', () => {
     expect(toFamilyType('Joint')).toBe('JOINT');
     expect(toFamilyType('Nuclear')).toBe('NUCLEAR');
+    expect(toFamilyType('Separate')).toBe('NUCLEAR');
+    // The chip these two words named before it was renamed "Separate family".
+    expect(toFamilyType('Nuclear family')).toBe('NUCLEAR');
     // Pakistani families call this joint, and it was stored as JOINT already.
     expect(toFamilyType('Extended')).toBe('JOINT');
   });

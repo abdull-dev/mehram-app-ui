@@ -54,6 +54,7 @@ import { formatHeight } from '../../utils/height';
 import {
   EDUCATION_LABELS,
   EMPLOYMENT_LABELS,
+  FAMILY_TYPE_LABELS,
   FIELD_OF_STUDY_LABELS,
   GENDER_LABELS,
   MADHHAB_LABELS,
@@ -916,7 +917,7 @@ export function ProfileDetailScreen({
         {/* ── Family card ──────────────────────────────────────────────── */}
         {(() => {
           const rows = [
-            { label: 'Family type', value: resolvedProfile.familyType ?? null },
+            { label: 'Family type', value: fmt(FAMILY_TYPE_LABELS, resolvedProfile.familyType) },
             { label: 'Housing', value: resolvedProfile.housingStatus ?? null },
             { label: 'After marriage', value: resolvedProfile.livingArrangement ?? null },
             { label: 'Siblings', value: resolvedProfile.siblingsSummary ?? null },

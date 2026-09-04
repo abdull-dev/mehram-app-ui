@@ -30,7 +30,7 @@
  *   │  [Yes ✓]  [No]                  │
  *   │                                 │
  *   │  FAMILY TYPE                    │
- *   │  [Joint family ✓] [Nuclear…]    │
+ *   │  [Joint family ✓] [Separate…]   │
  *   ├─────────────────────────────────┤
  *   │  [        Continue        ]     │
  *   └─────────────────────────────────┘
@@ -106,19 +106,23 @@ const MARRIAGE_OPTIONS     = ['Joint family', 'Separate home', 'Not decided'];
  * saved: the server's FamilyType is NUCLEAR or JOINT, so "Extended" was stored
  * as JOINT and the chip silently moved to "Joint" when the form was reopened.
  *
+ * "Separate family" is that second chip, and it is the word families here use;
+ * "nuclear" is the same sociology register as "extended". The chip is a label
+ * only — it still saves as NUCLEAR, so nothing already stored changes meaning.
+ *
  * Joint leads because it is the more common arrangement here, matching the
  * default of "After marriage" directly above.
  */
-export const FAMILY_TYPE_OPTIONS = ['Joint family', 'Nuclear family'];
+export const FAMILY_TYPE_OPTIONS = ['Joint family', 'Separate family'];
 
 const FAMILY_TYPE_HINT =
   'Joint — parents, brothers and their families in one household. ' +
-  'Nuclear — parents and unmarried children only.';
+  'Separate — parents and unmarried children only.';
 
 /** Which chip a saved FamilyType corresponds to. */
 const FAMILY_TYPE_FROM_API: Record<string, string> = {
   JOINT: 'Joint family',
-  NUCLEAR: 'Nuclear family',
+  NUCLEAR: 'Separate family',
 };
 
 // ─── component ────────────────────────────────────────────────────────────────
